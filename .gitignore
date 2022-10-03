@@ -76,6 +76,8 @@ fabtests/functional/fi_*
 fabtests/unit/fi_*
 fabtests/multinode/fi_*
 fabtests/prov/efa/src/fi_efa*
+fabtests/common/check_hmem
+fabtests/regression/sighandler_test
 pingpong/fi_*
 
 fabtests/pytest/__pycache__
