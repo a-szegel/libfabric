@@ -180,7 +180,7 @@ struct rxr_op_entry {
 	struct dlist_entry rx_pending_entry;
 #endif
 
-	size_t efa_outstanding_tx_ops; 
+	size_t efa_outstanding_tx_ops;
 	size_t shm_outstanding_tx_ops;
 
 	/*

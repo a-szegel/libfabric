@@ -403,10 +403,9 @@ ssize_t rxr_rma_post_write(struct rxr_ep *ep, struct rxr_tx_entry *tx_entry)
 	ssize_t err;
 	struct rdm_peer *peer;
 	bool delivery_complete_requested;
-	int ctrl_type;
-	size_t max_eager_rtw_data_size;
+	int ctrl_type, iface;
 	struct efa_domain *efa_domain;
-       
+
 	efa_domain = rxr_ep_domain(ep);
 
 	peer = rxr_ep_get_peer(ep, tx_entry->addr);
@@ -440,53 +439,19 @@ ssize_t rxr_rma_post_write(struct rxr_ep *ep, struct rxr_tx_entry *tx_entry)
 			return -FI_EAGAIN;
 		else if (!rxr_peer_support_delivery_complete(peer))
 			return -FI_EOPNOTSUPP;
-
-		max_eager_rtw_data_size = rxr_tx_entry_max_req_data_capacity(ep, tx_entry, RXR_DC_EAGER_RTW_PKT);
-	} else {
-		max_eager_rtw_data_size = rxr_tx_entry_max_req_data_capacity(ep, tx_entry, RXR_EAGER_RTW_PKT);
 	}
 
 	/* Inter instance */
 
-	/*
-	 * Force the LONGREAD protocol for synapseai buffers, regardless of what
-	 * is specified by the user for protocol switch over points.
-	 */
-	if (efa_mr_is_synapseai(tx_entry->desc[0])) {
-		err = rxr_ep_determine_rdma_support(ep, tx_entry->addr, peer);
+	iface = tx_entry->desc[0] ? ((struct efa_mr*) tx_entry->desc[0])->peer.iface : FI_HMEM_SYSTEM;
 
-		if (err < 0)
-			return err;
-
-		if (err != 1)
-			return -FI_EOPNOTSUPP;
-
-		err = rxr_pkt_post_req(ep, tx_entry, RXR_LONGREAD_RTW_PKT, 0, 0);
-		return err;
-	}
-
-	if (tx_entry->total_len <= max_eager_rtw_data_size) {
-		ctrl_type = delivery_complete_requested ?
-			RXR_DC_EAGER_RTW_PKT : RXR_EAGER_RTW_PKT;
+	if (tx_entry->total_len <= efa_domain->hmem_info[iface].max_eager_msg_size) {
+		ctrl_type = delivery_complete_requested ? RXR_DC_EAGER_RTW_PKT : RXR_EAGER_RTW_PKT;
 		return rxr_pkt_post_req(ep, tx_entry, ctrl_type, 0, 0);
 	}
 
-	/* See rxr_msg_post_rtm() */
-	if (efa_mr_is_neuron(tx_entry->desc[0])) {
-		err = rxr_ep_determine_rdma_support(ep, tx_entry->addr, peer);
-
-		if (err < 0)
-			return err;
-
-		if (err != 1)
-			return -FI_EOPNOTSUPP;
-
-		err = rxr_pkt_post_req(ep, tx_entry, RXR_LONGREAD_RTW_PKT, 0, 0);
-		return err;
-	}
-
-	if (tx_entry->total_len >= rxr_env.efa_min_read_write_size &&
-	    efa_both_support_rdma_read(ep, peer) &&
+	if (rxr_ep_determine_rdma_support(ep, tx_entry->addr, peer) &&
+	    tx_entry->total_len >= efa_domain->hmem_info[iface].min_read_msg_size &&
 	    (tx_entry->desc[0] || efa_is_cache_available(efa_domain))) {
 		err = rxr_pkt_post_req(ep, tx_entry, RXR_LONGREAD_RTW_PKT, 0, 0);
 		if (err != -FI_ENOMEM)
@@ -495,10 +460,9 @@ ssize_t rxr_rma_post_write(struct rxr_ep *ep, struct rxr_tx_entry *tx_entry)
 		 * If read write protocol failed due to memory registration, fall back to use long
 		 * message protocol
 		 */
-	}
+		}
 
-	ctrl_type = delivery_complete_requested ?
-		RXR_DC_LONGCTS_RTW_PKT : RXR_LONGCTS_RTW_PKT;
+	ctrl_type = delivery_complete_requested ? RXR_DC_LONGCTS_RTW_PKT : RXR_LONGCTS_RTW_PKT;
 	return rxr_pkt_post_req(ep, tx_entry, ctrl_type, 0, 0);
 }
 

@@ -64,6 +64,7 @@ struct rxr_env {
 	size_t shm_cq_read_size;
 	size_t efa_max_medium_msg_size;
 	size_t efa_max_gdrcopy_msg_size;
+	size_t efa_max_eager_msg_size;
 	size_t efa_min_read_msg_size;
 	size_t efa_min_read_write_size;
 	size_t efa_read_segment_size;
@@ -82,6 +83,7 @@ struct rxr_env {
 };
 
 extern struct rxr_env rxr_env;
+extern const struct rxr_env rxr_env_ctime_defaults;
 
 void rxr_env_initialize();
 

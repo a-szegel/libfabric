@@ -39,7 +39,7 @@
  * @return	0 on success
  * 		negative libfabric error code on failure
  */
-static int efa_hmem_support_status_update_cuda(struct efa_hmem_support_status *cuda_status)
+static int efa_hmem_info_update_cuda(struct efa_hmem_info *cuda_status)
 {
 #if HAVE_CUDA
 	cudaError_t cuda_ret;
@@ -86,6 +86,17 @@ static int efa_hmem_support_status_update_cuda(struct efa_hmem_support_status *c
 	}
 
 	cuda_status->p2p_supported = true;
+	/* Eager and runting read protocols */
+	if (rxr_env.efa_max_medium_msg_size != rxr_env_ctime_defaults.efa_max_medium_msg_size) {
+		EFA_WARN(FI_LOG_DOMAIN,
+		         "The following environment variable was set FI_EFA_MAX_MEDIUM_MSG_SIZE, "
+		         "but EFA HMEM via Cuda API only supports eager and runting read protocols\n");
+		abort();
+	}
+
+	cuda_status->max_medium_msg_size = 0;
+    cuda_status->min_read_msg_size = cuda_status->max_eager_msg_size + 1;
+    cuda_status->runt_size = rxr_env.efa_runt_size;
 #endif
 	return 0;
 }
@@ -97,7 +108,7 @@ static int efa_hmem_support_status_update_cuda(struct efa_hmem_support_status *c
  * @return	0 on success
  * 		negative libfabric error code on failure
  */
-static int efa_hmem_support_status_update_neuron(struct efa_hmem_support_status *neuron_status)
+static int efa_hmem_info_update_neuron(struct efa_hmem_info *neuron_status)
 {
 #if HAVE_NEURON
 	struct ibv_mr *ibv_mr;
@@ -138,7 +149,8 @@ static int efa_hmem_support_status_update_neuron(struct efa_hmem_support_status 
 	ibv_mr = ibv_reg_mr(g_device_list[0].ibv_pd, ptr, len, ibv_access);
 	if (!ibv_mr) {
 		EFA_WARN(FI_LOG_DOMAIN,
-			 "Failed to register Neuron buffer with the EFA device, FI_HMEM transfers that require peer to peer support will fail.\n");
+		         "Failed to register Neuron buffer with the EFA device,"
+		         "FI_HMEM transfers that require peer to peer support will fail.\n");
 		neuron_free(&handle);
 		return 0;
 	}
@@ -153,17 +165,28 @@ static int efa_hmem_support_status_update_neuron(struct efa_hmem_support_status 
 	}
 
 	neuron_status->p2p_supported = true;
+	/* Eager and runting read protocols */
+	if (rxr_env.efa_max_medium_msg_size != rxr_env_ctime_defaults.efa_max_medium_msg_size) {
+		EFA_WARN(FI_LOG_DOMAIN,
+				"The following environment variable was set FI_EFA_MAX_MEDIUM_MSG_SIZE, "
+				"but EFA HMEM via Neuron API only supports eager and runting read protocols\n");
+		abort();
+	}
+
+	neuron_status->max_medium_msg_size = 0;
+    neuron_status->min_read_msg_size = neuron_status->max_eager_msg_size + 1;
+    neuron_status->runt_size = rxr_env.efa_runt_size;
 #endif
 	return 0;
 }
 
 /**
  * @brief determine the support status of synapseai memory pointer
- * 
+ *
  * @param synapseai_status[out]	synapseai memory support status
- * @return 0 on success 
+ * @return 0 on success
  */
-static int efa_hmem_support_status_update_synapseai(struct efa_hmem_support_status *synapseai_status)
+static int efa_hmem_info_update_synapseai(struct efa_hmem_info *synapseai_status)
 {
 #if HAVE_SYNAPSEAI
 	if (!ofi_hmem_is_initialized(FI_HMEM_SYNAPSEAI)) {
@@ -180,6 +203,23 @@ static int efa_hmem_support_status_update_synapseai(struct efa_hmem_support_stat
 
 	synapseai_status->initialized = true;
 	synapseai_status->p2p_supported = true;
+
+	/*  Only the long read protocol is supported */
+	if (rxr_env.efa_max_eager_msg_size != rxr_env_ctime_defaults.efa_max_eager_msg_size ||
+		rxr_env.efa_max_medium_msg_size != rxr_env_ctime_defaults.efa_max_medium_msg_size ||
+		rxr_env.efa_min_read_msg_size != rxr_env_ctime_defaults.efa_min_read_msg_size ||
+		rxr_env.efa_runt_size != rxr_env_ctime_defaults.efa_runt_size) {
+		EFA_WARN(FI_LOG_DOMAIN,
+		         "One of the following environment variable(s) was set (FI_EFA_MAX_EAGER_MSG_SIZE, "
+		         "FI_EFA_MAX_MEDIUM_MSG_SIZE, FI_EFA_MIN_READ_MSG_SIZE, and/or FI_EFA_RUNT_SIZE), "
+		         "but EFA HMEM via Synapse API only supports long read protocol.\n");
+		abort();
+	}
+
+    synapseai_status->max_eager_msg_size = 0;
+    synapseai_status->max_medium_msg_size = 0;
+    synapseai_status->min_read_msg_size = 0;
+    synapseai_status->runt_size = 0;
 #endif
 	return 0;
 }
@@ -189,38 +229,67 @@ static int efa_hmem_support_status_update_synapseai(struct efa_hmem_support_stat
  * The support status is used later when
  * determining how to initiate an HMEM transfer.
  *
- * @param 	all_status[out]		an array of struct efa_hmem_support_status,
+ * @param 	all_status[out]		an array of struct efa_hmem_info,
  * 					whose size is OFI_HMEM_MAX
  * @return	0 on success
  * 		negative libfabric error code on an unexpected error
  */
-int efa_hmem_support_status_update_all(struct efa_hmem_support_status *all_status)
+int efa_hmem_info_update_all(struct efa_domain *efa_domain)
 {
-	int ret, err;
+	int ret, err, iface, mtu_size;
+	size_t max_eager_msg_size;
+	struct efa_hmem_info *all_status = efa_domain->hmem_info;
 
 	if(g_device_cnt <= 0) {
 		return -FI_ENODEV;
 	}
 
-	memset(all_status, 0, OFI_HMEM_MAX * sizeof(struct efa_hmem_support_status));
+	/* Handle max_eager_msg_size */
+	mtu_size = efa_domain->device->rdm_info->ep_attr->max_msg_size;
+	if (rxr_env.mtu_size > 0 && rxr_env.mtu_size < mtu_size)
+		mtu_size = rxr_env.mtu_size;
+	if (mtu_size > RXR_MTU_MAX_LIMIT)
+		mtu_size = RXR_MTU_MAX_LIMIT;
+
+	max_eager_msg_size = mtu_size - rxr_pkt_max_hdr_size();
+
+	if (!fi_param_get_size_t(&rxr_prov, "max_eager_msg_size", &rxr_env.efa_max_eager_msg_size)) {
+		if (rxr_env.efa_max_eager_msg_size > max_eager_msg_size) {
+			fprintf(stderr,
+				"Environment variable FI_EFA_MAX_EAGER_MSG_SIZE=%zu must be less than or equal to %zu\n",
+				rxr_env.efa_max_eager_msg_size, max_eager_msg_size);
+			abort();
+		}
+		max_eager_msg_size = rxr_env.efa_max_eager_msg_size;
+	}
+
+	memset(all_status, 0, OFI_HMEM_MAX * sizeof(struct efa_hmem_info));
+
+	/* Initialize all hmem_info structures to runtime defaults */
+	for (iface = 0; iface < OFI_HMEM_MAX; iface++) {
+		all_status[iface].max_eager_msg_size = max_eager_msg_size;
+		all_status[iface].max_medium_msg_size = rxr_env.efa_max_medium_msg_size;
+		all_status[iface].min_read_msg_size = rxr_env.efa_min_read_msg_size;
+		all_status[iface].runt_size = 0;
+	}
 
 	ret = 0;
 
-	err = efa_hmem_support_status_update_cuda(&all_status[FI_HMEM_CUDA]);
+	err = efa_hmem_info_update_cuda(&all_status[FI_HMEM_CUDA]);
 	if (err) {
 		ret = err;
 		EFA_WARN(FI_LOG_DOMAIN, "check cuda support status failed! err: %d\n",
 			 err);
 	}
 
-	err = efa_hmem_support_status_update_neuron(&all_status[FI_HMEM_NEURON]);
+	err = efa_hmem_info_update_neuron(&all_status[FI_HMEM_NEURON]);
 	if (err) {
 		ret = err;
 		EFA_WARN(FI_LOG_DOMAIN, "check neuron support status failed! err: %d\n",
 			 err);
 	}
 
-	err = efa_hmem_support_status_update_synapseai(&all_status[FI_HMEM_SYNAPSEAI]);
+	err = efa_hmem_info_update_synapseai(&all_status[FI_HMEM_SYNAPSEAI]);
 	if (err) {
 		ret = err;
 		EFA_WARN(FI_LOG_DOMAIN, "check synapseai support status failed! err: %d\n",

@@ -38,42 +38,46 @@
 #include "efa_user_info.h"
 #include "ofi_hmem.h"
 
-struct rxr_env rxr_env = {
-	.tx_min_credits = RXR_DEF_MIN_TX_CREDITS,
-	.tx_queue_size = 0,
-	.enable_shm_transfer = 1,
-	.use_device_rdma = 0,
-	.use_zcpy_rx = 1,
-	.set_cuda_sync_memops = 1,
-	.zcpy_rx_seed = 0,
-	.shm_av_size = 128,
-	.shm_max_medium_size = 4096,
-	.recvwin_size = RXR_RECVWIN_SIZE,
-	.ooo_pool_chunk_size = 64,
-	.unexp_pool_chunk_size = 1024,
-	.readcopy_pool_size = 256,
-	.atomrsp_pool_size = 1024,
-	.cq_size = RXR_DEF_CQ_SIZE,
-	.max_memcpy_size = 4096,
-	.mtu_size = 0,
-	.tx_size = 0,
-	.rx_size = 0,
-	.tx_iov_limit = 0,
-	.rx_iov_limit = 0,
-	.rx_copy_unexp = 1,
-	.rx_copy_ooo = 1,
-	.rnr_backoff_wait_time_cap = RXR_DEFAULT_RNR_BACKOFF_WAIT_TIME_CAP,
-	.rnr_backoff_initial_wait_time = 0, /* 0 is random wait time  */
-	.efa_cq_read_size = 50,
-	.shm_cq_read_size = 50,
-	.efa_max_medium_msg_size = 65536,
-	.efa_min_read_msg_size = 1048576,
-	.efa_max_gdrcopy_msg_size = 32768,
-	.efa_min_read_write_size = 65536,
-	.efa_read_segment_size = 1073741824,
-	.rnr_retry = 3, /* Setting this value to EFA_RNR_INFINITE_RETRY makes the firmware retry indefinitey */
-	.efa_runt_size = 307200,
+#define RXR_INIT { \
+	.tx_min_credits = RXR_DEF_MIN_TX_CREDITS, \
+	.tx_queue_size = 0, \
+	.enable_shm_transfer = 1, \
+	.use_device_rdma = 0, \
+	.use_zcpy_rx = 1, \
+	.set_cuda_sync_memops = 1, \
+	.zcpy_rx_seed = 0, \
+	.shm_av_size = 128, \
+	.shm_max_medium_size = 4096, \
+	.recvwin_size = RXR_RECVWIN_SIZE, \
+	.ooo_pool_chunk_size = 64, \
+	.unexp_pool_chunk_size = 1024, \
+	.readcopy_pool_size = 256, \
+	.atomrsp_pool_size = 1024, \
+	.cq_size = RXR_DEF_CQ_SIZE, \
+	.max_memcpy_size = 4096, \
+	.mtu_size = 0, \
+	.tx_size = 0, \
+	.rx_size = 0, \
+	.tx_iov_limit = 0, \
+	.rx_iov_limit = 0, \
+	.rx_copy_unexp = 1, \
+	.rx_copy_ooo = 1, \
+	.rnr_backoff_wait_time_cap = RXR_DEFAULT_RNR_BACKOFF_WAIT_TIME_CAP, \
+	.rnr_backoff_initial_wait_time = 0, /* 0 is random wait time  */ \
+	.efa_cq_read_size = 50, \
+	.shm_cq_read_size = 50, \
+	.efa_max_medium_msg_size = 65536, \
+	.efa_min_read_msg_size = 1048576, \
+	.efa_max_gdrcopy_msg_size = 32768, \
+	.efa_max_eager_msg_size = SIZE_MAX, \
+	.efa_min_read_write_size = 65536, \
+	.efa_read_segment_size = 1073741824, \
+	.rnr_retry = 3, /* Setting this value to EFA_RNR_INFINITE_RETRY makes the firmware retry indefinitey */ \
+	.efa_runt_size = 307200, \
 };
+
+struct rxr_env rxr_env = RXR_INIT;
+const struct rxr_env rxr_env_ctime_defaults = RXR_INIT;
 
 /* @brief Read and store the FI_EFA_* environment variables.
  */
@@ -217,6 +221,8 @@ void rxr_env_define()
 			"Enables fork support and disables internal usage of huge pages. Has no effect on kernels which set copy-on-fork for registered pages, generally 5.13 and later. (Default: false)");
 	fi_param_define(&rxr_prov, "runt_size", FI_PARAM_INT,
 			"The maximum number of bytes that will be eagerly sent by inflight messages uses runting read message protocol (Default 307200).");
+	fi_param_define(&rxr_prov, "max_eager_msg_size", FI_PARAM_SIZE_T,
+			"The maximum message size for eager message protocol. (Default: mtu_size - pkt_max_header_size)");
 }
 
 void rxr_env_initialize()

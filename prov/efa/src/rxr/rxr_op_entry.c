@@ -193,8 +193,7 @@ size_t rxr_op_entry_mulreq_total_data_size(struct rxr_op_entry *op_entry, int pk
 size_t rxr_tx_entry_max_req_data_capacity(struct rxr_ep *ep, struct rxr_op_entry *tx_entry, int pkt_type)
 {
 	struct rdm_peer *peer;
-	uint16_t header_flags = 0;
-	int max_data_offset;
+	int max_req_data_capacity, iface;
 
 	assert(pkt_type >= RXR_REQ_PKT_BEGIN);
 
@@ -202,25 +201,14 @@ size_t rxr_tx_entry_max_req_data_capacity(struct rxr_ep *ep, struct rxr_op_entry
 	assert(peer);
 
 	if (peer->is_local && ep->use_shm_for_tx) {
-		return rxr_env.shm_max_medium_size;
+		max_req_data_capacity = rxr_env.shm_max_medium_size;
+	}
+	else {
+		iface = tx_entry->desc[0] ? ((struct efa_mr*) tx_entry->desc[0])->peer.iface : FI_HMEM_SYSTEM;
+		max_req_data_capacity = rxr_ep_domain(ep)->hmem_info[iface].max_eager_msg_size;
 	}
 
-	if (rxr_peer_need_raw_addr_hdr(peer))
-		header_flags |= RXR_REQ_OPT_RAW_ADDR_HDR;
-	else if (rxr_peer_need_connid(peer))
-		header_flags |= RXR_PKT_CONNID_HDR;
-
-	if (tx_entry->fi_flags & FI_REMOTE_CQ_DATA)
-		header_flags |= RXR_REQ_OPT_CQ_DATA_HDR;
-
-	max_data_offset = rxr_pkt_req_hdr_size(pkt_type, header_flags,
-					       tx_entry->rma_iov_count);
-
-	if (rxr_pkt_type_is_runtread(pkt_type)) {
-		max_data_offset += tx_entry->iov_count * sizeof(struct fi_rma_iov);
-	}
-
-	return ep->mtu_size - max_data_offset;
+	return max_req_data_capacity;
 }
 
 /**
