@@ -637,15 +637,23 @@ void rxr_pkt_handle_atomrsp_recv(struct rxr_ep *ep,
 	struct rxr_atomrsp_pkt *atomrsp_pkt = NULL;
 	struct rxr_atomrsp_hdr *atomrsp_hdr = NULL;
 	struct rxr_op_entry *tx_entry = NULL;
+	uint64_t device;
+	enum fi_hmem_iface hmem_iface;
 
 	atomrsp_pkt = (struct rxr_atomrsp_pkt *)pkt_entry->pkt;
 	atomrsp_hdr = &atomrsp_pkt->hdr;
 	tx_entry = ofi_bufpool_get_ibuf(ep->op_entry_pool, atomrsp_hdr->recv_id);
 
-	ofi_copy_to_iov(tx_entry->atomic_ex.resp_iov,
-			tx_entry->atomic_ex.resp_iov_count,
-			0, atomrsp_pkt->data,
-			atomrsp_hdr->seg_length);
+    hmem_iface = ((struct efa_mr*) tx_entry->atomic_ex.result_desc)->peer.iface;
+    device = ((struct efa_mr*) tx_entry->atomic_ex.result_desc)->peer.device.reserved;
+
+	ofi_copy_to_hmem_iov(hmem_iface, device, tx_entry->atomic_ex.resp_iov,
+	                     tx_entry->atomic_ex.resp_iov_count, 0,
+	                     atomrsp_pkt->data, atomrsp_hdr->seg_length);
+
+
+	if (hmem_iface == FI_HMEM_CUDA)
+		cuda_flush_rdma_operations();
 
 	if (tx_entry->fi_flags & FI_COMPLETION)
 		rxr_cq_write_tx_completion(ep, tx_entry);
