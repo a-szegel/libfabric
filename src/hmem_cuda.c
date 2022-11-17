@@ -73,6 +73,8 @@ struct cuda_ops {
 	cudaError_t (*cudaIpcGetMemHandle)(cudaIpcMemHandle_t *handle,
 					   void *devptr);
 	cudaError_t (*cudaIpcCloseMemHandle)(void *devptr);
+	cudaError_t (*cudaDeviceFlushGPUDirectRDMAWrites)(enum cudaFlushGPUDirectRDMAWritesTarget target,
+					   enum cudaFlushGPUDirectRDMAWritesScope scope);
 };
 
 static bool hmem_cuda_use_gdrcopy;
@@ -111,7 +113,8 @@ static struct cuda_ops cuda_ops = {
 	.cudaSetDevice = cudaSetDevice,
 	.cudaIpcOpenMemHandle = cudaIpcOpenMemHandle,
 	.cudaIpcGetMemHandle = cudaIpcGetMemHandle,
-	.cudaIpcCloseMemHandle = cudaIpcCloseMemHandle
+	.cudaIpcCloseMemHandle = cudaIpcCloseMemHandle,
+	.cudaDeviceFlushGPUDirectRDMAWrites = cudaDeviceFlushGPUDirectRDMAWrites
 };
 
 #endif /* ENABLE_CUDA_DLOPEN */
@@ -760,6 +763,19 @@ bool cuda_is_gdrcopy_enabled(void)
 	return hmem_cuda_use_gdrcopy;
 }
 
+#if CUDA_VERSION >= 11030
+int cuda_flush_rdma_operations(void)
+{
+	return cuda_ops.cudaDeviceFlushGPUDirectRDMAWrites(cudaFlushGPUDirectRDMAWritesTargetCurrentDevice,
+	                                                   cudaFlushGPUDirectRDMAWritesToOwner);
+}
+#else
+int cuda_flush_rdma_operations(void)
+{
+	return -FI_ENOSYS;
+}
+#endif
+
 #else
 
 int cuda_copy_to_dev(uint64_t device, void *dev, const void *host, size_t size)
@@ -845,5 +861,10 @@ bool cuda_is_gdrcopy_enabled(void)
 int cuda_set_sync_memops(void *ptr)
 {
         return FI_SUCCESS;
+}
+
+int cuda_flush_rdma_operations(void)
+{
+	return -FI_ENOSYS;
 }
 #endif /* HAVE_CUDA */
