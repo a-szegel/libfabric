@@ -497,7 +497,7 @@ free_info:
 
 /**
  * @brief get a list of info the fit user's requirements
- * 
+ *
  * This is EFA provider's implemenation of fi_getinfo() API.
  *
  * @param	node[in]	node from user's call to fi_getinfo()
