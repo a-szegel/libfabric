@@ -59,7 +59,7 @@ enum rxr_pkt_entry_alloc_type {
 struct rxr_pkt_sendv {
 	/**
 	 * @brief number of iovec to be passed to device and sent over wire
-	 * 
+	 *
 	 * Because core EP current only support 2 iov,
 	 * and for the sake of code simplicity, we use 2 iov.
 	 * One for header, and the other for data.
@@ -73,41 +73,41 @@ struct rxr_pkt_sendv {
 
 /**
  * @brief Packet entry
- * 
+ *
  * rxr_pkt_entry is used the following occassions:
- * 
+ *
  * First, it is used as the context of the request EFA provider posted to EFA device and SHM:
- * 
+ *
  * For each request EFA provider submits to (EFA device or SHM), it will allocate a packet entry.
- * 
+ *
  * When the request was submitted, the pointer of the packet entry will be used as context.
  * For EFA device, context is work request ID (`wr_id`), For SHM, context is the `op_context`
  * in a `fi_msg`.
- * 
+ *
  * When the request was completed, EFA device or SHM will return a completion entry, with the
  * the pointer to the rxr_pkt_entry in it.
- * 
+ *
  * Sometimes, the completion can be a Receiver Not Ready (RNR) error completion.
  * In that case the packet entry will be queued and resubmitted. For the resubmission,
  * the packet entry must contain all the information of the request.
- * 
+ *
  * An operation can be either a TX operation or a receive (RX) operation
- * 
+ *
  * For EFA device, a TX operation can be send/read.
- * 
+ *
  * For SHM, a TX operation can be send/read/write/atomic.
- * 
+ *
  * When used as context of request, packet was allocated from endpoint's shm/efa_tx/rx_pool.
  * When the request is to EFA device, the packet's memory must be registered to EFA device,
  * and the memory registration must be stored as the `mr` field of packet entry.
- * 
+ *
  * Second, packet entries can be used to store received packet entries that is
  * unexpected or out-of-order. This is because the efa/shm_rx_pkt_pool's size is fixed,
  * therefore it cannot be used to hold unexpected/out-of-order packets. When an unexpected/out-of-order
  * packet is received, a new packet entry will be cloned from unexpected/ooo_pkt_pool.
  * The old packet will be released then reposted to EFA device or SHM. The new packet
  * (allocated from unexpected/ooo_pkt_pool)'s memory is not registered
- * 
+ *
  * Finally, packet entries can be used to support local read copy. Local read copy means
  * to copy data from a packet entry to HMEM receive buffer through EFA device's read capability.
  * Local require a packet entry's memory to be registered with device. If the packet entry's memory
@@ -169,9 +169,9 @@ struct rxr_pkt_entry {
 	/** @brief indicate where the memory of this packet entry reside */
 	enum rxr_pkt_entry_alloc_type alloc_type;
 
-	/** 
+	/**
 	 * @brief flags indicating the status of the packet entry
-	 * 
+	 *
 	 * @details
 	 * Possible flags include  #RXR_PKT_ENTRY_IN_USE #RXR_PKT_ENTRY_RNR_RETRANSMIT,
 	 * #RXR_PKT_ENTRY_LOCAL_READ, and #RXR_PKT_ENTRY_DC_LONGCTS_DATA
@@ -190,7 +190,7 @@ struct rxr_pkt_entry {
 	struct rxr_pkt_sendv send;
 
 	/** @brief buffer that contains data that is going over wire */
-	char *wiredata;
+	void *wiredata;
 };
 
 static inline void *rxr_pkt_start(struct rxr_pkt_entry *pkt_entry)

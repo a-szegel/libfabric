@@ -51,10 +51,10 @@ int rxr_pkt_init_data(struct rxr_ep *ep,
 	data_hdr->version = RXR_PROTOCOL_VERSION;
 	data_hdr->flags = 0;
 
-	/* Data is sent using rx_entry in the emulated longcts read 
-	 * protocol. The emulated longcts write and the longcts 
+	/* Data is sent using rx_entry in the emulated longcts read
+	 * protocol. The emulated longcts write and the longcts
 	 * message protocols sends data using tx_entry.
-	 * This check ensures appropriate recv_id is 
+	 * This check ensures appropriate recv_id is
 	 * assigned for the respective protocols */
 	if (op_entry->type == RXR_RX_ENTRY) {
 		data_hdr->recv_id = op_entry->tx_id;
@@ -202,7 +202,7 @@ void rxr_pkt_handle_data_recv(struct rxr_ep *ep,
 
 	rxr_pkt_proc_data(ep, op_entry,
 			  pkt_entry,
-			  pkt_entry->wiredata + hdr_size,
+			  (char *) pkt_entry->wiredata +  hdr_size,
 			  data_hdr->seg_offset,
 			  data_hdr->seg_length);
 }

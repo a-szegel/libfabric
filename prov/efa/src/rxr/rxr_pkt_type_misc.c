@@ -76,7 +76,7 @@ ssize_t rxr_pkt_init_handshake(struct rxr_ep *ep,
 	 * Always include connid at the end of a handshake packet.
 	 * If peer cannot make use of connid, the connid will be ignored.
 	 */
-	connid_hdr = (struct rxr_handshake_opt_connid_hdr *)(pkt_entry->wiredata + pkt_entry->pkt_size);
+	connid_hdr = (struct rxr_handshake_opt_connid_hdr *)((char *) pkt_entry->wiredata +  pkt_entry->pkt_size);
 	connid_hdr->connid = rxr_ep_raw_addr(ep)->qkey;
 	handshake_hdr->flags |= RXR_PKT_CONNID_HDR;
 	pkt_entry->pkt_size += sizeof(struct rxr_handshake_opt_connid_hdr);

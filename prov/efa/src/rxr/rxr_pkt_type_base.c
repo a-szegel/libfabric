@@ -154,7 +154,7 @@ int rxr_pkt_init_data_from_op_entry(struct rxr_ep *ep,
 	}
 
 copy:
-	data = pkt_entry->wiredata + pkt_data_offset;
+	data = (char *) pkt_entry->wiredata +  pkt_data_offset;
 	copied = ofi_copy_from_hmem_iov(data,
 					data_size,
 					desc ? desc->peer.iface : FI_HMEM_SYSTEM,
