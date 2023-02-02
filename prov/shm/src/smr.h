@@ -73,6 +73,7 @@ struct smr_env {
 	size_t sar_threshold;
 	int disable_cma;
 	int use_dsa_sar;
+	int use_nemesis_protocols;
 };
 
 extern struct smr_env smr_env;

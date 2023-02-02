@@ -44,6 +44,7 @@ struct smr_env smr_env = {
 	.sar_threshold = SIZE_MAX,
 	.disable_cma = false,
 	.use_dsa_sar = false,
+	.use_nemesis_protocols = false,
 };
 
 static void smr_init_env(void)
@@ -53,6 +54,9 @@ static void smr_init_env(void)
 	fi_param_get_size_t(&smr_prov, "rx_size", &smr_info.rx_attr->size);
 	fi_param_get_bool(&smr_prov, "disable_cma", &smr_env.disable_cma);
 	fi_param_get_bool(&smr_prov, "use_dsa_sar", &smr_env.use_dsa_sar);
+
+	/* Temporary Nemesis Switch */
+	fi_param_get_bool(&smr_prov, "use_nemesis_protocols", &smr_env.use_nemesis_protocols);
 }
 
 static void smr_resolve_addr(const char *node, const char *service,
@@ -218,6 +222,12 @@ SHM_INI
 	fi_param_define(&smr_prov, "enable_dsa_page_touch", FI_PARAM_BOOL,
 			"Enable CPU touching of memory pages in DSA command \
 			 descriptor when page fault is reported. \
+			 Default: false");
+	/* Temporary Nemesis Switch*/
+	fi_param_define(&smr_prov, "use_nemesis_protocols", FI_PARAM_BOOL,
+			"Enable the use of new Nemesis transfer protocols. \
+			 When this flag is set, nemesis protocols will be used instead \
+			 of the existant stable SHM implementation. \
 			 Default: false");
 
 	smr_init_env();
