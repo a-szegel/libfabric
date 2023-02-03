@@ -53,7 +53,7 @@ extern "C" {
 #endif
 
 
-#define SMR2_VERSION	4
+#define SMR2_VERSION	5
 
 #define SMR2_FLAG_ATOMIC	(1 << 0)
 #define SMR2_FLAG_DEBUG	(1 << 1)
