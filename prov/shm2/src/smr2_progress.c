@@ -97,10 +97,6 @@ static int smr2_progress_resp_entry(struct smr2_ep *ep, struct smr2_resp *resp,
 	switch (pending->cmd.msg.hdr.op_src) {
 	case smr2_src_iov:
 		break;
-	case smr2_src_ipc:
-		if (pending->iface == FI_HMEM_ZE)
-			close(pending->fd);
-		break;
 	case smr2_src_sar:
 		sar_buf = smr_freestack_get_entry_from_index(
 		    smr2_sar_pool(peer_smr), pending->cmd.msg.data.sar[0]);
@@ -348,85 +344,6 @@ static struct smr2_sar_entry *smr2_progress_sar(struct smr2_cmd *cmd,
 	return sar_entry;
 }
 
-static int smr2_progress_ipc(struct smr2_cmd *cmd, enum fi_hmem_iface iface,
-			    uint64_t device, struct iovec *iov,
-			    size_t iov_count, size_t *total_len,
-			    struct smr2_ep *ep, int err)
-{
-	struct smr2_region *peer_smr;
-	struct smr2_resp *resp;
-	void *base, *ptr;
-	uint64_t ipc_device;
-	int64_t id;
-	int ret, fd, ipc_fd;
-	ssize_t hmem_copy_ret;
-	struct ofi_mr_entry *mr_entry;
-	struct smr2_domain *domain;
-
-	domain = container_of(ep->util_ep.domain, struct smr2_domain,
-			      util_domain);
-
-	peer_smr = smr2_peer_region(ep->region, cmd->msg.hdr.id);
-	resp = smr2_get_ptr(peer_smr, cmd->msg.hdr.src_data);
-
-	//TODO disable IPC if more than 1 interface is initialized
-	assert(iface == cmd->msg.data.ipc_info.iface || iface == FI_HMEM_SYSTEM);
-
-	if (cmd->msg.data.ipc_info.iface == FI_HMEM_ZE) {
-		id = cmd->msg.hdr.id;
-		ipc_device = cmd->msg.data.ipc_info.device;
-		fd = ep->sock_info->peers[id].device_fds[ipc_device];
-		ret = ze_hmem_open_shared_handle(fd,
-				(void **) &cmd->msg.data.ipc_info.ipc_handle,
-				&ipc_fd, ipc_device, &base);
-	} else {
-		ret = ofi_ipc_cache_search(domain->ipc_cache,
-				           &cmd->msg.data.ipc_info,
-				           &mr_entry);
-	}
-	if (ret)
-		goto out;
-
-	if (cmd->msg.data.ipc_info.iface == FI_HMEM_ZE)
-		ptr = (char *) base + (uintptr_t) cmd->msg.data.ipc_info.offset;
-	else
-		ptr = (char *) (uintptr_t) mr_entry->info.ipc_mapped_addr +
-		      (uintptr_t) cmd->msg.data.ipc_info.offset;
-
-	if (cmd->msg.hdr.op == ofi_op_read_req) {
-		hmem_copy_ret = ofi_copy_from_hmem_iov(ptr, cmd->msg.hdr.size,
-						       cmd->msg.data.ipc_info.iface,
-						       device, iov, iov_count, 0);
-	} else {
-		hmem_copy_ret = ofi_copy_to_hmem_iov(cmd->msg.data.ipc_info.iface,
-						     device, iov, iov_count, 0,
-						     ptr, cmd->msg.hdr.size);
-	}
-
-	if (cmd->msg.data.ipc_info.iface == FI_HMEM_ZE) {
-		close(ipc_fd);
-		/* Truncation error takes precedence over close_handle error */
-		ret = ofi_hmem_close_handle(cmd->msg.data.ipc_info.iface, base);
-	} else {
-		ofi_mr_cache_delete(domain->ipc_cache, mr_entry);
-	}
-
-	if (hmem_copy_ret < 0) {
-		ret = hmem_copy_ret;
-	} else if (hmem_copy_ret != cmd->msg.hdr.size) {
-		ret = -FI_ETRUNC;
-	}
-
-	*total_len = hmem_copy_ret;
-
-out:
-	//Status must be set last (signals peer: op done, valid resp entry)
-	resp->status = ret;
-	smr2_signal(peer_smr);
-
-	return -ret;
-}
-
 static int smr2_start_common(struct smr2_ep *ep, struct smr2_cmd *cmd,
 		struct fi_peer_rx_entry *rx_entry)
 {
@@ -456,11 +373,6 @@ static int smr2_start_common(struct smr2_ep *ep, struct smr2_cmd *cmd,
 		sar = smr2_progress_sar(cmd, rx_entry, iface, device,
 				       rx_entry->iov, rx_entry->count,
 				       &total_len, ep);
-		break;
-	case smr2_src_ipc:
-		err = smr2_progress_ipc(cmd, iface, device,
-				       rx_entry->iov, rx_entry->count,
-				       &total_len, ep, 0);
 		break;
 	default:
 		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL,
@@ -673,10 +585,6 @@ static int smr2_progress_cmd_rma(struct smr2_ep *ep, struct smr2_cmd *cmd)
 		if (smr2_progress_sar(cmd, NULL, iface, device, iov, iov_count,
 				     &total_len, ep))
 			return ret;
-		break;
-	case smr2_src_ipc:
-		err = smr2_progress_ipc(cmd, iface, device, iov, iov_count,
-				       &total_len, ep, ret);
 		break;
 	default:
 		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL,

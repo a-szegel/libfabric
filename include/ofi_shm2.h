@@ -67,7 +67,6 @@ enum {
 	smr2_src_inject,	/* inject buffers */
 	smr2_src_iov,	/* reference iovec via CMA */
 	smr2_src_sar,	/* segmentation fallback protocol */
-	smr2_src_ipc,	/* device IPC handle protocol */
 	smr2_src_max,
 };
 
