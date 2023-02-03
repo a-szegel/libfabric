@@ -427,74 +427,6 @@ out:
 	return -ret;
 }
 
-static void smr2_do_atomic(void *src, void *dst, void *cmp, enum fi_datatype datatype,
-			  enum fi_op op, size_t cnt, uint16_t flags)
-{
-	char tmp_result[SMR2_INJECT_SIZE];
-
-	if (ofi_atomic_isswap_op(op)) {
-		ofi_atomic_swap_handler(op, datatype, dst, src, cmp,
-					tmp_result, cnt);
-	} else if (flags & SMR2_RMA_REQ && ofi_atomic_isreadwrite_op(op)) {
-		ofi_atomic_readwrite_handler(op, datatype, dst, src,
-					     tmp_result, cnt);
-	} else if (ofi_atomic_iswrite_op(op)) {
-		ofi_atomic_write_handler(op, datatype, dst, src, cnt);
-	} else {
-		FI_WARN(&smr2_prov, FI_LOG_EP_DATA,
-			"invalid atomic operation\n");
-	}
-
-	if (flags & SMR2_RMA_REQ)
-		memcpy(src, op == FI_ATOMIC_READ ? dst : tmp_result,
-		       cnt * ofi_datatype_size(datatype));
-}
-
-static int smr2_progress_inject_atomic(struct smr2_cmd *cmd, struct fi_ioc *ioc,
-			       size_t ioc_count, size_t *len,
-			       struct smr2_ep *ep, int err)
-{
-	struct smr2_inject_buf *tx_buf;
-	size_t inj_offset;
-	uint8_t *src, *comp;
-	int i;
-
-	inj_offset = (size_t) cmd->msg.hdr.src_data;
-	tx_buf = smr2_get_ptr(ep->region, inj_offset);
-	if (err)
-		goto out;
-
-	switch (cmd->msg.hdr.op) {
-	case ofi_op_atomic_compare:
-		src = tx_buf->buf;
-		comp = tx_buf->comp;
-		break;
-	default:
-		src = tx_buf->data;
-		comp = NULL;
-		break;
-	}
-
-	for (i = *len = 0; i < ioc_count && *len < cmd->msg.hdr.size; i++) {
-		smr2_do_atomic(&src[*len], ioc[i].addr, comp ? &comp[*len] : NULL,
-			      cmd->msg.hdr.datatype, cmd->msg.hdr.atomic_op,
-			      ioc[i].count, cmd->msg.hdr.op_flags);
-		*len += ioc[i].count * ofi_datatype_size(cmd->msg.hdr.datatype);
-	}
-
-	if (*len != cmd->msg.hdr.size) {
-		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL,
-			"recv truncated");
-		err = -FI_ETRUNC;
-	}
-
-out:
-	if (!(cmd->msg.hdr.op_flags & SMR2_RMA_REQ))
-		smr_freestack_push(smr2_inject_pool(ep->region), tx_buf);
-
-	return err;
-}
-
 static int smr2_start_common(struct smr2_ep *ep, struct smr2_cmd *cmd,
 		struct fi_peer_rx_entry *rx_entry)
 {
@@ -773,84 +705,6 @@ static int smr2_progress_cmd_rma(struct smr2_ep *ep, struct smr2_cmd *cmd)
 	return ret;
 }
 
-static int smr2_progress_cmd_atomic(struct smr2_ep *ep, struct smr2_cmd *cmd)
-{
-	struct smr2_region *peer_smr;
-	struct smr2_domain *domain;
-	struct smr2_cmd *rma_cmd;
-	struct smr2_resp *resp;
-	struct fi_ioc ioc[SMR2_IOV_LIMIT];
-	size_t ioc_count;
-	size_t total_len = 0;
-	int err, ret = 0;
-
-	domain = container_of(ep->util_ep.domain, struct smr2_domain,
-			      util_domain);
-
-	ofi_cirque_discard(smr2_cmd_queue(ep->region));
-	ep->region->cmd_cnt++;
-	rma_cmd = ofi_cirque_head(smr2_cmd_queue(ep->region));
-
-	for (ioc_count = 0; ioc_count < rma_cmd->rma.rma_count; ioc_count++) {
-		ret = ofi_mr_verify(&domain->util_domain.mr_map,
-				rma_cmd->rma.rma_ioc[ioc_count].count *
-				ofi_datatype_size(cmd->msg.hdr.datatype),
-				(uintptr_t *) &(rma_cmd->rma.rma_ioc[ioc_count].addr),
-				rma_cmd->rma.rma_ioc[ioc_count].key,
-				ofi_rx_mr_reg_flags(cmd->msg.hdr.op,
-				cmd->msg.hdr.atomic_op));
-		if (ret)
-			break;
-
-		ioc[ioc_count].addr = (void *) rma_cmd->rma.rma_ioc[ioc_count].addr;
-		ioc[ioc_count].count = rma_cmd->rma.rma_ioc[ioc_count].count;
-	}
-	ofi_cirque_discard(smr2_cmd_queue(ep->region));
-	if (ret) {
-		ep->region->cmd_cnt++;
-		return ret;
-	}
-
-	switch (cmd->msg.hdr.op_src) {
-	case smr2_src_inject:
-		err = smr2_progress_inject_atomic(cmd, ioc, ioc_count, &total_len, ep, ret);
-		break;
-	default:
-		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL,
-			"unidentified operation type\n");
-		err = -FI_EINVAL;
-	}
-	if (cmd->msg.hdr.data) {
-		peer_smr = smr2_peer_region(ep->region, cmd->msg.hdr.id);
-		resp = smr2_get_ptr(peer_smr, cmd->msg.hdr.data);
-		resp->status = -err;
-		smr2_signal(peer_smr);
-	} else {
-		ep->region->cmd_cnt++;
-	}
-
-	if (err) {
-		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL,
-			"error processing atomic op\n");
-		ret = smr2_write_err_comp(ep->util_ep.rx_cq, NULL,
-					 smr2_rx_cq_flags(cmd->msg.hdr.op, 0,
-					 cmd->msg.hdr.op_flags), 0, err);
-	} else {
-		ret = smr2_complete_rx(ep, NULL, cmd->msg.hdr.op,
-				      smr2_rx_cq_flags(cmd->msg.hdr.op, 0,
-				      cmd->msg.hdr.op_flags), total_len,
-				      ioc_count ? ioc[0].addr : NULL,
-				      cmd->msg.hdr.id, 0, cmd->msg.hdr.data);
-	}
-	if (ret) {
-		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL,
-			"unable to process rx completion\n");
-		return ret;
-	}
-
-	return err;
-}
-
 static void smr2_progress_cmd(struct smr2_ep *ep)
 {
 	struct smr2_cmd *cmd;
@@ -875,11 +729,6 @@ static void smr2_progress_cmd(struct smr2_ep *ep)
 						cmd->msg.hdr.op);
 			ofi_cirque_discard(smr2_cmd_queue(ep->region));
 			ep->region->cmd_cnt++;
-			break;
-		case ofi_op_atomic:
-		case ofi_op_atomic_fetch:
-		case ofi_op_atomic_compare:
-			ret = smr2_progress_cmd_atomic(ep, cmd);
 			break;
 		case SMR2_OP_MAX + ofi_ctrl_connreq:
 			smr2_progress_connreq(ep, cmd);

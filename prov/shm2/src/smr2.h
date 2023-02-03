@@ -104,9 +104,6 @@ int smr2_eq_open(struct fid_fabric *fabric, struct fi_eq_attr *attr,
 int smr2_av_open(struct fid_domain *domain, struct fi_av_attr *attr,
 		struct fid_av **av, void *context);
 
-int smr2_query_atomic(struct fid_domain *domain, enum fi_datatype datatype,
-		enum fi_op op, struct fi_atomic_attr *attr, uint64_t flags);
-
 #define SMR2_IOV_LIMIT		4
 
 struct smr2_rx_entry {
