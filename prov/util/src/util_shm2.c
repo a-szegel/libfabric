@@ -65,34 +65,6 @@ static void smr2_peer_addr_init(struct smr2_addr *peer)
 	peer->id = -1;
 }
 
-void smr2_cma_check(struct smr2_region *smr, struct smr2_region *peer_smr)
-{
-	struct iovec local_iov, remote_iov;
-	int remote_pid;
-	int ret;
-
-	if (smr != peer_smr && peer_smr->cma_cap_peer != SMR2_CMA_CAP_NA) {
-		smr->cma_cap_peer = peer_smr->cma_cap_peer;
-		return;
-	}
-	remote_pid = peer_smr->pid;
-	local_iov.iov_base = &remote_pid;
-	local_iov.iov_len = sizeof(remote_pid);
-	remote_iov.iov_base = (char *)peer_smr->base_addr +
-			      ((char *)&peer_smr->pid - (char *)peer_smr);
-	remote_iov.iov_len = sizeof(peer_smr->pid);
-	ret = ofi_process_vm_writev(peer_smr->pid, &local_iov, 1,
-				    &remote_iov, 1, 0);
-	assert(remote_pid == peer_smr->pid);
-
-	if (smr == peer_smr) {
-		smr->cma_cap_self = (ret == -1) ? SMR2_CMA_CAP_OFF : SMR2_CMA_CAP_ON;
-	} else {
-		smr->cma_cap_peer = (ret == -1) ? SMR2_CMA_CAP_OFF : SMR2_CMA_CAP_ON;
-		peer_smr->cma_cap_peer = smr->cma_cap_peer;
-	}
-}
-
 size_t smr2_calculate_size_offsets(size_t tx_count, size_t rx_count,
 				  size_t *cmd_offset, size_t *resp_offset,
 				  size_t *inject_offset, size_t *sar_offset,
@@ -283,8 +255,6 @@ int smr2_create(const struct fi_provider *prov, struct smr2_map *map,
 	(*smr)->flags |= SMR2_FLAG_DEBUG;
 #endif
 
-	(*smr)->cma_cap_peer = SMR2_CMA_CAP_NA;
-	(*smr)->cma_cap_self = SMR2_CMA_CAP_NA;
 	(*smr)->base_addr = *smr;
 
 	(*smr)->total_size = total_size;
@@ -466,10 +436,6 @@ void smr2_map_to_endpoint(struct smr2_region *region, int64_t id)
 	local_peers[id].addr.name[SMR2_NAME_MAX - 1] = '\0';
 
 	peer_smr = smr2_peer_region(region, id);
-
-	if ((region != peer_smr && region->cma_cap_peer == SMR2_CMA_CAP_NA) ||
-	    (region == peer_smr && region->cma_cap_self == SMR2_CMA_CAP_NA))
-		smr2_cma_check(region, peer_smr);
 }
 
 void smr2_unmap_from_endpoint(struct smr2_region *region, int64_t id)

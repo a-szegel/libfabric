@@ -95,8 +95,6 @@ static int smr2_progress_resp_entry(struct smr2_ep *ep, struct smr2_resp *resp,
 	peer_smr = smr2_peer_region(ep->region, pending->peer_id);
 
 	switch (pending->cmd.msg.hdr.op_src) {
-	case smr2_src_iov:
-		break;
 	case smr2_src_sar:
 		sar_buf = smr_freestack_get_entry_from_index(
 		    smr2_sar_pool(peer_smr), pending->cmd.msg.data.sar[0]);
@@ -267,36 +265,6 @@ static int smr2_progress_inject(struct smr2_cmd *cmd, enum fi_hmem_iface iface,
 	return FI_SUCCESS;
 }
 
-static int smr2_progress_iov(struct smr2_cmd *cmd, struct iovec *iov,
-			    size_t iov_count, size_t *total_len,
-			    struct smr2_ep *ep, int err)
-{
-	struct smr2_region *peer_smr;
-	struct smr2_resp *resp;
-	int ret;
-
-	peer_smr = smr2_peer_region(ep->region, cmd->msg.hdr.id);
-	resp = smr2_get_ptr(peer_smr, cmd->msg.hdr.src_data);
-
-	if (err) {
-		ret = -err;
-		goto out;
-	}
-
-	ret = smr2_cma_loop(peer_smr->pid, iov, iov_count, cmd->msg.data.iov,
-			   cmd->msg.data.iov_count, 0, cmd->msg.hdr.size,
-			   cmd->msg.hdr.op == ofi_op_read_req);
-	if (!ret)
-		*total_len = cmd->msg.hdr.size;
-
-out:
-	//Status must be set last (signals peer: op done, valid resp entry)
-	resp->status = ret;
-	smr2_signal(peer_smr);
-
-	return -ret;
-}
-
 static struct smr2_sar_entry *smr2_progress_sar(struct smr2_cmd *cmd,
 			struct fi_peer_rx_entry *rx_entry, enum fi_hmem_iface iface,
 			uint64_t device, struct iovec *iov, size_t iov_count,
@@ -364,10 +332,6 @@ static int smr2_start_common(struct smr2_ep *ep, struct smr2_cmd *cmd,
 					  rx_entry->iov, rx_entry->count,
 					  &total_len, ep, 0);
 		ep->region->cmd_cnt++;
-		break;
-	case smr2_src_iov:
-		err = smr2_progress_iov(cmd, rx_entry->iov, rx_entry->count,
-				       &total_len, ep, 0);
 		break;
 	case smr2_src_sar:
 		sar = smr2_progress_sar(cmd, rx_entry, iface, device,
@@ -577,9 +541,6 @@ static int smr2_progress_cmd_rma(struct smr2_ep *ep, struct smr2_cmd *cmd)
 		} else {
 			ep->region->cmd_cnt++;
 		}
-		break;
-	case smr2_src_iov:
-		err = smr2_progress_iov(cmd, iov, iov_count, &total_len, ep, ret);
 		break;
 	case smr2_src_sar:
 		if (smr2_progress_sar(cmd, NULL, iface, device, iov, iov_count,

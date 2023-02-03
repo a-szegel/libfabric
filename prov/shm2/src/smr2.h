@@ -244,17 +244,6 @@ struct smr2_sock_name {
 	struct dlist_entry entry;
 };
 
-enum smr2_cmap_state {
-	SMR2_CMAP_INIT = 0,
-	SMR2_CMAP_SUCCESS,
-	SMR2_CMAP_FAILED,
-};
-
-struct smr2_cmap_entry {
-	enum smr2_cmap_state	state;
-	int			device_fds[ZE_MAX_DEVICES];
-};
-
 struct smr2_sock_info {
 	char			name[SMR2_SOCK_NAME_MAX];
 	int			listen_sock;
@@ -263,7 +252,6 @@ struct smr2_sock_info {
 	pthread_t		listener_thread;
 	int			*my_fds;
 	int			nfds;
-	struct smr2_cmap_entry	peers[SMR2_MAX_PEERS];
 };
 
 struct smr2_srx_ctx {
@@ -400,49 +388,12 @@ struct smr2_rx_entry *smr2_get_recv_entry(struct smr2_srx_ctx *srx,
 
 void smr2_ep_progress(struct util_ep *util_ep);
 
-static inline bool smr2_cma_enabled(struct smr2_ep *ep,
-				   struct smr2_region *peer_smr)
-{
-	if (ep->region == peer_smr)
-		return ep->region->cma_cap_self == SMR2_CMA_CAP_ON;
-	else
-		return ep->region->cma_cap_peer == SMR2_CMA_CAP_ON;
-}
 
 static inline bool smr2_ze_ipc_enabled(struct smr2_region *smr,
 				      struct smr2_region *peer_smr)
 {
 	return (smr->flags & SMR2_FLAG_IPC_SOCK) &&
 	       (peer_smr->flags & SMR2_FLAG_IPC_SOCK);
-}
-
-static inline int smr2_cma_loop(pid_t pid, struct iovec *local,
-			unsigned long local_cnt, struct iovec *remote,
-			unsigned long remote_cnt, unsigned long flags,
-			size_t total, bool write)
-{
-	ssize_t ret;
-
-	while (1) {
-		if (write)
-			ret = ofi_process_vm_writev(pid, local, local_cnt, remote,
-						    remote_cnt, flags);
-		else
-			ret = ofi_process_vm_readv(pid, local, local_cnt, remote,
-						   remote_cnt, flags);
-		if (ret < 0) {
-			FI_WARN(&smr2_prov, FI_LOG_EP_CTRL,
-				"CMA error %d\n", errno);
-			return -FI_EIO;
-		}
-
-		total -= ret;
-		if (!total)
-			return FI_SUCCESS;
-
-		ofi_consume_iov(local, &local_cnt, (size_t) ret);
-		ofi_consume_iov(remote, &remote_cnt, (size_t) ret);
-	}
 }
 
 int smr2_unexp_start(struct fi_peer_rx_entry *rx_entry);

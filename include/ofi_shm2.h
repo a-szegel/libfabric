@@ -65,7 +65,6 @@ extern "C" {
 /* SMR op_src: Specifies data source location */
 enum {
 	smr2_src_inject,	/* inject buffers */
-	smr2_src_iov,	/* reference iovec via CMA */
 	smr2_src_sar,	/* segmentation fallback protocol */
 	smr2_src_max,
 };
@@ -79,13 +78,6 @@ enum {
 #define SMR2_TX_COMPLETION	(1 << 2)
 #define SMR2_RX_COMPLETION	(1 << 3)
 #define SMR2_MULTI_RECV		(1 << 4)
-
-/* CMA capability */
-enum {
-	SMR2_CMA_CAP_NA,
-	SMR2_CMA_CAP_ON,
-	SMR2_CMA_CAP_OFF,
-};
 
 /*
  * Unique smr2_op_hdr for smr message protocol:
@@ -329,7 +321,6 @@ size_t smr2_calculate_size_offsets(size_t tx_count, size_t rx_count,
 				  size_t *inject_offset, size_t *sar_offset,
 				  size_t *peer_offset, size_t *name_offset,
 				  size_t *sock_offset);
-void	smr2_cma_check(struct smr2_region *region, struct smr2_region *peer_region);
 void	smr2_cleanup(void);
 int	smr2_map_create(const struct fi_provider *prov, int peer_count,
 		       uint16_t caps, struct smr2_map **map);

@@ -294,7 +294,6 @@ static ssize_t smr2_generic_sendmsg(struct smr2_ep *ep, const struct iovec *iov,
 	ssize_t ret = 0;
 	size_t total_len;
 	bool use_ipc;
-	int proto;
 
 	assert(iov_count <= SMR2_IOV_LIMIT);
 
@@ -323,18 +322,12 @@ static ssize_t smr2_generic_sendmsg(struct smr2_ep *ep, const struct iovec *iov,
 		  desc && (smr2_get_mr_flags(desc) & FI_HMEM_DEVICE_ONLY) &&
 		  !(op_flags & FI_INJECT);
 
-	proto = smr2_select_proto(use_ipc, smr2_cma_enabled(ep, peer_smr), iface,
-				 op, total_len, op_flags);
-
-	ret = smr2_proto_ops[proto](ep, peer_smr, id, peer_id, op, tag, data, op_flags,
+	ret = smr2_proto_ops[smr2_src_inject](ep, peer_smr, id, peer_id, op, tag, data, op_flags,
 				   iface, device, iov, iov_count, total_len, context);
 	if (ret)
 		goto unlock_cq;
 
 	smr2_signal(peer_smr);
-
-	if (proto != smr2_src_inject)
-		goto unlock_cq;
 
 	ret = smr2_complete_tx(ep, context, op, op_flags);
 	if (ret) {
