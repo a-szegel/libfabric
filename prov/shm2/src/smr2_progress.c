@@ -226,30 +226,6 @@ static void smr2_progress_resp(struct smr2_ep *ep)
 	pthread_spin_unlock(&ep->region->lock);
 }
 
-static int smr2_progress_inline(struct smr2_cmd *cmd, enum fi_hmem_iface iface,
-			       uint64_t device, struct iovec *iov,
-			       size_t iov_count, size_t *total_len)
-{
-	ssize_t hmem_copy_ret;
-
-	hmem_copy_ret = ofi_copy_to_hmem_iov(iface, device, iov, iov_count, 0,
-					     cmd->msg.data.msg, cmd->msg.hdr.size);
-	if (hmem_copy_ret < 0) {
-		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL,
-			"inline recv failed with code %d\n",
-			(int)(-hmem_copy_ret));
-		return hmem_copy_ret;
-	} else if (hmem_copy_ret != cmd->msg.hdr.size) {
-		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL,
-			"inline recv truncated\n");
-		return -FI_ETRUNC;
-	}
-
-	*total_len = hmem_copy_ret;
-
-	return FI_SUCCESS;
-}
-
 static int smr2_progress_inject(struct smr2_cmd *cmd, enum fi_hmem_iface iface,
 			       uint64_t device, struct iovec *iov,
 			       size_t iov_count, size_t *total_len,
@@ -474,29 +450,6 @@ static void smr2_do_atomic(void *src, void *dst, void *cmp, enum fi_datatype dat
 		       cnt * ofi_datatype_size(datatype));
 }
 
-static int smr2_progress_inline_atomic(struct smr2_cmd *cmd, struct fi_ioc *ioc,
-			       size_t ioc_count, size_t *len)
-{
-	int i;
-	uint8_t *src = cmd->msg.data.msg;
-
-	assert(cmd->msg.hdr.op == ofi_op_atomic);
-
-	for (i = *len = 0; i < ioc_count && *len < cmd->msg.hdr.size; i++) {
-		smr2_do_atomic(&src[*len], ioc[i].addr, NULL,
-			      cmd->msg.hdr.datatype, cmd->msg.hdr.atomic_op,
-			      ioc[i].count, cmd->msg.hdr.op_flags);
-		*len += ioc[i].count * ofi_datatype_size(cmd->msg.hdr.datatype);
-	}
-
-	if (*len != cmd->msg.hdr.size) {
-		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL,
-			"recv truncated");
-		return -FI_ETRUNC;
-	}
-	return FI_SUCCESS;
-}
-
 static int smr2_progress_inject_atomic(struct smr2_cmd *cmd, struct fi_ioc *ioc,
 			       size_t ioc_count, size_t *len,
 			       struct smr2_ep *ep, int err)
@@ -557,12 +510,6 @@ static int smr2_start_common(struct smr2_ep *ep, struct smr2_cmd *cmd,
 				      &device);
 
 	switch (cmd->msg.hdr.op_src) {
-	case smr2_src_inline:
-		err = smr2_progress_inline(cmd, iface, device,
-					  rx_entry->iov, rx_entry->count,
-					  &total_len);
-		ep->region->cmd_cnt++;
-		break;
 	case smr2_src_inject:
 		err = smr2_progress_inject(cmd, iface, device,
 					  rx_entry->iov, rx_entry->count,
@@ -775,11 +722,6 @@ static int smr2_progress_cmd_rma(struct smr2_ep *ep, struct smr2_cmd *cmd)
 	}
 
 	switch (cmd->msg.hdr.op_src) {
-	case smr2_src_inline:
-		err = smr2_progress_inline(cmd, iface, device, iov, iov_count,
-					  &total_len);
-		ep->region->cmd_cnt++;
-		break;
 	case smr2_src_inject:
 		err = smr2_progress_inject(cmd, iface, device, iov, iov_count,
 					  &total_len, ep, ret);
@@ -870,9 +812,6 @@ static int smr2_progress_cmd_atomic(struct smr2_ep *ep, struct smr2_cmd *cmd)
 	}
 
 	switch (cmd->msg.hdr.op_src) {
-	case smr2_src_inline:
-		err = smr2_progress_inline_atomic(cmd, ioc, ioc_count, &total_len);
-		break;
 	case smr2_src_inject:
 		err = smr2_progress_inject_atomic(cmd, ioc, ioc_count, &total_len, ep, ret);
 		break;

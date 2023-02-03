@@ -53,35 +53,6 @@ static void smr2_generic_atomic_format(struct smr2_cmd *cmd, uint8_t datatype,
 	cmd->msg.hdr.atomic_op = atomic_op;
 }
 
-static void smr2_format_inline_atomic(struct smr2_cmd *cmd,
-				     enum fi_hmem_iface iface, uint64_t device,
-				     const struct iovec *iov, size_t count)
-{
-	cmd->msg.hdr.op_src = smr2_src_inline;
-
-	cmd->msg.hdr.size = ofi_copy_from_hmem_iov(cmd->msg.data.msg,
-					SMR2_MSG_DATA_LEN, iface, device,
-					iov, count, 0);
-}
-
-static void smr2_do_atomic_inline(struct smr2_ep *ep, struct smr2_region *peer_smr,
-			int64_t id, int64_t peer_id, uint32_t op,
-			uint64_t op_flags, enum fi_hmem_iface iface,
-			uint64_t device, uint8_t datatype, uint8_t atomic_op,
-			const struct iovec *iov, size_t iov_count,
-			size_t total_len)
-{
-	struct smr2_cmd *cmd;
-
-	cmd = ofi_cirque_next(smr2_cmd_queue(peer_smr));
-	smr2_generic_format(cmd, peer_id, op, 0, 0, op_flags);
-	smr2_generic_atomic_format(cmd, datatype, atomic_op);
-	smr2_format_inline_atomic(cmd, iface, device, iov, iov_count);
-
-	ofi_cirque_commit(smr2_cmd_queue(peer_smr));
-	peer_smr->cmd_cnt--;
-}
-
 static void smr2_format_inject_atomic(struct smr2_cmd *cmd,
 			enum fi_hmem_iface iface, uint64_t device,
 			const struct iovec *iov, size_t count,
@@ -142,7 +113,7 @@ static ssize_t smr2_do_atomic_inject(struct smr2_ep *ep, struct smr2_region *pee
 
 	smr2_generic_format(cmd, peer_id, op, 0, 0, op_flags);
 	smr2_generic_atomic_format(cmd, datatype, atomic_op);
-	smr2_format_inject_atomic(cmd, iface, device, iov, iov_count, 
+	smr2_format_inject_atomic(cmd, iface, device, iov, iov_count,
 				 resultv, result_count, compv, comp_count,
 				 peer_smr, tx_buf);
 
@@ -166,16 +137,6 @@ static ssize_t smr2_do_atomic_inject(struct smr2_ep *ep, struct smr2_region *pee
 	return FI_SUCCESS;
 }
 
-static int smr2_select_atomic_proto(uint32_t op, uint64_t total_len,
-				   uint64_t op_flags)
-{
-	if (op == ofi_op_atomic_compare || op == ofi_op_atomic_fetch ||
-	    op_flags & FI_DELIVERY_COMPLETE || total_len > SMR2_MSG_DATA_LEN)
-		return smr2_src_inject;
-
-	return smr2_src_inline;
-}
-
 static ssize_t smr2_generic_atomic(struct smr2_ep *ep,
 			const struct fi_ioc *ioc, void **desc, size_t count,
 			const struct fi_ioc *compare_ioc, void **compare_desc,
@@ -195,7 +156,6 @@ static ssize_t smr2_generic_atomic(struct smr2_ep *ep,
 	uint64_t device;
 	uint16_t smr2_flags = 0;
 	int64_t id, peer_id;
-	int proto;
 	ssize_t ret = 0;
 	size_t total_len;
 
@@ -247,21 +207,14 @@ static ssize_t smr2_generic_atomic(struct smr2_ep *ep,
 
 	iface = smr2_get_mr_hmem_iface(ep->util_ep.domain, desc, &device);
 
-	proto = smr2_select_atomic_proto(op, total_len, op_flags);
+	ret = smr2_do_atomic_inject(ep, peer_smr, id, peer_id, op,
+			op_flags, iface, device, datatype, atomic_op,
+			iov, count, result_iov, result_count,
+			compare_iov, compare_count, total_len, context,
+			smr2_flags);
+	if (ret)
+		goto unlock_cq;
 
-	if (proto == smr2_src_inline) {
-		smr2_do_atomic_inline(ep, peer_smr, id, peer_id, ofi_op_atomic,
-			 	     op_flags, iface, device, datatype, atomic_op,
-				     iov, count, total_len);
-	} else {
-		ret = smr2_do_atomic_inject(ep, peer_smr, id, peer_id, op,
-				op_flags, iface, device, datatype, atomic_op,
-				iov, count, result_iov, result_count,
-				compare_iov, compare_count, total_len, context,
-				smr2_flags);
-		if (ret)
-			goto unlock_cq;
-	}
 
 	if (!(smr2_flags & SMR2_RMA_REQ) && !(op_flags & FI_DELIVERY_COMPLETE)) {
 		ret = smr2_complete_tx(ep, context, op, op_flags);
@@ -377,18 +330,12 @@ static ssize_t smr2_atomic_inject(struct fid_ep *ep_fid, const void *buf,
 	rma_ioc.count = count;
 	rma_ioc.key = key;
 
-	if (total_len <= SMR2_MSG_DATA_LEN) {
-		smr2_do_atomic_inline(ep, peer_smr, id, peer_id, ofi_op_atomic,
-			 	     0, FI_HMEM_SYSTEM, 0, datatype, op,
-				     &iov, 1, total_len);
-	} else if (total_len <= SMR2_INJECT_SIZE) {
-		ret = smr2_do_atomic_inject(ep, peer_smr, id, peer_id,
-				ofi_op_atomic, 0, FI_HMEM_SYSTEM, 0, datatype,
-				op, &iov, 1, NULL, 0, NULL, 0, total_len,
-				NULL, 0);
-		if (ret)
-			goto unlock_region;
-	}
+	ret = smr2_do_atomic_inject(ep, peer_smr, id, peer_id,
+			ofi_op_atomic, 0, FI_HMEM_SYSTEM, 0, datatype,
+			op, &iov, 1, NULL, 0, NULL, 0, total_len,
+			NULL, 0);
+	if (ret)
+		goto unlock_region;
 
 	cmd = ofi_cirque_next(smr2_cmd_queue(peer_smr));
 	smr2_format_rma_ioc(cmd, &rma_ioc, 1);

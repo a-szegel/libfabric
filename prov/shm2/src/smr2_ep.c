@@ -322,15 +322,6 @@ void smr2_generic_format(struct smr2_cmd *cmd, int64_t peer_id, uint32_t op,
 		cmd->msg.hdr.op_flags |= SMR2_TX_COMPLETION;
 }
 
-static void smr2_format_inline(struct smr2_cmd *cmd, enum fi_hmem_iface iface,
-		       uint64_t device, const struct iovec *iov, size_t count)
-{
-	cmd->msg.hdr.op_src = smr2_src_inline;
-	cmd->msg.hdr.size = ofi_copy_from_hmem_iov(cmd->msg.data.msg,
-						SMR2_MSG_DATA_LEN, iface, device,
-						iov, count, 0);
-}
-
 static void smr2_format_inject(struct smr2_cmd *cmd, enum fi_hmem_iface iface,
 		uint64_t device, const struct iovec *iov, size_t count,
 		struct smr2_region *smr, struct smr2_inject_buf *tx_buf)
@@ -550,8 +541,7 @@ int smr2_select_proto(bool use_ipc, bool cma_avail, enum fi_hmem_iface iface,
 	if (op_flags & FI_INJECT) {
 		if (op_flags & FI_DELIVERY_COMPLETE)
 			return smr2_src_sar;
-		return total_len <= SMR2_MSG_DATA_LEN ?
-				smr2_src_inline : smr2_src_inject;
+		return smr2_src_inject;
 	}
 
 	if (use_ipc)
@@ -563,31 +553,10 @@ int smr2_select_proto(bool use_ipc, bool cma_avail, enum fi_hmem_iface iface,
 	if (op_flags & FI_DELIVERY_COMPLETE)
 		return smr2_src_sar;
 
-	if (total_len <= SMR2_MSG_DATA_LEN)
-		return smr2_src_inline;
-
 	if (total_len <= SMR2_INJECT_SIZE)
 		return smr2_src_inject;
 
 	return smr2_src_sar;
-}
-
-static ssize_t smr2_do_inline(struct smr2_ep *ep, struct smr2_region *peer_smr, int64_t id,
-			     int64_t peer_id, uint32_t op, uint64_t tag, uint64_t data,
-			     uint64_t op_flags, enum fi_hmem_iface iface, uint64_t device,
-			     const struct iovec *iov, size_t iov_count, size_t total_len,
-			     void *context)
-{
-	struct smr2_cmd *cmd;
-
-	cmd = ofi_cirque_next(smr2_cmd_queue(peer_smr));
-	smr2_generic_format(cmd, peer_id, op, tag, data, op_flags);
-	smr2_format_inline(cmd, iface, device, iov, iov_count);
-
-	ofi_cirque_commit(smr2_cmd_queue(peer_smr));
-	peer_smr->cmd_cnt--;
-
-	return FI_SUCCESS;
 }
 
 static ssize_t smr2_do_inject(struct smr2_ep *ep, struct smr2_region *peer_smr, int64_t id,
@@ -724,7 +693,6 @@ static ssize_t smr2_do_ipc(struct smr2_ep *ep, struct smr2_region *peer_smr, int
 }
 
 smr2_proto_func smr2_proto_ops[smr2_src_max] = {
-	[smr2_src_inline] = &smr2_do_inline,
 	[smr2_src_inject] = &smr2_do_inject,
 	[smr2_src_iov] = &smr2_do_iov,
 	[smr2_src_sar] = &smr2_do_sar,

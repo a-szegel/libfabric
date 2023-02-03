@@ -105,7 +105,7 @@ static ssize_t smr2_generic_rma(struct smr2_ep *ep, const struct iovec *iov,
 	enum fi_hmem_iface iface;
 	uint64_t device;
 	int64_t id, peer_id;
-	int cmds, err = 0, proto = smr2_src_inline;
+	int cmds, err = 0, proto = smr2_src_inject;
 	ssize_t ret = 0;
 	size_t total_len;
 	bool use_ipc;
@@ -162,7 +162,7 @@ static ssize_t smr2_generic_rma(struct smr2_ep *ep, const struct iovec *iov,
 	total_len = ofi_total_iov_len(iov, iov_count);
 	assert(!(op_flags & FI_INJECT) || total_len <= SMR2_INJECT_SIZE);
 
-	/* Do not inline/inject if IPC is available so device to device
+	/* Do not inject if IPC is available so device to device
 	 * transfer may occur if possible. */
 	use_ipc = ofi_hmem_is_ipc_enabled(iface) && (iov_count == 1) &&
 		  desc && (smr2_get_mr_flags(desc) & FI_HMEM_DEVICE_ONLY) &&
@@ -178,7 +178,7 @@ static ssize_t smr2_generic_rma(struct smr2_ep *ep, const struct iovec *iov,
 
 	smr2_add_rma_cmd(peer_smr, rma_iov, rma_count);
 
-	if (proto != smr2_src_inline && proto != smr2_src_inject)
+	if (proto != smr2_src_inject)
 		goto signal;
 
 	ret = smr2_complete_tx(ep, context, op, op_flags);
@@ -313,7 +313,7 @@ static ssize_t smr2_generic_rma_inject(struct fid_ep *ep_fid, const void *buf,
 	struct iovec iov;
 	struct fi_rma_iov rma_iov;
 	int64_t id, peer_id;
-	int cmds, proto = smr2_src_inline;
+	int cmds;
 	ssize_t ret = 0;
 
 	assert(len <= SMR2_INJECT_SIZE);
@@ -351,8 +351,7 @@ static ssize_t smr2_generic_rma_inject(struct fid_ep *ep_fid, const void *buf,
 		goto signal;
 	}
 
-	proto = len <= SMR2_MSG_DATA_LEN ? smr2_src_inline : smr2_src_inject;
-	ret = smr2_proto_ops[proto](ep, peer_smr, id, peer_id, ofi_op_write, 0,
+	ret = smr2_proto_ops[smr2_src_inject](ep, peer_smr, id, peer_id, ofi_op_write, 0,
 			data, flags, FI_HMEM_SYSTEM, 0, &iov, 1, len, NULL);
 
 	assert(!ret);

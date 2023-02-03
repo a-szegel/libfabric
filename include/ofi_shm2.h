@@ -64,7 +64,6 @@ extern "C" {
 
 /* SMR op_src: Specifies data source location */
 enum {
-	smr2_src_inline,	/* command data */
 	smr2_src_inject,	/* inject buffers */
 	smr2_src_iov,	/* reference iovec via CMA */
 	smr2_src_sar,	/* segmentation fallback protocol */

@@ -333,7 +333,7 @@ static ssize_t smr2_generic_sendmsg(struct smr2_ep *ep, const struct iovec *iov,
 
 	smr2_signal(peer_smr);
 
-	if (proto != smr2_src_inline && proto != smr2_src_inject)
+	if (proto != smr2_src_inject)
 		goto unlock_cq;
 
 	ret = smr2_complete_tx(ep, context, op, op_flags);
@@ -397,7 +397,6 @@ static ssize_t smr2_generic_inject(struct fid_ep *ep_fid, const void *buf,
 	int64_t id, peer_id;
 	ssize_t ret = 0;
 	struct iovec msg_iov;
-	int proto;
 
 	assert(len <= SMR2_INJECT_SIZE);
 
@@ -419,8 +418,7 @@ static ssize_t smr2_generic_inject(struct fid_ep *ep_fid, const void *buf,
 		goto unlock;
 	}
 
-	proto = len <= SMR2_MSG_DATA_LEN ? smr2_src_inline : smr2_src_inject;
-	ret = smr2_proto_ops[proto](ep, peer_smr, id, peer_id, op, tag, data,
+	ret = smr2_proto_ops[smr2_src_inject](ep, peer_smr, id, peer_id, op, tag, data,
 			op_flags, FI_HMEM_SYSTEM, 0, &msg_iov, 1, len, NULL);
 
 	assert(!ret);
