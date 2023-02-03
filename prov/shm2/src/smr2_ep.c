@@ -414,85 +414,6 @@ static int smr2_format_ipc(struct smr2_cmd *cmd, void *ptr, size_t len,
 	return FI_SUCCESS;
 }
 
-static int smr2_format_mmap(struct smr2_ep *ep, struct smr2_cmd *cmd,
-		const struct iovec *iov, size_t count, size_t total_len,
-		struct smr2_tx_entry *pend, struct smr2_resp *resp)
-{
-	void *mapped_ptr;
-	int fd, ret, num;
-	uint64_t msg_id;
-	struct smr2_ep_name *map_name;
-
-	msg_id = ep->msg_id++;
-	map_name = calloc(1, sizeof(*map_name));
-	if (!map_name) {
-		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL, "calloc error\n");
-		return -FI_ENOMEM;
-	}
-
-	pthread_mutex_lock(&smr2_ep_list_lock);
-	dlist_insert_tail(&map_name->entry, &smr2_ep_name_list);
-	pthread_mutex_unlock(&smr2_ep_list_lock);
-	num = smr2_mmap_name(map_name->name, ep->name, msg_id);
-	if (num < 0) {
-		FI_WARN(&smr2_prov, FI_LOG_AV, "generating shm file name failed\n");
-		ret = -errno;
-		goto remove_entry;
-	}
-
-	fd = shm_open(map_name->name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-	if (fd < 0) {
-		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL, "shm_open error\n");
-		ret = -errno;
-		goto remove_entry;
-	}
-
-	ret = ftruncate(fd, total_len);
-	if (ret < 0) {
-		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL, "ftruncate error\n");
-		goto unlink_close;
-	}
-
-	mapped_ptr = mmap(NULL, total_len, PROT_READ | PROT_WRITE,
-			  MAP_SHARED, fd, 0);
-	if (mapped_ptr == MAP_FAILED) {
-		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL, "mmap error\n");
-		ret = -errno;
-		goto unlink_close;
-	}
-
-	if (cmd->msg.hdr.op != ofi_op_read_req) {
-		if (ofi_copy_from_iov(mapped_ptr, total_len, iov, count, 0)
-		    != total_len) {
-			FI_WARN(&smr2_prov, FI_LOG_EP_CTRL, "copy from iov error\n");
-			ret = -FI_EIO;
-			goto munmap;
-		}
-		munmap(mapped_ptr, total_len);
-	} else {
-		pend->map_ptr = mapped_ptr;
-	}
-
-	cmd->msg.hdr.op_src = smr2_src_mmap;
-	cmd->msg.hdr.msg_id = msg_id;
-	cmd->msg.hdr.src_data = smr2_get_offset(ep->region, resp);
-	cmd->msg.hdr.size = total_len;
-	pend->map_name = map_name;
-
-	close(fd);
-	return 0;
-
-munmap:
-	munmap(mapped_ptr, total_len);
-unlink_close:
-	shm_unlink(map_name->name);
-	close(fd);
-remove_entry:
-	dlist_remove(&map_name->entry);
-	free(map_name);
-	return ret;
-}
-
 size_t smr2_copy_to_sar(struct smr_freestack *sar_pool, struct smr2_resp *resp,
 		       struct smr2_cmd *cmd, enum fi_hmem_iface iface,
 		       uint64_t device, const struct iovec *iov, size_t count,
@@ -648,10 +569,7 @@ int smr2_select_proto(bool use_ipc, bool cma_avail, enum fi_hmem_iface iface,
 	if (total_len <= SMR2_INJECT_SIZE)
 		return smr2_src_inject;
 
-	if (total_len <= smr2_env.sar_threshold || iface != FI_HMEM_SYSTEM)
-		return smr2_src_sar;
-
-	return smr2_src_mmap;
+	return smr2_src_sar;
 }
 
 static ssize_t smr2_do_inline(struct smr2_ep *ep, struct smr2_region *peer_smr, int64_t id,
@@ -805,46 +723,10 @@ static ssize_t smr2_do_ipc(struct smr2_ep *ep, struct smr2_region *peer_smr, int
 	return FI_SUCCESS;
 }
 
-static ssize_t smr2_do_mmap(struct smr2_ep *ep, struct smr2_region *peer_smr, int64_t id,
-			   int64_t peer_id, uint32_t op, uint64_t tag, uint64_t data,
-			   uint64_t op_flags, enum fi_hmem_iface iface, uint64_t device,
-		           const struct iovec *iov, size_t iov_count, size_t total_len,
-		           void *context)
-{
-	struct smr2_cmd *cmd;
-	struct smr2_resp *resp;
-	struct smr2_tx_entry *pend;
-	int ret;
-
-	if (ofi_cirque_isfull(smr2_resp_queue(ep->region)))
-		return -FI_EAGAIN;
-
-	cmd = ofi_cirque_next(smr2_cmd_queue(peer_smr));
-	resp = ofi_cirque_next(smr2_resp_queue(ep->region));
-	pend = ofi_freestack_pop(ep->pend_fs);
-
-	smr2_generic_format(cmd, peer_id, op, tag, data, op_flags);
-	ret = smr2_format_mmap(ep, cmd, iov, iov_count, total_len, pend, resp);
-	if (ret) {
-		ofi_freestack_push(ep->pend_fs, pend);
-		return ret;
-	}
-
-	smr2_format_pend_resp(pend, cmd, context, iface, device, iov,
-			     iov_count, op_flags, id, resp);
-	ofi_cirque_commit(smr2_resp_queue(ep->region));
-
-	ofi_cirque_commit(smr2_cmd_queue(peer_smr));
-	peer_smr->cmd_cnt--;
-
-	return FI_SUCCESS;
-}
-
 smr2_proto_func smr2_proto_ops[smr2_src_max] = {
 	[smr2_src_inline] = &smr2_do_inline,
 	[smr2_src_inject] = &smr2_do_inject,
 	[smr2_src_iov] = &smr2_do_iov,
-	[smr2_src_mmap] = &smr2_do_mmap,
 	[smr2_src_sar] = &smr2_do_sar,
 	[smr2_src_ipc] = &smr2_do_ipc,
 };
