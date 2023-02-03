@@ -423,7 +423,6 @@ out:
 
 void smr2_map_to_endpoint(struct smr2_region *region, int64_t id)
 {
-	struct smr2_region *peer_smr;
 	struct smr2_peer_data *local_peers;
 
 	if (region->map->peers[id].peer.id < 0)
@@ -434,8 +433,6 @@ void smr2_map_to_endpoint(struct smr2_region *region, int64_t id)
 	strncpy(local_peers[id].addr.name,
 		region->map->peers[id].peer.name, SMR2_NAME_MAX - 1);
 	local_peers[id].addr.name[SMR2_NAME_MAX - 1] = '\0';
-
-	peer_smr = smr2_peer_region(region, id);
 }
 
 void smr2_unmap_from_endpoint(struct smr2_region *region, int64_t id)

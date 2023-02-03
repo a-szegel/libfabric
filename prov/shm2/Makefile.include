@@ -12,9 +12,7 @@ _shm2_files = \
 	prov/shm2/src/smr2_init.c	\
 	prov/shm2/src/smr2_av.c		\
 	prov/shm2/src/smr2_signal.h	\
-	prov/shm2/src/smr2.h		\
-	prov/shm2/src/smr2_dsa.h	\
-	prov/shm2/src/smr2_dsa.c
+	prov/shm2/src/smr2.h
 
 
 if HAVE_SHM2_DL

@@ -35,7 +35,6 @@
 #include <ofi_prov.h>
 #include "smr2.h"
 #include "smr2_signal.h"
-#include "smr2_dsa.h"
 #include <ofi_hmem.h>
 
 struct sigaction *smr2_old_action = NULL;

@@ -65,7 +65,6 @@ extern "C" {
 /* SMR op_src: Specifies data source location */
 enum {
 	smr2_src_inject,	/* inject buffers */
-	smr2_src_sar,	/* segmentation fallback protocol */
 	smr2_src_max,
 };
 
