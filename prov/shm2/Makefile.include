@@ -7,7 +7,6 @@ _shm2_files = \
 	prov/shm2/src/smr2_comp.c	\
 	prov/shm2/src/smr2_cntr.c	\
 	prov/shm2/src/smr2_msg.c	\
-	prov/shm2/src/smr2_rma.c	\
 	prov/shm2/src/smr2_ep.c		\
 	prov/shm2/src/smr2_fabric.c	\
 	prov/shm2/src/smr2_init.c	\

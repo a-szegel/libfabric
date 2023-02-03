@@ -32,10 +32,9 @@
 
 #include "smr2.h"
 
-#define SMR2_TX_CAPS (OFI_TX_MSG_CAPS | FI_TAGGED | OFI_TX_RMA_CAPS )
-#define SMR2_RX_CAPS (FI_SOURCE | FI_RMA_EVENT | OFI_RX_MSG_CAPS | FI_TAGGED | \
-		     OFI_RX_RMA_CAPS  | FI_DIRECTED_RECV | \
-		     FI_MULTI_RECV)
+#define SMR2_TX_CAPS (OFI_TX_MSG_CAPS | FI_TAGGED )
+#define SMR2_RX_CAPS (FI_SOURCE | OFI_RX_MSG_CAPS | FI_TAGGED | \
+		     FI_DIRECTED_RECV | FI_MULTI_RECV)
 #define SMR2_HMEM_TX_CAPS ((SMR2_TX_CAPS | FI_HMEM))
 #define SMR2_HMEM_RX_CAPS ((SMR2_RX_CAPS | FI_HMEM))
 #define SMR2_TX_OP_FLAGS (FI_COMPLETION | FI_INJECT_COMPLETE | \
@@ -46,7 +45,7 @@ struct fi_tx_attr smr2_tx_attr = {
 	.caps = SMR2_TX_CAPS,
 	.op_flags = SMR2_TX_OP_FLAGS,
 	.comp_order = FI_ORDER_NONE,
-	.msg_order = SMR2_RMA_ORDER | FI_ORDER_SAS,
+	.msg_order =  FI_ORDER_SAS,
 	.inject_size = SMR2_INJECT_SIZE,
 	.size = 1024,
 	.iov_limit = SMR2_IOV_LIMIT,
@@ -57,7 +56,7 @@ struct fi_rx_attr smr2_rx_attr = {
 	.caps = SMR2_RX_CAPS,
 	.op_flags = SMR2_RX_OP_FLAGS,
 	.comp_order = FI_ORDER_STRICT,
-	.msg_order = SMR2_RMA_ORDER | FI_ORDER_SAS,
+	.msg_order = FI_ORDER_SAS,
 	.size = 1024,
 	.iov_limit = SMR2_IOV_LIMIT
 };
@@ -66,7 +65,7 @@ struct fi_tx_attr smr2_hmem_tx_attr = {
 	.caps = SMR2_HMEM_TX_CAPS,
 	.op_flags = SMR2_TX_OP_FLAGS,
 	.comp_order = FI_ORDER_NONE,
-	.msg_order = SMR2_RMA_ORDER | FI_ORDER_SAS,
+	.msg_order = FI_ORDER_SAS,
 	.inject_size = 0,
 	.size = 1024,
 	.iov_limit = SMR2_IOV_LIMIT,
@@ -77,7 +76,7 @@ struct fi_rx_attr smr2_hmem_rx_attr = {
 	.caps = SMR2_HMEM_RX_CAPS,
 	.op_flags = SMR2_RX_OP_FLAGS,
 	.comp_order = FI_ORDER_STRICT,
-	.msg_order = SMR2_RMA_ORDER | FI_ORDER_SAS,
+	.msg_order = FI_ORDER_SAS,
 	.size = 1024,
 	.iov_limit = SMR2_IOV_LIMIT
 };

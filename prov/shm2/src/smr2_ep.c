@@ -44,7 +44,6 @@
 
 extern struct fi_ops_msg smr2_msg_ops, smr2_no_recv_msg_ops, smr2_srx_msg_ops;
 extern struct fi_ops_tagged smr2_tag_ops, smr2_no_recv_tag_ops, smr2_srx_tag_ops;
-extern struct fi_ops_rma smr2_rma_ops;
 DEFINE_LIST(smr2_sock_name_list);
 pthread_mutex_t smr2_sock_list_lock = PTHREAD_MUTEX_INITIALIZER;
 int smr2_global_ep_idx = 0;
@@ -1666,7 +1665,7 @@ int smr2_endpoint(struct fid_domain *domain, struct fi_info *info,
 	ep->util_ep.ep_fid.fid.ops = &smr2_ep_fi_ops;
 	ep->util_ep.ep_fid.ops = &smr2_ep_ops;
 	ep->util_ep.ep_fid.cm = &smr2_cm_ops;
-	ep->util_ep.ep_fid.rma = &smr2_rma_ops;
+	ep->util_ep.ep_fid.rma = NULL;
 
 	*ep_fid = &ep->util_ep.ep_fid;
 	return 0;
