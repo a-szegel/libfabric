@@ -304,13 +304,19 @@ static ssize_t smr2_generic_sendmsg(struct smr2_ep *ep, const struct iovec *iov,
 	peer_id = smr2_peer_data(ep->region)[id].addr.id;
 	peer_smr = smr2_peer_region(ep->region, id);
 
+	// TODO This lock has got to go!!!
 	pthread_spin_lock(&peer_smr->lock);
+
+    // This can be our thread lock... everything from here on down is now locked
+	ofi_spin_lock(&ep->tx_lock);
+
+	// This should change to "Do I have any free queues left",
+	// and if I don't... call into progress engine
 	if (!peer_smr->cmd_cnt || smr2_peer_data(ep->region)[id].sar_status) {
 		ret = -FI_EAGAIN;
 		goto unlock_region;
 	}
 
-	ofi_spin_lock(&ep->tx_lock);
 	iface = smr2_get_mr_hmem_iface(ep->util_ep.domain, desc, &device);
 
 	total_len = ofi_total_iov_len(iov, iov_count);

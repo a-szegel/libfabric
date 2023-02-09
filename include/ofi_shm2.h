@@ -215,7 +215,6 @@ struct smr2_region {
 	pthread_spinlock_t	lock; /* lock for shm access
 				 Must hold smr->lock before tx/rx cq locks
 				 in order to progress or post recv */
-	ofi_atomic32_t	signal;
 
 	struct smr2_map	*map;
 
@@ -338,11 +337,6 @@ struct smr2_region *smr2_map_get(struct smr2_map *map, int64_t id);
 int	smr2_create(const struct fi_provider *prov, struct smr2_map *map,
 		   const struct smr2_attr *attr, struct smr2_region *volatile *smr);
 void	smr2_free(struct smr2_region *smr);
-
-static inline void smr2_signal(struct smr2_region *smr)
-{
-	ofi_atomic_set32(&smr->signal, 1);
-}
 
 #ifdef __cplusplus
 }

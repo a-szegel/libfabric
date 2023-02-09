@@ -119,8 +119,8 @@ static void smr2_progress_resp(struct smr2_ep *ep)
 	struct smr2_tx_entry *pending;
 	int ret;
 
-	pthread_spin_lock(&ep->region->lock);
-	ofi_spin_lock(&ep->tx_lock);
+	pthread_spin_lock(&ep->region->lock); // TODO DELETE
+	ofi_spin_lock(&ep->tx_lock); // keep for now... but move up one level
 	while (!ofi_cirque_isempty(smr2_resp_queue(ep->region))) {
 		resp = ofi_cirque_head(smr2_resp_queue(ep->region));
 		if (resp->status == FI_EBUSY)
@@ -147,7 +147,7 @@ static void smr2_progress_resp(struct smr2_ep *ep)
 		ofi_cirque_discard(smr2_resp_queue(ep->region));
 	}
 	ofi_spin_unlock(&ep->tx_lock);
-	pthread_spin_unlock(&ep->region->lock);
+	pthread_spin_unlock(&ep->region->lock);  // TODO DELETE
 }
 
 static int smr2_progress_inject(struct smr2_cmd *cmd, enum fi_hmem_iface iface,
@@ -214,7 +214,7 @@ static int smr2_start_common(struct smr2_ep *ep, struct smr2_cmd *cmd,
 		err = smr2_progress_inject(cmd, iface, device,
 					  rx_entry->iov, rx_entry->count,
 					  &total_len, ep, 0);
-		ep->region->cmd_cnt++;
+		ep->region->cmd_cnt++; // this needs to go away
 		break;
 	default:
 		FI_WARN(&smr2_prov, FI_LOG_EP_CTRL,
@@ -452,7 +452,7 @@ static void smr2_progress_cmd(struct smr2_ep *ep)
 	struct smr2_cmd *cmd;
 	int ret = 0;
 
-	pthread_spin_lock(&ep->region->lock);
+	pthread_spin_lock(&ep->region->lock); // NEEDS TO GO!
 	while (!ofi_cirque_isempty(smr2_cmd_queue(ep->region))) {
 		cmd = ofi_cirque_head(smr2_cmd_queue(ep->region));
 

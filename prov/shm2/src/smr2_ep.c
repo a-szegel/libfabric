@@ -322,7 +322,7 @@ static void smr2_format_inject(struct smr2_cmd *cmd, enum fi_hmem_iface iface,
 		struct smr2_region *smr, struct smr2_inject_buf *tx_buf)
 {
 	cmd->msg.hdr.op_src = smr2_src_inject;
-	cmd->msg.hdr.src_data = smr2_get_offset(smr, tx_buf);
+	cmd->msg.hdr.src_data = smr2_get_offset(smr, tx_buf); // this might need to be adjusted when FQE  definition changes
 	cmd->msg.hdr.size = ofi_copy_from_hmem_iov(tx_buf->data, SMR2_INJECT_SIZE,
 						   iface, device, iov, count, 0);
 }
@@ -342,14 +342,15 @@ static ssize_t smr2_do_inject(struct smr2_ep *ep, struct smr2_region *peer_smr, 
 	struct smr2_cmd *cmd;
 	struct smr2_inject_buf *tx_buf;
 
-	cmd = ofi_cirque_next(smr2_cmd_queue(peer_smr));
-	tx_buf = smr_freestack_pop(smr2_inject_pool(peer_smr));
+	cmd = ofi_cirque_next(smr2_cmd_queue(peer_smr)); // This should go away
+	tx_buf = smr_freestack_pop(smr2_inject_pool(peer_smr));  // this can stay... might need different FQE definition
 
-	smr2_generic_format(cmd, peer_id, op, tag, data, op_flags);
+	smr2_generic_format(cmd, peer_id, op, tag, data, op_flags); // This can stay
 	smr2_format_inject(cmd, iface, device, iov, iov_count, peer_smr, tx_buf);
 
+	// This should change to enqueue the free queue entry on the peers fifo buffer
 	ofi_cirque_commit(smr2_cmd_queue(peer_smr));
-	peer_smr->cmd_cnt--;
+	peer_smr->cmd_cnt--;  // TODO Delete CMD_COUNT... gets us nothing
 
 	return FI_SUCCESS;
 }
