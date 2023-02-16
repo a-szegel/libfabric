@@ -303,10 +303,8 @@ static ssize_t sm2_generic_sendmsg(struct sm2_ep *ep, const struct iovec *iov,
 	peer_id = sm2_peer_data(ep->region)[id].addr.id;
 	peer_smr = sm2_peer_region(ep->region, id);
 
-	pthread_spin_lock(&peer_smr->lock);
 	if (!peer_smr->cmd_cnt || sm2_peer_data(ep->region)[id].sar_status) {
-		ret = -FI_EAGAIN;
-		goto unlock_region;
+		return -FI_EAGAIN;
 	}
 
 	ofi_spin_lock(&ep->tx_lock);
@@ -331,8 +329,6 @@ static ssize_t sm2_generic_sendmsg(struct sm2_ep *ep, const struct iovec *iov,
 
 unlock_cq:
 	ofi_spin_unlock(&ep->tx_lock);
-unlock_region:
-	pthread_spin_unlock(&peer_smr->lock);
 	return ret;
 }
 
@@ -398,10 +394,8 @@ static ssize_t sm2_generic_inject(struct fid_ep *ep_fid, const void *buf,
 	peer_id = sm2_peer_data(ep->region)[id].addr.id;
 	peer_smr = sm2_peer_region(ep->region, id);
 
-	pthread_spin_lock(&peer_smr->lock);
 	if (!peer_smr->cmd_cnt || sm2_peer_data(ep->region)[id].sar_status) {
-		ret = -FI_EAGAIN;
-		goto unlock;
+		return -FI_EAGAIN;
 	}
 
 	ret = sm2_proto_ops[sm2_src_inject](ep, peer_smr, id, peer_id, op, tag, data,
@@ -411,8 +405,6 @@ static ssize_t sm2_generic_inject(struct fid_ep *ep_fid, const void *buf,
 	ofi_ep_tx_cntr_inc_func(&ep->util_ep, op);
 
 	sm2_signal(peer_smr);
-unlock:
-	pthread_spin_unlock(&peer_smr->lock);
 
 	return ret;
 }

@@ -158,11 +158,6 @@ err:
 	return -FI_EBUSY;
 }
 
-static void sm2_lock_init(pthread_spinlock_t *lock)
-{
-	pthread_spin_init(lock, PTHREAD_PROCESS_SHARED);
-}
-
 /* TODO: Determine if aligning SMR data helps performance */
 int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	       const struct sm2_attr *attr, struct sm2_region *volatile *smr)
@@ -241,7 +236,6 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	pthread_mutex_unlock(&sm2_ep_list_lock);
 
 	*smr = mapped_addr;
-	sm2_lock_init(&(*smr)->lock);
 	ofi_atomic_initialize32(&(*smr)->signal, 0);
 
 	(*smr)->map = map;

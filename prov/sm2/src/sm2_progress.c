@@ -86,15 +86,6 @@ static int sm2_progress_resp_entry(struct sm2_ep *ep, struct sm2_resp *resp,
 			"unidentified operation type\n");
 	}
 
-	//Skip locking on transfers from self since we already have
-	//the ep->region->lock
-	if (peer_smr != ep->region) {
-		if (pthread_spin_trylock(&peer_smr->lock)) {
-			sm2_signal(ep->region);
-			return -FI_EAGAIN;
-		}
-	}
-
 	peer_smr->cmd_cnt++;
 	if (tx_buf) {
 		smr_freestack_push(sm2_inject_pool(peer_smr), tx_buf);
@@ -107,9 +98,6 @@ static int sm2_progress_resp_entry(struct sm2_ep *ep, struct sm2_resp *resp,
 		sm2_peer_data(ep->region)[pending->peer_id].sar_status = 0;
 	}
 
-	if (peer_smr != ep->region)
-		pthread_spin_unlock(&peer_smr->lock);
-
 	return FI_SUCCESS;
 }
 
@@ -119,7 +107,6 @@ static void sm2_progress_resp(struct sm2_ep *ep)
 	struct sm2_tx_entry *pending;
 	int ret;
 
-	pthread_spin_lock(&ep->region->lock);
 	ofi_spin_lock(&ep->tx_lock);
 	while (!ofi_cirque_isempty(sm2_resp_queue(ep->region))) {
 		resp = ofi_cirque_head(sm2_resp_queue(ep->region));
@@ -147,7 +134,6 @@ static void sm2_progress_resp(struct sm2_ep *ep)
 		ofi_cirque_discard(sm2_resp_queue(ep->region));
 	}
 	ofi_spin_unlock(&ep->tx_lock);
-	pthread_spin_unlock(&ep->region->lock);
 }
 
 static int sm2_progress_inject(struct sm2_cmd *cmd, enum fi_hmem_iface iface,
@@ -254,10 +240,8 @@ int sm2_unexp_start(struct fi_peer_rx_entry *rx_entry)
 	struct sm2_cmd_ctx *cmd_ctx = rx_entry->peer_context;
 	int ret;
 
-	pthread_spin_lock(&cmd_ctx->ep->region->lock);
 	ret = sm2_start_common(cmd_ctx->ep, &cmd_ctx->cmd, rx_entry);
 	ofi_freestack_push(cmd_ctx->ep->cmd_ctx_fs, cmd_ctx);
-	pthread_spin_unlock(&cmd_ctx->ep->region->lock);
 
 	return ret;
 }
@@ -452,7 +436,6 @@ static void sm2_progress_cmd(struct sm2_ep *ep)
 	struct sm2_cmd *cmd;
 	int ret = 0;
 
-	pthread_spin_lock(&ep->region->lock);
 	while (!ofi_cirque_isempty(sm2_cmd_queue(ep->region))) {
 		cmd = ofi_cirque_head(sm2_cmd_queue(ep->region));
 
@@ -489,7 +472,6 @@ static void sm2_progress_cmd(struct sm2_ep *ep)
 			break;
 		}
 	}
-	pthread_spin_unlock(&ep->region->lock);
 }
 
 void sm2_ep_progress(struct util_ep *util_ep)

@@ -206,10 +206,8 @@ static void sm2_send_name(struct sm2_ep *ep, int64_t id)
 
 	peer_smr = sm2_peer_region(ep->region, id);
 
-	pthread_spin_lock(&peer_smr->lock);
-
 	if (sm2_peer_data(ep->region)[id].name_sent || !peer_smr->cmd_cnt)
-		goto out;
+		return;
 
 	cmd = ofi_cirque_next(sm2_cmd_queue(peer_smr));
 
@@ -227,9 +225,6 @@ static void sm2_send_name(struct sm2_ep *ep, int64_t id)
 	ofi_cirque_commit(sm2_cmd_queue(peer_smr));
 	peer_smr->cmd_cnt--;
 	sm2_signal(peer_smr);
-
-out:
-	pthread_spin_unlock(&peer_smr->lock);
 }
 
 int64_t sm2_verify_peer(struct sm2_ep *ep, fi_addr_t fi_addr)

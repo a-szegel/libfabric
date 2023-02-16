@@ -212,9 +212,6 @@ struct sm2_region {
 	uint8_t		cma_cap_self;
 	uint32_t	max_sar_buf_per_peer;
 	void		*base_addr;
-	pthread_spinlock_t	lock; /* lock for shm access
-				 Must hold smr->lock before tx/rx cq locks
-				 in order to progress or post recv */
 	ofi_atomic32_t	signal;
 
 	struct sm2_map	*map;
