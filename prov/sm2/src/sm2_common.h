@@ -196,8 +196,6 @@ struct sm2_region {
 	uint8_t		resv;
 	uint16_t	flags;
 	int		pid;
-	uint8_t		cma_cap_peer;
-	uint8_t		cma_cap_self;
 	uint32_t	max_sar_buf_per_peer;
 	void		*base_addr;
 
