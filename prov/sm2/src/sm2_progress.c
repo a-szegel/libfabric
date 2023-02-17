@@ -342,94 +342,6 @@ out:
 	return ret < 0 ? ret : 0;
 }
 
-static int sm2_progress_cmd_rma(struct sm2_ep *ep, struct sm2_cmd *cmd)
-{
-	struct sm2_region *peer_smr;
-	struct sm2_domain *domain;
-	struct sm2_cmd *rma_cmd;
-	struct sm2_resp *resp;
-	struct iovec iov[SM2_IOV_LIMIT];
-	size_t iov_count;
-	size_t total_len = 0;
-	int err = 0, ret = 0;
-	struct ofi_mr *mr;
-	enum fi_hmem_iface iface = FI_HMEM_SYSTEM;
-	uint64_t device = 0;
-
-	domain = container_of(ep->util_ep.domain, struct sm2_domain,
-			      util_domain);
-
-	ofi_cirque_discard(sm2_cmd_queue(ep->region));
-	ep->region->cmd_cnt++;
-	rma_cmd = ofi_cirque_head(sm2_cmd_queue(ep->region));
-
-	ofi_genlock_lock(&domain->util_domain.lock);
-	for (iov_count = 0; iov_count < rma_cmd->rma.rma_count; iov_count++) {
-		ret = ofi_mr_map_verify(&domain->util_domain.mr_map,
-				(uintptr_t *) &(rma_cmd->rma.rma_iov[iov_count].addr),
-				rma_cmd->rma.rma_iov[iov_count].len,
-				rma_cmd->rma.rma_iov[iov_count].key,
-				ofi_rx_mr_reg_flags(cmd->msg.hdr.op, 0), (void **) &mr);
-		if (ret)
-			break;
-
-		iov[iov_count].iov_base = (void *) rma_cmd->rma.rma_iov[iov_count].addr;
-		iov[iov_count].iov_len = rma_cmd->rma.rma_iov[iov_count].len;
-
-		if (!iov_count) {
-			iface = mr->iface;
-			device = mr->device;
-		} else {
-			assert(mr->iface == iface && mr->device == device);
-		}
-	}
-	ofi_genlock_unlock(&domain->util_domain.lock);
-
-	ofi_cirque_discard(sm2_cmd_queue(ep->region));
-	if (ret) {
-		ep->region->cmd_cnt++;
-		return ret;
-	}
-
-	switch (cmd->msg.hdr.op_src) {
-	case sm2_src_inject:
-		err = sm2_progress_inject(cmd, iface, device, iov, iov_count,
-					  &total_len, ep, ret);
-		if (cmd->msg.hdr.op == ofi_op_read_req && cmd->msg.hdr.data) {
-			peer_smr = sm2_peer_region(ep->region, cmd->msg.hdr.id);
-			resp = sm2_get_ptr(peer_smr, cmd->msg.hdr.data);
-			resp->status = -err;
-		} else {
-			ep->region->cmd_cnt++;
-		}
-		break;
-	default:
-		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
-			"unidentified operation type\n");
-		err = -FI_EINVAL;
-	}
-
-	if (err) {
-		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
-			"error processing rma op\n");
-		ret = sm2_write_err_comp(ep->util_ep.rx_cq, NULL,
-					 sm2_rx_cq_flags(cmd->msg.hdr.op, 0,
-					 cmd->msg.hdr.op_flags), 0, err);
-	} else {
-		ret = sm2_complete_rx(ep, (void *) cmd->msg.hdr.msg_id,
-			      cmd->msg.hdr.op, sm2_rx_cq_flags(cmd->msg.hdr.op,
-			      0, cmd->msg.hdr.op_flags), total_len,
-			      iov_count ? iov[0].iov_base : NULL,
-			      cmd->msg.hdr.id, 0, cmd->msg.hdr.data);
-	}
-	if (ret) {
-		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
-		"unable to process rx completion\n");
-	}
-
-	return ret;
-}
-
 static void sm2_progress_cmd(struct sm2_ep *ep)
 {
 	struct sm2_cmd *cmd;
@@ -442,17 +354,6 @@ static void sm2_progress_cmd(struct sm2_ep *ep)
 		case ofi_op_msg:
 		case ofi_op_tagged:
 			ret = sm2_progress_cmd_msg(ep, cmd);
-			break;
-		case ofi_op_write:
-		case ofi_op_read_req:
-			ret = sm2_progress_cmd_rma(ep, cmd);
-			break;
-		case ofi_op_write_async:
-		case ofi_op_read_async:
-			ofi_ep_rx_cntr_inc_func(&ep->util_ep,
-						cmd->msg.hdr.op);
-			ofi_cirque_discard(sm2_cmd_queue(ep->region));
-			ep->region->cmd_cnt++;
 			break;
 		case SM2_OP_MAX + ofi_ctrl_connreq:
 			sm2_progress_connreq(ep, cmd);

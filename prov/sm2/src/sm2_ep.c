@@ -300,7 +300,7 @@ void sm2_generic_format(struct sm2_cmd *cmd, int64_t peer_id, uint32_t op,
 			uint64_t tag, uint64_t data, uint64_t op_flags)
 {
 	cmd->msg.hdr.op = op;
-	cmd->msg.hdr.op_flags = op == ofi_op_read_req ? SM2_RMA_REQ : 0;
+	cmd->msg.hdr.op_flags = 0;
 	cmd->msg.hdr.tag = tag;
 	cmd->msg.hdr.id = peer_id;
 	cmd->msg.hdr.data = data;

@@ -73,7 +73,6 @@ enum {
 #define SM2_OP_MAX (1 << 8)
 
 #define SM2_REMOTE_CQ_DATA	(1 << 0)
-#define SM2_RMA_REQ		(1 << 1)
 #define SM2_TX_COMPLETION	(1 << 2)
 #define SM2_RX_COMPLETION	(1 << 3)
 #define SM2_MULTI_RECV		(1 << 4)
@@ -128,21 +127,10 @@ struct sm2_cmd_msg {
 	union sm2_cmd_data	data;
 };
 
-#define SM2_RMA_DATA_LEN	(128 - sizeof(uint64_t))
-struct sm2_cmd_rma {
-	uint64_t		rma_count;
-	union {
-		struct fi_rma_iov	rma_iov[SM2_RMA_DATA_LEN /
-						sizeof(struct fi_rma_iov)];
-		struct fi_rma_ioc	rma_ioc[SM2_RMA_DATA_LEN /
-						sizeof(struct fi_rma_ioc)];
-	};
-};
 
 struct sm2_cmd {
 	union {
 		struct sm2_cmd_msg	msg;
-		struct sm2_cmd_rma	rma;
 	};
 };
 
