@@ -86,7 +86,6 @@ static int sm2_progress_resp_entry(struct sm2_ep *ep, struct sm2_resp *resp,
 			"unidentified operation type\n");
 	}
 
-	peer_smr->cmd_cnt++;
 	if (tx_buf) {
 		smr_freestack_push(sm2_inject_pool(peer_smr), tx_buf);
 	} else if (sar_buf) {
@@ -200,7 +199,6 @@ static int sm2_start_common(struct sm2_ep *ep, struct sm2_cmd *cmd,
 		err = sm2_progress_inject(cmd, iface, device,
 					  rx_entry->iov, rx_entry->count,
 					  &total_len, ep, 0);
-		ep->region->cmd_cnt++;
 		break;
 	default:
 		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
@@ -277,7 +275,6 @@ static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_cmd *cmd)
 
 	smr_freestack_push(sm2_inject_pool(ep->region), tx_buf);
 	ofi_cirque_discard(sm2_cmd_queue(ep->region));
-	ep->region->cmd_cnt++;
 	assert(ep->region->map->num_peers > 0);
 	ep->region->max_sar_buf_per_peer = SM2_MAX_PEERS /
 		ep->region->map->num_peers;

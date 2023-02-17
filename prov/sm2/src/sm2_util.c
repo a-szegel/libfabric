@@ -258,7 +258,6 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	(*smr)->peer_data_offset = peer_data_offset;
 	(*smr)->name_offset = name_offset;
 	(*smr)->sock_name_offset = sock_name_offset;
-	(*smr)->cmd_cnt = rx_size;
 	/* Limit of 1 outstanding SAR message per peer */
 	(*smr)->sar_cnt = SM2_MAX_PEERS;
 	(*smr)->max_sar_buf_per_peer = SM2_BUF_BATCH_MAX;

@@ -206,7 +206,7 @@ static void sm2_send_name(struct sm2_ep *ep, int64_t id)
 
 	peer_smr = sm2_peer_region(ep->region, id);
 
-	if (sm2_peer_data(ep->region)[id].name_sent || !peer_smr->cmd_cnt)
+	if (sm2_peer_data(ep->region)[id].name_sent)
 		return;
 
 	cmd = ofi_cirque_next(sm2_cmd_queue(peer_smr));
@@ -223,7 +223,6 @@ static void sm2_send_name(struct sm2_ep *ep, int64_t id)
 
 	sm2_peer_data(ep->region)[id].name_sent = 1;
 	ofi_cirque_commit(sm2_cmd_queue(peer_smr));
-	peer_smr->cmd_cnt--;
 }
 
 int64_t sm2_verify_peer(struct sm2_ep *ep, fi_addr_t fi_addr)
@@ -343,7 +342,6 @@ static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr, int
 	sm2_format_inject(cmd, iface, device, iov, iov_count, peer_smr, tx_buf);
 
 	ofi_cirque_commit(sm2_cmd_queue(peer_smr));
-	peer_smr->cmd_cnt--;
 
 	return FI_SUCCESS;
 }

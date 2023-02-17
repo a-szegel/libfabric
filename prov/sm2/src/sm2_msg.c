@@ -303,7 +303,7 @@ static ssize_t sm2_generic_sendmsg(struct sm2_ep *ep, const struct iovec *iov,
 	peer_id = sm2_peer_data(ep->region)[id].addr.id;
 	peer_smr = sm2_peer_region(ep->region, id);
 
-	if (!peer_smr->cmd_cnt || sm2_peer_data(ep->region)[id].sar_status) {
+	if (sm2_peer_data(ep->region)[id].sar_status) {
 		return -FI_EAGAIN;
 	}
 
@@ -392,7 +392,7 @@ static ssize_t sm2_generic_inject(struct fid_ep *ep_fid, const void *buf,
 	peer_id = sm2_peer_data(ep->region)[id].addr.id;
 	peer_smr = sm2_peer_region(ep->region, id);
 
-	if (!peer_smr->cmd_cnt || sm2_peer_data(ep->region)[id].sar_status) {
+	if (sm2_peer_data(ep->region)[id].sar_status) {
 		return -FI_EAGAIN;
 	}
 
