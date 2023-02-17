@@ -303,10 +303,6 @@ static ssize_t sm2_generic_sendmsg(struct sm2_ep *ep, const struct iovec *iov,
 	peer_id = sm2_peer_data(ep->region)[id].addr.id;
 	peer_smr = sm2_peer_region(ep->region, id);
 
-	if (sm2_peer_data(ep->region)[id].sar_status) {
-		return -FI_EAGAIN;
-	}
-
 	ofi_spin_lock(&ep->tx_lock);
 	iface = sm2_get_mr_hmem_iface(ep->util_ep.domain, desc, &device);
 
@@ -391,10 +387,6 @@ static ssize_t sm2_generic_inject(struct fid_ep *ep_fid, const void *buf,
 
 	peer_id = sm2_peer_data(ep->region)[id].addr.id;
 	peer_smr = sm2_peer_region(ep->region, id);
-
-	if (sm2_peer_data(ep->region)[id].sar_status) {
-		return -FI_EAGAIN;
-	}
 
 	ret = sm2_proto_ops[sm2_src_inject](ep, peer_smr, id, peer_id, op, tag, data,
 			op_flags, FI_HMEM_SYSTEM, 0, &msg_iov, 1, len, NULL);

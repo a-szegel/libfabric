@@ -44,11 +44,9 @@
 static int sm2_progress_resp_entry(struct sm2_ep *ep, struct sm2_resp *resp,
 				   struct sm2_tx_entry *pending, uint64_t *err)
 {
-	int i;
 	struct sm2_region *peer_smr;
 	size_t inj_offset;
 	struct sm2_inject_buf *tx_buf = NULL;
-	struct sm2_sar_buf *sar_buf = NULL;
 	uint8_t *src;
 	ssize_t hmem_copy_ret;
 
@@ -86,16 +84,7 @@ static int sm2_progress_resp_entry(struct sm2_ep *ep, struct sm2_resp *resp,
 			"unidentified operation type\n");
 	}
 
-	if (tx_buf) {
-		smr_freestack_push(sm2_inject_pool(peer_smr), tx_buf);
-	} else if (sar_buf) {
-		for (i = pending->cmd.msg.data.buf_batch_size - 1; i >= 0; i--) {
-			smr_freestack_push_by_index(sm2_sar_pool(peer_smr),
-					pending->cmd.msg.data.sar[i]);
-		}
-		peer_smr->sar_cnt++;
-		sm2_peer_data(ep->region)[pending->peer_id].sar_status = 0;
-	}
+	smr_freestack_push(sm2_inject_pool(peer_smr), tx_buf);
 
 	return FI_SUCCESS;
 }
@@ -276,8 +265,6 @@ static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_cmd *cmd)
 	smr_freestack_push(sm2_inject_pool(ep->region), tx_buf);
 	ofi_cirque_discard(sm2_cmd_queue(ep->region));
 	assert(ep->region->map->num_peers > 0);
-	ep->region->max_sar_buf_per_peer = SM2_MAX_PEERS /
-		ep->region->map->num_peers;
 }
 
 static int sm2_alloc_cmd_ctx(struct sm2_ep *ep,

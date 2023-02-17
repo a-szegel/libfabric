@@ -60,7 +60,7 @@ extern "C" {
 #define SM2_FLAG_IPC_SOCK (1 << 2)
 #define SM2_FLAG_HMEM_ENABLED (1 << 3)
 
-#define SM2_CMD_SIZE		256	/* align with 64-byte cache line */
+#define SM2_CMD_SIZE		4096
 
 /* SMR op_src: Specifies data source location */
 enum {
@@ -136,7 +136,6 @@ struct sm2_cmd {
 
 #define SM2_INJECT_SIZE		4096
 #define SM2_COMP_INJECT_SIZE	(SM2_INJECT_SIZE / 2)
-#define SM2_SAR_SIZE		32768
 
 #define SM2_DIR "/dev/shm/"
 #define SM2_NAME_MAX	256
@@ -150,7 +149,6 @@ struct sm2_addr {
 
 struct sm2_peer_data {
 	struct sm2_addr		addr;
-	uint32_t		sar_status;
 	uint32_t		name_sent;
 };
 
@@ -196,19 +194,15 @@ struct sm2_region {
 	uint8_t		resv;
 	uint16_t	flags;
 	int		pid;
-	uint32_t	max_sar_buf_per_peer;
 	void		*base_addr;
-
 	struct sm2_map	*map;
 
 	size_t		total_size;
-	size_t		sar_cnt;
 
 	/* offsets from start of sm2_region */
 	size_t		cmd_queue_offset;
 	size_t		resp_queue_offset;
 	size_t		inject_pool_offset;
-	size_t		sar_pool_offset;
 	size_t		peer_data_offset;
 	size_t		name_offset;
 	size_t		sock_name_offset;
@@ -234,12 +228,6 @@ enum sm2_status {
 	SM2_STATUS_BUSY = FI_EBUSY, 	/* busy */
 
 	SM2_STATUS_OFFSET = 1024, 	/* Beginning of shm-specific codes */
-	SM2_STATUS_SAR_FREE, 		/* buffer can be used */
-	SM2_STATUS_SAR_READY, 		/* buffer has data in it */
-};
-
-struct sm2_sar_buf {
-	uint8_t		buf[SM2_SAR_SIZE];
 };
 
 OFI_DECLARE_CIRQUE(struct sm2_cmd, sm2_cmd_queue);
@@ -265,10 +253,7 @@ static inline struct sm2_peer_data *sm2_peer_data(struct sm2_region *smr)
 {
 	return (struct sm2_peer_data *) ((char *) smr + smr->peer_data_offset);
 }
-static inline struct smr_freestack *sm2_sar_pool(struct sm2_region *smr)
-{
-	return (struct smr_freestack *) ((char *) smr + smr->sar_pool_offset);
-}
+
 static inline const char *sm2_name(struct sm2_region *smr)
 {
 	return (const char *) smr + smr->name_offset;

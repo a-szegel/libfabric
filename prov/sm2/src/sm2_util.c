@@ -72,7 +72,7 @@ size_t sm2_calculate_size_offsets(size_t tx_count, size_t rx_count,
 				  size_t *sock_offset)
 {
 	size_t cmd_queue_offset, resp_queue_offset, inject_pool_offset;
-	size_t sar_pool_offset, peer_data_offset, ep_name_offset;
+	size_t  peer_data_offset, ep_name_offset;
 	size_t tx_size, rx_size, total_size, sock_name_offset;
 
 	tx_size = roundup_power_of_two(tx_count);
@@ -84,10 +84,8 @@ size_t sm2_calculate_size_offsets(size_t tx_count, size_t rx_count,
 			    sizeof(struct sm2_cmd) * rx_size;
 	inject_pool_offset = resp_queue_offset + sizeof(struct sm2_resp_queue) +
 			     sizeof(struct sm2_resp) * tx_size;
-	sar_pool_offset = inject_pool_offset +
+	peer_data_offset = inject_pool_offset +
 		freestack_size(sizeof(struct sm2_inject_buf), rx_size);
-	peer_data_offset = sar_pool_offset +
-		freestack_size(sizeof(struct sm2_sar_buf), SM2_MAX_PEERS);
 	ep_name_offset = peer_data_offset + sizeof(struct sm2_peer_data) *
 		SM2_MAX_PEERS;
 
@@ -99,8 +97,6 @@ size_t sm2_calculate_size_offsets(size_t tx_count, size_t rx_count,
 		*resp_offset = resp_queue_offset;
 	if (inject_offset)
 		*inject_offset = inject_pool_offset;
-	if (sar_offset)
-		*sar_offset = sar_pool_offset;
 	if (peer_offset)
 		*peer_offset = peer_data_offset;
 	if (name_offset)
@@ -254,23 +250,16 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	(*smr)->cmd_queue_offset = cmd_queue_offset;
 	(*smr)->resp_queue_offset = resp_queue_offset;
 	(*smr)->inject_pool_offset = inject_pool_offset;
-	(*smr)->sar_pool_offset = sar_pool_offset;
 	(*smr)->peer_data_offset = peer_data_offset;
 	(*smr)->name_offset = name_offset;
 	(*smr)->sock_name_offset = sock_name_offset;
-	/* Limit of 1 outstanding SAR message per peer */
-	(*smr)->sar_cnt = SM2_MAX_PEERS;
-	(*smr)->max_sar_buf_per_peer = SM2_BUF_BATCH_MAX;
 
 	sm2_cmd_queue_init(sm2_cmd_queue(*smr), rx_size);
 	sm2_resp_queue_init(sm2_resp_queue(*smr), tx_size);
 	smr_freestack_init(sm2_inject_pool(*smr), rx_size,
 			sizeof(struct sm2_inject_buf));
-	smr_freestack_init(sm2_sar_pool(*smr), SM2_MAX_PEERS,
-			sizeof(struct sm2_sar_buf));
 	for (i = 0; i < SM2_MAX_PEERS; i++) {
 		sm2_peer_addr_init(&sm2_peer_data(*smr)[i].addr);
-		sm2_peer_data(*smr)[i].sar_status = 0;
 		sm2_peer_data(*smr)[i].name_sent = 0;
 	}
 
