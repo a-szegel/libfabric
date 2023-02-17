@@ -201,16 +201,10 @@ struct sm2_region {
 
 	/* offsets from start of sm2_region */
 	size_t		cmd_queue_offset;
-	size_t		resp_queue_offset;
 	size_t		inject_pool_offset;
 	size_t		peer_data_offset;
 	size_t		name_offset;
 	size_t		sock_name_offset;
-};
-
-struct sm2_resp {
-	uint64_t	msg_id;
-	uint64_t	status;
 };
 
 struct sm2_inject_buf {
@@ -231,7 +225,6 @@ enum sm2_status {
 };
 
 OFI_DECLARE_CIRQUE(struct sm2_cmd, sm2_cmd_queue);
-OFI_DECLARE_CIRQUE(struct sm2_resp, sm2_resp_queue);
 
 static inline struct sm2_region *sm2_peer_region(struct sm2_region *smr, int i)
 {
@@ -240,10 +233,6 @@ static inline struct sm2_region *sm2_peer_region(struct sm2_region *smr, int i)
 static inline struct sm2_cmd_queue *sm2_cmd_queue(struct sm2_region *smr)
 {
 	return (struct sm2_cmd_queue *) ((char *) smr + smr->cmd_queue_offset);
-}
-static inline struct sm2_resp_queue *sm2_resp_queue(struct sm2_region *smr)
-{
-	return (struct sm2_resp_queue *) ((char *) smr + smr->resp_queue_offset);
 }
 static inline struct smr_freestack *sm2_inject_pool(struct sm2_region *smr)
 {

@@ -71,19 +71,16 @@ size_t sm2_calculate_size_offsets(size_t tx_count, size_t rx_count,
 				  size_t *peer_offset, size_t *name_offset,
 				  size_t *sock_offset)
 {
-	size_t cmd_queue_offset, resp_queue_offset, inject_pool_offset;
+	size_t cmd_queue_offset, inject_pool_offset;
 	size_t  peer_data_offset, ep_name_offset;
-	size_t tx_size, rx_size, total_size, sock_name_offset;
+	size_t rx_size, total_size, sock_name_offset;
 
-	tx_size = roundup_power_of_two(tx_count);
 	rx_size = roundup_power_of_two(rx_count);
 
 	/* Align cmd_queue offset to 128-bit boundary. */
 	cmd_queue_offset = ofi_get_aligned_size(sizeof(struct sm2_region), 16);
-	resp_queue_offset = cmd_queue_offset + sizeof(struct sm2_cmd_queue) +
+	inject_pool_offset = cmd_queue_offset + sizeof(struct sm2_cmd_queue) +
 			    sizeof(struct sm2_cmd) * rx_size;
-	inject_pool_offset = resp_queue_offset + sizeof(struct sm2_resp_queue) +
-			     sizeof(struct sm2_resp) * tx_size;
 	peer_data_offset = inject_pool_offset +
 		freestack_size(sizeof(struct sm2_inject_buf), rx_size);
 	ep_name_offset = peer_data_offset + sizeof(struct sm2_peer_data) *
@@ -93,8 +90,6 @@ size_t sm2_calculate_size_offsets(size_t tx_count, size_t rx_count,
 
 	if (cmd_offset)
 		*cmd_offset = cmd_queue_offset;
-	if (resp_offset)
-		*resp_offset = resp_queue_offset;
 	if (inject_offset)
 		*inject_offset = inject_pool_offset;
 	if (peer_offset)
@@ -248,14 +243,12 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 
 	(*smr)->total_size = total_size;
 	(*smr)->cmd_queue_offset = cmd_queue_offset;
-	(*smr)->resp_queue_offset = resp_queue_offset;
 	(*smr)->inject_pool_offset = inject_pool_offset;
 	(*smr)->peer_data_offset = peer_data_offset;
 	(*smr)->name_offset = name_offset;
 	(*smr)->sock_name_offset = sock_name_offset;
 
 	sm2_cmd_queue_init(sm2_cmd_queue(*smr), rx_size);
-	sm2_resp_queue_init(sm2_resp_queue(*smr), tx_size);
 	smr_freestack_init(sm2_inject_pool(*smr), rx_size,
 			sizeof(struct sm2_inject_buf));
 	for (i = 0; i < SM2_MAX_PEERS; i++) {

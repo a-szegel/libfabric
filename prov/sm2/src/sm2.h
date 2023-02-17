@@ -331,20 +331,8 @@ int sm2_cntr_open(struct fid_domain *domain, struct fi_cntr_attr *attr,
 
 int64_t sm2_verify_peer(struct sm2_ep *ep, fi_addr_t fi_addr);
 
-void sm2_format_pend_resp(struct sm2_tx_entry *pend, struct sm2_cmd *cmd,
-			  void *context, enum fi_hmem_iface iface, uint64_t device,
-			  const struct iovec *iov, uint32_t iov_count,
-			  uint64_t op_flags, int64_t id, struct sm2_resp *resp);
 void sm2_generic_format(struct sm2_cmd *cmd, int64_t peer_id, uint32_t op,
 			uint64_t tag, uint64_t data, uint64_t op_flags);
-size_t sm2_copy_to_sar(struct smr_freestack *sar_pool, struct sm2_resp *resp,
-		       struct sm2_cmd *cmd, enum fi_hmem_iface, uint64_t device,
-		       const struct iovec *iov, size_t count,
-		       size_t *bytes_done, int *next);
-size_t sm2_copy_from_sar(struct smr_freestack *sar_pool, struct sm2_resp *resp,
-			 struct sm2_cmd *cmd, enum fi_hmem_iface iface,
-			 uint64_t device, const struct iovec *iov, size_t count,
-			 size_t *bytes_done, int *next);
 
 int sm2_select_proto(bool use_ipc, bool cma_avail, enum fi_hmem_iface iface,
 		     uint32_t op, uint64_t total_len, uint64_t op_flags);

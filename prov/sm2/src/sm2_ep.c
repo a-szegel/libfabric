@@ -275,26 +275,6 @@ static void sm2_init_queue(struct sm2_queue *queue,
 	queue->match_func = match_func;
 }
 
-void sm2_format_pend_resp(struct sm2_tx_entry *pend, struct sm2_cmd *cmd,
-			  void *context, enum fi_hmem_iface iface, uint64_t device,
-			  const struct iovec *iov, uint32_t iov_count,
-			  uint64_t op_flags, int64_t id, struct sm2_resp *resp)
-{
-	pend->cmd = *cmd;
-	pend->context = context;
-	memcpy(pend->iov, iov, sizeof(*iov) * iov_count);
-	pend->iov_count = iov_count;
-	pend->peer_id = id;
-	pend->op_flags = op_flags;
-	pend->bytes_done = 0;
-	resp->status = FI_EBUSY;
-
-	pend->iface = iface;
-	pend->device = device;
-
-	resp->msg_id = (uint64_t) (uintptr_t) pend;
-}
-
 void sm2_generic_format(struct sm2_cmd *cmd, int64_t peer_id, uint32_t op,
 			uint64_t tag, uint64_t data, uint64_t op_flags)
 {

@@ -40,90 +40,6 @@
 #include "ofi_mr.h"
 #include "sm2.h"
 
-
-static int sm2_progress_resp_entry(struct sm2_ep *ep, struct sm2_resp *resp,
-				   struct sm2_tx_entry *pending, uint64_t *err)
-{
-	struct sm2_region *peer_smr;
-	size_t inj_offset;
-	struct sm2_inject_buf *tx_buf = NULL;
-	uint8_t *src;
-	ssize_t hmem_copy_ret;
-
-	peer_smr = sm2_peer_region(ep->region, pending->peer_id);
-
-	switch (pending->cmd.msg.hdr.op_src) {
-	case sm2_src_inject:
-		inj_offset = (size_t) pending->cmd.msg.hdr.src_data;
-		tx_buf = sm2_get_ptr(peer_smr, inj_offset);
-		if (*err || pending->bytes_done == pending->cmd.msg.hdr.size ||
-		    pending->cmd.msg.hdr.op == ofi_op_atomic)
-			break;
-
-		src = pending->cmd.msg.hdr.op == ofi_op_atomic_compare ?
-		      tx_buf->buf : tx_buf->data;
-		hmem_copy_ret  = ofi_copy_to_hmem_iov(pending->iface, pending->device,
-						      pending->iov, pending->iov_count,
-						      0, src, pending->cmd.msg.hdr.size);
-
-		if (hmem_copy_ret < 0) {
-			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
-				"RMA read/fetch failed with code %d\n",
-				(int)(-hmem_copy_ret));
-			*err = hmem_copy_ret;
-		} else if (hmem_copy_ret != pending->cmd.msg.hdr.size) {
-			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
-				"Incomplete rma read/fetch buffer copied\n");
-			*err = -FI_ETRUNC;
-		} else {
-			pending->bytes_done = (size_t) hmem_copy_ret;
-		}
-		break;
-	default:
-		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
-			"unidentified operation type\n");
-	}
-
-	smr_freestack_push(sm2_inject_pool(peer_smr), tx_buf);
-
-	return FI_SUCCESS;
-}
-
-static void sm2_progress_resp(struct sm2_ep *ep)
-{
-	struct sm2_resp *resp;
-	struct sm2_tx_entry *pending;
-	int ret;
-
-	ofi_spin_lock(&ep->tx_lock);
-	while (!ofi_cirque_isempty(sm2_resp_queue(ep->region))) {
-		resp = ofi_cirque_head(sm2_resp_queue(ep->region));
-		if (resp->status == FI_EBUSY)
-			break;
-
-		pending = (struct sm2_tx_entry *) resp->msg_id;
-		if (sm2_progress_resp_entry(ep, resp, pending, &resp->status))
-			break;
-
-		if (-resp->status) {
-			ret = sm2_write_err_comp(ep->util_ep.tx_cq, pending->context,
-					 pending->op_flags, pending->cmd.msg.hdr.tag,
-					 -(resp->status));
-		} else {
-			ret = sm2_complete_tx(ep, pending->context,
-					  pending->cmd.msg.hdr.op, pending->op_flags);
-		}
-		if (ret) {
-			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
-				"unable to process tx completion\n");
-			break;
-		}
-		ofi_freestack_push(ep->pend_fs, pending);
-		ofi_cirque_discard(sm2_resp_queue(ep->region));
-	}
-	ofi_spin_unlock(&ep->tx_lock);
-}
-
 static int sm2_progress_inject(struct sm2_cmd *cmd, enum fi_hmem_iface iface,
 			       uint64_t device, struct iovec *iov,
 			       size_t iov_count, size_t *total_len,
@@ -362,6 +278,5 @@ void sm2_ep_progress(struct util_ep *util_ep)
 	struct sm2_ep *ep;
 
 	ep = container_of(util_ep, struct sm2_ep, util_ep);
-	sm2_progress_resp(ep);
 	sm2_progress_cmd(ep);
 }
