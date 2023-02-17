@@ -236,7 +236,6 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	pthread_mutex_unlock(&sm2_ep_list_lock);
 
 	*smr = mapped_addr;
-	ofi_atomic_initialize32(&(*smr)->signal, 0);
 
 	(*smr)->map = map;
 	(*smr)->version = SM2_VERSION;

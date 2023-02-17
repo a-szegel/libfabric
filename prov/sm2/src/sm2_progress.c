@@ -399,7 +399,6 @@ static int sm2_progress_cmd_rma(struct sm2_ep *ep, struct sm2_cmd *cmd)
 			peer_smr = sm2_peer_region(ep->region, cmd->msg.hdr.id);
 			resp = sm2_get_ptr(peer_smr, cmd->msg.hdr.data);
 			resp->status = -err;
-			sm2_signal(peer_smr);
 		} else {
 			ep->region->cmd_cnt++;
 		}
@@ -464,7 +463,6 @@ static void sm2_progress_cmd(struct sm2_ep *ep)
 			ret = -FI_EINVAL;
 		}
 		if (ret) {
-			sm2_signal(ep->region);
 			if (ret != -FI_EAGAIN) {
 				FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
 					"error processing command\n");
@@ -479,9 +477,6 @@ void sm2_ep_progress(struct util_ep *util_ep)
 	struct sm2_ep *ep;
 
 	ep = container_of(util_ep, struct sm2_ep, util_ep);
-
-	if (ofi_atomic_cas_bool32(&ep->region->signal, 1, 0)) {
-		sm2_progress_resp(ep);
-		sm2_progress_cmd(ep);
-	}
+	sm2_progress_resp(ep);
+	sm2_progress_cmd(ep);
 }

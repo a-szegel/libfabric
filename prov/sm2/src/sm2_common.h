@@ -212,7 +212,6 @@ struct sm2_region {
 	uint8_t		cma_cap_self;
 	uint32_t	max_sar_buf_per_peer;
 	void		*base_addr;
-	ofi_atomic32_t	signal;
 
 	struct sm2_map	*map;
 
@@ -335,11 +334,6 @@ struct sm2_region *sm2_map_get(struct sm2_map *map, int64_t id);
 int	sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 		   const struct sm2_attr *attr, struct sm2_region *volatile *smr);
 void	sm2_free(struct sm2_region *smr);
-
-static inline void sm2_signal(struct sm2_region *smr)
-{
-	ofi_atomic_set32(&smr->signal, 1);
-}
 
 #ifdef __cplusplus
 }

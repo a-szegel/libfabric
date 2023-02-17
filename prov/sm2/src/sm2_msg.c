@@ -318,8 +318,6 @@ static ssize_t sm2_generic_sendmsg(struct sm2_ep *ep, const struct iovec *iov,
 	if (ret)
 		goto unlock_cq;
 
-	sm2_signal(peer_smr);
-
 	ret = sm2_complete_tx(ep, context, op, op_flags);
 	if (ret) {
 		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
@@ -403,8 +401,6 @@ static ssize_t sm2_generic_inject(struct fid_ep *ep_fid, const void *buf,
 
 	assert(!ret);
 	ofi_ep_tx_cntr_inc_func(&ep->util_ep, op);
-
-	sm2_signal(peer_smr);
 
 	return ret;
 }
