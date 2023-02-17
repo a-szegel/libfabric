@@ -66,14 +66,12 @@ static void sm2_peer_addr_init(struct sm2_addr *peer)
 }
 
 size_t sm2_calculate_size_offsets(size_t tx_count, size_t rx_count,
-				  size_t *cmd_offset, size_t *resp_offset,
-				  size_t *inject_offset, size_t *sar_offset,
-				  size_t *peer_offset, size_t *name_offset,
-				  size_t *sock_offset)
+				  size_t *cmd_offset, size_t *inject_offset,
+				  size_t *peer_offset, size_t *name_offset)
 {
 	size_t cmd_queue_offset, inject_pool_offset;
 	size_t  peer_data_offset, ep_name_offset;
-	size_t rx_size, total_size, sock_name_offset;
+	size_t rx_size, total_size;
 
 	rx_size = roundup_power_of_two(rx_count);
 
@@ -86,8 +84,6 @@ size_t sm2_calculate_size_offsets(size_t tx_count, size_t rx_count,
 	ep_name_offset = peer_data_offset + sizeof(struct sm2_peer_data) *
 		SM2_MAX_PEERS;
 
-	sock_name_offset = ep_name_offset + SM2_NAME_MAX;
-
 	if (cmd_offset)
 		*cmd_offset = cmd_queue_offset;
 	if (inject_offset)
@@ -96,10 +92,8 @@ size_t sm2_calculate_size_offsets(size_t tx_count, size_t rx_count,
 		*peer_offset = peer_data_offset;
 	if (name_offset)
 		*name_offset = ep_name_offset;
-	if (sock_offset)
-		*sock_offset = sock_name_offset;
 
-	total_size = sock_name_offset + SM2_SOCK_NAME_MAX;
+	total_size = ep_name_offset + sizeof(struct sm2_ep_name);
 
 	/*
  	 * Revisit later to see if we really need the size adjustment, or
@@ -155,8 +149,7 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 {
 	struct sm2_ep_name *ep_name;
 	size_t total_size, cmd_queue_offset, peer_data_offset;
-	size_t resp_queue_offset, inject_pool_offset, name_offset;
-	size_t sar_pool_offset, sock_name_offset;
+	size_t inject_pool_offset, name_offset;
 	int fd, ret, i;
 	void *mapped_addr;
 	size_t tx_size, rx_size;
@@ -164,9 +157,9 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	tx_size = roundup_power_of_two(attr->tx_count);
 	rx_size = roundup_power_of_two(attr->rx_count);
 	total_size = sm2_calculate_size_offsets(tx_size, rx_size, &cmd_queue_offset,
-					&resp_queue_offset, &inject_pool_offset,
-					&sar_pool_offset, &peer_data_offset,
-					&name_offset, &sock_name_offset);
+					&inject_pool_offset,
+					&peer_data_offset,
+					&name_offset);
 
 	fd = shm_open(attr->name, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
 	if (fd < 0) {
@@ -246,7 +239,6 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	(*smr)->inject_pool_offset = inject_pool_offset;
 	(*smr)->peer_data_offset = peer_data_offset;
 	(*smr)->name_offset = name_offset;
-	(*smr)->sock_name_offset = sock_name_offset;
 
 	sm2_cmd_queue_init(sm2_cmd_queue(*smr), rx_size);
 	smr_freestack_init(sm2_inject_pool(*smr), rx_size,

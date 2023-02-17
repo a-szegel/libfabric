@@ -200,11 +200,10 @@ struct sm2_region {
 	size_t		total_size;
 
 	/* offsets from start of sm2_region */
-	size_t		cmd_queue_offset;
-	size_t		inject_pool_offset;
-	size_t		peer_data_offset;
+	size_t		cmd_queue_offset;   // Turns int our FIFO Queue offset
+	size_t		inject_pool_offset; // Turns into our Free Queue Offset
+	size_t		peer_data_offset;   // IDK what this is for, maybe for holding map of peers?
 	size_t		name_offset;
-	size_t		sock_name_offset;
 };
 
 struct sm2_inject_buf {
@@ -248,11 +247,6 @@ static inline const char *sm2_name(struct sm2_region *smr)
 	return (const char *) smr + smr->name_offset;
 }
 
-static inline char *sm2_sock_name(struct sm2_region *smr)
-{
-	return (char *) smr + smr->sock_name_offset;
-}
-
 static inline void sm2_set_map(struct sm2_region *smr, struct sm2_map *map)
 {
 	smr->map = map;
@@ -266,10 +260,8 @@ struct sm2_attr {
 };
 
 size_t sm2_calculate_size_offsets(size_t tx_count, size_t rx_count,
-				  size_t *cmd_offset, size_t *resp_offset,
-				  size_t *inject_offset, size_t *sar_offset,
-				  size_t *peer_offset, size_t *name_offset,
-				  size_t *sock_offset);
+				  size_t *cmd_offset, size_t *inject_offset,
+				  size_t *peer_offset, size_t *name_offset);
 void	sm2_cleanup(void);
 int	sm2_map_create(const struct fi_provider *prov, int peer_count,
 		       uint16_t caps, struct sm2_map **map);

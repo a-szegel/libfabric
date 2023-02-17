@@ -103,9 +103,7 @@ static int sm2_shm_space_check(size_t tx_count, size_t rx_count)
 	}
 	shm_size_needed = num_of_core *
 			  sm2_calculate_size_offsets(tx_count, rx_count,
-						     NULL, NULL, NULL,
-						     NULL, NULL, NULL,
-						     NULL);
+						     NULL, NULL, NULL, NULL);
 	err = statvfs(shm_fs, &stat);
 	if (err) {
 		FI_WARN(&sm2_prov, FI_LOG_CORE,
