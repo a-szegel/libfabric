@@ -54,7 +54,7 @@ static int sm2_progress_inject(struct sm2_cmd *cmd, enum fi_hmem_iface iface,
 	tx_buf = sm2_get_ptr(ep->region, inj_offset);
 
 	if (err) {
-		smr_freestack_push(sm2_inject_pool(ep->region), tx_buf);
+		smr_freestack_push(sm2_free_stack(ep->region), tx_buf);
 		return err;
 	}
 
@@ -67,7 +67,7 @@ static int sm2_progress_inject(struct sm2_cmd *cmd, enum fi_hmem_iface iface,
 		hmem_copy_ret = ofi_copy_to_hmem_iov(iface, device, iov,
 						     iov_count, 0, tx_buf->data,
 						     cmd->msg.hdr.size);
-		smr_freestack_push(sm2_inject_pool(ep->region), tx_buf);
+		smr_freestack_push(sm2_free_stack(ep->region), tx_buf);
 	}
 
 	if (hmem_copy_ret < 0) {
@@ -179,10 +179,10 @@ static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_cmd *cmd)
 	sm2_peer_data(peer_smr)[cmd->msg.hdr.id].addr.id = idx;
 	sm2_peer_data(ep->region)[idx].addr.id = cmd->msg.hdr.id;
 
-	smr_freestack_push(sm2_inject_pool(ep->region), tx_buf);
+	smr_freestack_push(sm2_free_stack(ep->region), tx_buf);
 
 	// TODO SETH FIX THIS
-	ofi_cirque_discard(sm2_cmd_queue(ep->region));
+	// ofi_cirque_discard(sm2_recv_queue(ep->region));
 	assert(ep->region->map->num_peers > 0);
 }
 
@@ -243,7 +243,7 @@ static int sm2_progress_cmd_msg(struct sm2_ep *ep, struct sm2_cmd *cmd)
 out:
 
 	// TODO SETH FIX THIS
-	ofi_cirque_discard(sm2_cmd_queue(ep->region));
+	// ofi_cirque_discard(sm2_recv_queue(ep->region));
 	return ret < 0 ? ret : 0;
 }
 
@@ -253,8 +253,8 @@ static void sm2_progress_cmd(struct sm2_ep *ep)
 	int ret = 0;
 
 	// TODO SETH FIX THIS
-	while (!sm_fifo_empty((sm_fifo *) sm2_cmd_queue(ep->region))) {
-		cmd = (struct sm2_cmd *) sm_fifo_read((sm_fifo *) sm2_cmd_queue(ep->region));
+	while (!sm_fifo_empty((sm_fifo *) sm2_recv_queue(ep->region))) {
+		cmd = (struct sm2_cmd *) sm_fifo_read((sm_fifo *) sm2_recv_queue(ep->region));
 
 		switch (cmd->msg.hdr.op) {
 		case ofi_op_msg:

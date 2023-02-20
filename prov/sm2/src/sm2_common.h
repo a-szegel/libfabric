@@ -200,8 +200,8 @@ struct sm2_region {
 	size_t		total_size;
 
 	/* offsets from start of sm2_region */
-	size_t		cmd_queue_offset;   // Turns int our FIFO Queue offset
-	size_t		inject_pool_offset; // Turns into our Free Queue Offset
+	size_t		recv_queue_offset;   // Turns int our FIFO Queue offset
+	size_t		free_stack_offset; // Turns into our Free Queue Offset
 	size_t		peer_data_offset;   // IDK what this is for, maybe for holding map of peers?
 	size_t		name_offset;
 };
@@ -228,19 +228,17 @@ enum sm2_status {
 	SM2_STATUS_OFFSET = 1024, 	/* Beginning of shm-specific codes */
 };
 
-OFI_DECLARE_CIRQUE(struct sm2_cmd, sm2_cmd_queue);
-
 static inline struct sm2_region *sm2_peer_region(struct sm2_region *smr, int i)
 {
 	return smr->map->peers[i].region;
 }
-static inline struct sm2_cmd_queue *sm2_cmd_queue(struct sm2_region *smr)
+static inline struct sm_fifo *sm2_recv_queue(struct sm2_region *smr)
 {
-	return (struct sm2_cmd_queue *) ((char *) smr + smr->cmd_queue_offset);
+	return (struct sm_fifo *) ((char *) smr + smr->recv_queue_offset);
 }
-static inline struct smr_freestack *sm2_inject_pool(struct sm2_region *smr)
+static inline struct smr_freestack *sm2_free_stack(struct sm2_region *smr)
 {
-	return (struct smr_freestack *) ((char *) smr + smr->inject_pool_offset);
+	return (struct smr_freestack *) ((char *) smr + smr->free_stack_offset);
 }
 static inline struct sm2_peer_data *sm2_peer_data(struct sm2_region *smr)
 {

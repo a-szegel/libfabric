@@ -77,7 +77,7 @@ size_t sm2_calculate_size_offsets(size_t num_fqe,
 	// Tmp to try and get this working
 	num_fqe = 5;
 
-	/* Align cmd_queue offset to 128-bit boundary. */
+	/* Align recv_queue offset to 128-bit boundary. */
 	recv_queue_offset = ofi_get_aligned_size(sizeof(struct sm2_region), 16); // this will be the sizeof head and tail pointer
 	free_queue_offset = recv_queue_offset + sizeof(struct sm_fifo);
 	peer_data_offset = free_queue_offset +
@@ -149,19 +149,15 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	       const struct sm2_attr *attr, struct sm2_region *volatile *smr)
 {
 	struct sm2_ep_name *ep_name;
-	size_t total_size, cmd_queue_offset, peer_data_offset;
-	size_t inject_pool_offset, name_offset;
+	size_t total_size, num_fqe;
+	size_t recv_queue_offset, free_stack_offset, peer_data_offset, name_offset;
 	int fd, ret, i;
 	void *mapped_addr;
-	size_t tx_size, rx_size;
 
-	printf("Seth Waz Here \n");
-	fflush(stdout);
-
-	tx_size = roundup_power_of_two(attr->tx_count);
-	rx_size = roundup_power_of_two(attr->rx_count);
-	total_size = sm2_calculate_size_offsets(tx_size + rx_size, &cmd_queue_offset,
-					&inject_pool_offset,
+	// TODO FIX THIS
+	num_fqe = 500;
+	total_size = sm2_calculate_size_offsets(num_fqe, &recv_queue_offset,
+					&free_stack_offset,
 					&peer_data_offset,
 					&name_offset);
 
@@ -239,14 +235,14 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	(*smr)->base_addr = *smr;
 
 	(*smr)->total_size = total_size;
-	(*smr)->cmd_queue_offset = cmd_queue_offset;
-	(*smr)->inject_pool_offset = inject_pool_offset;
+	(*smr)->recv_queue_offset = recv_queue_offset;
+	(*smr)->free_stack_offset = free_stack_offset;
 	(*smr)->peer_data_offset = peer_data_offset;
 	(*smr)->name_offset = name_offset;
 
-	sm_fifo_init((sm_fifo *) sm2_cmd_queue(*smr));
-	smr_freestack_init(sm2_inject_pool(*smr), rx_size,
-			sizeof(struct sm2_inject_buf));
+	sm_fifo_init(sm2_recv_queue(*smr));
+	smr_freestack_init(sm2_free_stack(*smr), num_fqe, sizeof(struct sm2_inject_buf));
+
 	for (i = 0; i < SM2_MAX_PEERS; i++) {
 		sm2_peer_addr_init(&sm2_peer_data(*smr)[i].addr);
 		sm2_peer_data(*smr)[i].name_sent = 0;
