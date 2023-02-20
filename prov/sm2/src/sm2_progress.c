@@ -41,7 +41,7 @@
 #include "sm2.h"
 #include "sm2_fifo.h"
 
-static int sm2_progress_inject(struct sm2_free_queue_entry *cmd, enum fi_hmem_iface iface,
+static int sm2_progress_inject(struct sm2_free_queue_entry *fqe, enum fi_hmem_iface iface,
 			       uint64_t device, struct iovec *iov,
 			       size_t iov_count, size_t *total_len,
 			       struct sm2_ep *ep, int err)
@@ -50,7 +50,7 @@ static int sm2_progress_inject(struct sm2_free_queue_entry *cmd, enum fi_hmem_if
 	size_t inj_offset;
 	ssize_t hmem_copy_ret;
 
-	inj_offset = (size_t) cmd->msg.hdr.src_data;
+	inj_offset = (size_t) fqe->msg.hdr.src_data;
 	tx_buf = sm2_get_ptr(ep->region, inj_offset);
 
 	if (err) {
@@ -58,15 +58,15 @@ static int sm2_progress_inject(struct sm2_free_queue_entry *cmd, enum fi_hmem_if
 		return err;
 	}
 
-	if (cmd->msg.hdr.op == ofi_op_read_req) {
+	if (fqe->msg.hdr.op == ofi_op_read_req) {
 		hmem_copy_ret = ofi_copy_from_hmem_iov(tx_buf->data,
-						       cmd->msg.hdr.size,
+						       fqe->msg.hdr.size,
 						       iface, device, iov,
 						       iov_count, 0);
 	} else {
 		hmem_copy_ret = ofi_copy_to_hmem_iov(iface, device, iov,
 						     iov_count, 0, tx_buf->data,
-						     cmd->msg.hdr.size);
+						     fqe->msg.hdr.size);
 		smr_freestack_push(sm2_free_stack(ep->region), tx_buf);
 	}
 
@@ -75,7 +75,7 @@ static int sm2_progress_inject(struct sm2_free_queue_entry *cmd, enum fi_hmem_if
 			"inject recv failed with code %d\n",
 			(int)(-hmem_copy_ret));
 		return hmem_copy_ret;
-	} else if (hmem_copy_ret != cmd->msg.hdr.size) {
+	} else if (hmem_copy_ret != fqe->msg.hdr.size) {
 		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
 			"inject recv truncated\n");
 		return -FI_ETRUNC;
@@ -86,7 +86,7 @@ static int sm2_progress_inject(struct sm2_free_queue_entry *cmd, enum fi_hmem_if
 	return FI_SUCCESS;
 }
 
-static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *cmd,
+static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe,
 		struct fi_peer_rx_entry *rx_entry)
 {
 	struct sm2_sar_entry *sar = NULL;
@@ -100,9 +100,9 @@ static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *cmd,
 	iface = sm2_get_mr_hmem_iface(ep->util_ep.domain, rx_entry->desc,
 				      &device);
 
-	switch (cmd->msg.hdr.op_src) {
+	switch (fqe->msg.hdr.op_src) {
 	case sm2_src_inject:
-		err = sm2_progress_inject(cmd, iface, device,
+		err = sm2_progress_inject(fqe, iface, device,
 					  rx_entry->iov, rx_entry->count,
 					  &total_len, ep, 0);
 		break;
@@ -113,8 +113,8 @@ static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *cmd,
 	}
 
 	comp_buf = rx_entry->iov[0].iov_base;
-	comp_flags = sm2_rx_cq_flags(cmd->msg.hdr.op, rx_entry->flags,
-				     cmd->msg.hdr.op_flags);
+	comp_flags = sm2_rx_cq_flags(fqe->msg.hdr.op, rx_entry->flags,
+				     fqe->msg.hdr.op_flags);
 	if (!sar) {
 		if (err) {
 			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
@@ -124,10 +124,10 @@ static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *cmd,
 						 comp_flags, rx_entry->tag,
 						 err);
 		} else {
-			ret = sm2_complete_rx(ep, rx_entry->context, cmd->msg.hdr.op,
+			ret = sm2_complete_rx(ep, rx_entry->context, fqe->msg.hdr.op,
 					      comp_flags, total_len, comp_buf,
-					      cmd->msg.hdr.id, cmd->msg.hdr.tag,
-					      cmd->msg.hdr.data);
+					      fqe->msg.hdr.id, fqe->msg.hdr.tag,
+					      fqe->msg.hdr.data);
 		}
 		if (ret) {
 			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
@@ -150,7 +150,7 @@ int sm2_unexp_start(struct fi_peer_rx_entry *rx_entry)
 	return ret;
 }
 
-static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_free_queue_entry *cmd)
+static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe)
 {
 	struct sm2_region *peer_smr;
 	struct sm2_inject_buf *tx_buf;
@@ -158,7 +158,7 @@ static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_free_queue_entry 
 	int64_t idx = -1;
 	int ret = 0;
 
-	inj_offset = (size_t) cmd->msg.hdr.src_data;
+	inj_offset = (size_t) fqe->msg.hdr.src_data;
 	tx_buf = sm2_get_ptr(ep->region, inj_offset);
 
 	ret = sm2_map_add(&sm2_prov, ep->region->map,
@@ -169,15 +169,15 @@ static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_free_queue_entry 
 
 	peer_smr = sm2_peer_region(ep->region, idx);
 
-	if (peer_smr->pid != (int) cmd->msg.hdr.data) {
+	if (peer_smr->pid != (int) fqe->msg.hdr.data) {
 		//TODO track and update/complete in error any transfers
 		//to or from old mapping
 		munmap(peer_smr, peer_smr->total_size);
 		sm2_map_to_region(&sm2_prov, ep->region->map, idx);
 		peer_smr = sm2_peer_region(ep->region, idx);
 	}
-	sm2_peer_data(peer_smr)[cmd->msg.hdr.id].addr.id = idx;
-	sm2_peer_data(ep->region)[idx].addr.id = cmd->msg.hdr.id;
+	sm2_peer_data(peer_smr)[fqe->msg.hdr.id].addr.id = idx;
+	sm2_peer_data(ep->region)[idx].addr.id = fqe->msg.hdr.id;
 
 	smr_freestack_push(sm2_free_stack(ep->region), tx_buf);
 
@@ -187,7 +187,7 @@ static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_free_queue_entry 
 }
 
 static int sm2_alloc_cmd_ctx(struct sm2_ep *ep,
-		struct fi_peer_rx_entry *rx_entry, struct sm2_free_queue_entry *cmd)
+		struct fi_peer_rx_entry *rx_entry, struct sm2_free_queue_entry *fqe)
 {
 	struct sm2_cmd_ctx *cmd_ctx;
 
@@ -195,7 +195,7 @@ static int sm2_alloc_cmd_ctx(struct sm2_ep *ep,
 		return -FI_EAGAIN;
 
 	cmd_ctx = ofi_freestack_pop(ep->cmd_ctx_fs);
-	memcpy(&cmd_ctx->cmd, cmd, sizeof(*cmd));
+	memcpy(&cmd_ctx->cmd, fqe, sizeof(*fqe));
 	cmd_ctx->ep = ep;
 
 	rx_entry->peer_context = cmd_ctx;
@@ -203,19 +203,19 @@ static int sm2_alloc_cmd_ctx(struct sm2_ep *ep,
 	return FI_SUCCESS;
 }
 
-static int sm2_progress_cmd_msg(struct sm2_ep *ep, struct sm2_free_queue_entry *cmd)
+static int sm2_progress_recv_msg(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe)
 {
 	struct fid_peer_srx *peer_srx = sm2_get_peer_srx(ep);
 	struct fi_peer_rx_entry *rx_entry;
 	fi_addr_t addr;
 	int ret;
 
-	addr = ep->region->map->peers[cmd->msg.hdr.id].fiaddr;
-	if (cmd->msg.hdr.op == ofi_op_tagged) {
+	addr = ep->region->map->peers[fqe->msg.hdr.id].fiaddr;
+	if (fqe->msg.hdr.op == ofi_op_tagged) {
 		ret = peer_srx->owner_ops->get_tag(peer_srx, addr,
-				cmd->msg.hdr.tag, &rx_entry);
+				fqe->msg.hdr.tag, &rx_entry);
 		if (ret == -FI_ENOENT) {
-			ret = sm2_alloc_cmd_ctx(ep, rx_entry, cmd);
+			ret = sm2_alloc_cmd_ctx(ep, rx_entry, fqe);
 			if (ret)
 				return ret;
 
@@ -224,9 +224,9 @@ static int sm2_progress_cmd_msg(struct sm2_ep *ep, struct sm2_free_queue_entry *
 		}
 	} else {
 		ret = peer_srx->owner_ops->get_msg(peer_srx, addr,
-				cmd->msg.hdr.size, &rx_entry);
+				fqe->msg.hdr.size, &rx_entry);
 		if (ret == -FI_ENOENT) {
-			ret = sm2_alloc_cmd_ctx(ep, rx_entry, cmd);
+			ret = sm2_alloc_cmd_ctx(ep, rx_entry, fqe);
 			if (ret)
 				return ret;
 
@@ -238,7 +238,7 @@ static int sm2_progress_cmd_msg(struct sm2_ep *ep, struct sm2_free_queue_entry *
 		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL, "Error getting rx_entry\n");
 		return ret;
 	}
-	ret = sm2_start_common(ep, cmd, rx_entry);
+	ret = sm2_start_common(ep, fqe, rx_entry);
 
 out:
 
@@ -247,22 +247,22 @@ out:
 	return ret < 0 ? ret : 0;
 }
 
-static void sm2_progress_cmd(struct sm2_ep *ep)
+static void sm2_progress_recv(struct sm2_ep *ep)
 {
-	struct sm2_free_queue_entry *cmd;
+	struct sm2_free_queue_entry *fqe;
 	int ret = 0;
 
 	// TODO SETH FIX THIS
 	while (!sm_fifo_empty((sm_fifo *) sm2_recv_queue(ep->region))) {
-		cmd = (struct sm2_free_queue_entry *) sm_fifo_read((sm_fifo *) sm2_recv_queue(ep->region));
+		fqe = (struct sm2_free_queue_entry *) sm_fifo_read((sm_fifo *) sm2_recv_queue(ep->region));
 
-		switch (cmd->msg.hdr.op) {
+		switch (fqe->msg.hdr.op) {
 		case ofi_op_msg:
 		case ofi_op_tagged:
-			ret = sm2_progress_cmd_msg(ep, cmd);
+			ret = sm2_progress_recv_msg(ep, fqe);
 			break;
 		case SM2_OP_MAX + ofi_ctrl_connreq:
-			sm2_progress_connreq(ep, cmd);
+			sm2_progress_connreq(ep, fqe);
 			break;
 		default:
 			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
@@ -284,5 +284,5 @@ void sm2_ep_progress(struct util_ep *util_ep)
 	struct sm2_ep *ep;
 
 	ep = container_of(util_ep, struct sm2_ep, util_ep);
-	sm2_progress_cmd(ep);
+	sm2_progress_recv(ep);
 }
