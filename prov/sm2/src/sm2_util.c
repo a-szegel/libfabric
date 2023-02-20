@@ -209,13 +209,6 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 
 	close(fd);
 
-	if (attr->flags & SM2_FLAG_HMEM_ENABLED) {
-		ret = ofi_hmem_host_register(mapped_addr, total_size);
-		if (ret)
-			FI_WARN(prov, FI_LOG_EP_CTRL,
-				"unable to register shm with iface\n");
-	}
-
 	ep_name->region = mapped_addr;
 	pthread_mutex_unlock(&sm2_ep_list_lock);
 
@@ -223,17 +216,8 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 
 	(*smr)->map = map;
 	(*smr)->version = SM2_VERSION;
-
 	(*smr)->flags = attr->flags;
-#ifdef HAVE_ATOMICS
-	(*smr)->flags |= SM2_FLAG_ATOMIC;
-#endif
-#if ENABLE_DEBUG
-	(*smr)->flags |= SM2_FLAG_DEBUG;
-#endif
-
 	(*smr)->base_addr = *smr;
-
 	(*smr)->total_size = total_size;
 	(*smr)->recv_queue_offset = recv_queue_offset;
 	(*smr)->free_stack_offset = free_stack_offset;
@@ -266,8 +250,6 @@ close:
 
 void sm2_free(struct sm2_region *smr)
 {
-	if (smr->flags & SM2_FLAG_HMEM_ENABLED)
-		(void) ofi_hmem_host_unregister(smr);
 	shm_unlink(sm2_name(smr));
 	munmap(smr, smr->total_size);
 }
@@ -374,14 +356,6 @@ int sm2_map_to_region(const struct fi_provider *prov, struct sm2_map *map,
 
 	peer = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	peer_buf->region = peer;
-
-	if (map->flags & SM2_FLAG_HMEM_ENABLED) {
-		ret = ofi_hmem_host_register(peer, peer->total_size);
-		if (ret)
-			FI_WARN(prov, FI_LOG_EP_CTRL,
-				"unable to register shm with iface\n");
-	}
-
 out:
 	close(fd);
 	return ret;
@@ -481,8 +455,6 @@ void sm2_map_del(struct sm2_map *map, int64_t id)
 
 	ofi_spin_lock(&map->lock);
 	if (!entry) {
-		if (map->flags & SM2_FLAG_HMEM_ENABLED)
-			(void) ofi_hmem_host_unregister(map->peers[id].region);
 		munmap(map->peers[id].region, map->peers[id].region->total_size);
 	}
 

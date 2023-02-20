@@ -378,12 +378,5 @@ struct sm2_rx_entry *sm2_get_recv_entry(struct sm2_srx_ctx *srx,
 void sm2_ep_progress(struct util_ep *util_ep);
 
 
-static inline bool sm2_ze_ipc_enabled(struct sm2_region *smr,
-				      struct sm2_region *peer_smr)
-{
-	return (smr->flags & SM2_FLAG_IPC_SOCK) &&
-	       (peer_smr->flags & SM2_FLAG_IPC_SOCK);
-}
-
 int sm2_unexp_start(struct fi_peer_rx_entry *rx_entry);
 #endif
