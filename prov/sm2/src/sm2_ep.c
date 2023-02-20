@@ -201,28 +201,25 @@ static struct fi_ops_ep sm2_ep_ops = {
 static void sm2_send_name(struct sm2_ep *ep, int64_t id)
 {
 	struct sm2_region *peer_smr;
-	struct sm2_cmd *cmd;
-	struct sm2_inject_buf *tx_buf;
+	struct sm2_cmd *tx_buf;
 
 	peer_smr = sm2_peer_region(ep->region, id);
 
-	if (sm2_peer_data(ep->region)[id].name_sent)
-		return;
+	// if (sm2_peer_data(ep->region)[id].name_sent)
+	// 	return;
 
-	cmd = ofi_cirque_next(sm2_cmd_queue(peer_smr));
+	// // TODO SETH FIX THIS
+	// tx_buf = smr_freestack_pop(sm2_inject_pool(peer_smr));
 
-	cmd->msg.hdr.op = SM2_OP_MAX + ofi_ctrl_connreq;
-	cmd->msg.hdr.id = id;
-	cmd->msg.hdr.data = ep->region->pid;
+	// tx_buf->msg.hdr.op = SM2_OP_MAX + ofi_ctrl_connreq;
+	// tx_buf->msg.hdr.id = id;
+	// tx_buf->msg.hdr.data = ep->region->pid;
 
-	tx_buf = smr_freestack_pop(sm2_inject_pool(peer_smr));
-	cmd->msg.hdr.src_data = sm2_get_offset(peer_smr, tx_buf);
+	// tx_buf->msg.hdr.size = strlen(ep->name) + 1;
+	// memcpy(tx_buf->data, ep->name, cmd->msg.hdr.size);
 
-	cmd->msg.hdr.size = strlen(ep->name) + 1;
-	memcpy(tx_buf->data, ep->name, cmd->msg.hdr.size);
-
-	sm2_peer_data(ep->region)[id].name_sent = 1;
-	ofi_cirque_commit(sm2_cmd_queue(peer_smr));
+	// sm2_peer_data(ep->region)[id].name_sent = 1;
+	// sm_fifo_write(sm2_cmd_queue(peer_smr), tx_buf);
 }
 
 int64_t sm2_verify_peer(struct sm2_ep *ep, fi_addr_t fi_addr)
@@ -315,12 +312,14 @@ static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr, int
 	struct sm2_cmd *cmd;
 	struct sm2_inject_buf *tx_buf;
 
+	// TODO SETH FIX THIS
 	cmd = ofi_cirque_next(sm2_cmd_queue(peer_smr));
 	tx_buf = smr_freestack_pop(sm2_inject_pool(peer_smr));
 
 	sm2_generic_format(cmd, peer_id, op, tag, data, op_flags);
 	sm2_format_inject(cmd, iface, device, iov, iov_count, peer_smr, tx_buf);
 
+	// TODO SETH FIX THIS
 	ofi_cirque_commit(sm2_cmd_queue(peer_smr));
 
 	return FI_SUCCESS;

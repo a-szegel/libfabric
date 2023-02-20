@@ -32,6 +32,7 @@
 
 #include "config.h"
 #include "sm2_common.h"
+#include "sm2_fifo.h"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -65,29 +66,29 @@ static void sm2_peer_addr_init(struct sm2_addr *peer)
 	peer->id = -1;
 }
 
-size_t sm2_calculate_size_offsets(size_t tx_count, size_t rx_count,
-				  size_t *cmd_offset, size_t *inject_offset,
+size_t sm2_calculate_size_offsets(size_t num_fqe,
+				  size_t *recv_offset, size_t *fq_offset,
 				  size_t *peer_offset, size_t *name_offset)
 {
-	size_t cmd_queue_offset, inject_pool_offset;
-	size_t  peer_data_offset, ep_name_offset;
-	size_t rx_size, total_size;
+	size_t recv_queue_offset, free_queue_offset;
+	size_t peer_data_offset, ep_name_offset;
+	size_t total_size;
 
-	rx_size = roundup_power_of_two(rx_count);
+	// Tmp to try and get this working
+	num_fqe = 5;
 
 	/* Align cmd_queue offset to 128-bit boundary. */
-	cmd_queue_offset = ofi_get_aligned_size(sizeof(struct sm2_region), 16);
-	inject_pool_offset = cmd_queue_offset + sizeof(struct sm2_cmd_queue) +
-			    sizeof(struct sm2_cmd) * rx_size;
-	peer_data_offset = inject_pool_offset +
-		freestack_size(sizeof(struct sm2_inject_buf), rx_size);
+	recv_queue_offset = ofi_get_aligned_size(sizeof(struct sm2_region), 16); // this will be the sizeof head and tail pointer
+	free_queue_offset = recv_queue_offset + sizeof(struct sm_fifo);
+	peer_data_offset = free_queue_offset +
+		freestack_size(sizeof(struct sm2_inject_buf), num_fqe); // Freestack_entry will change
 	ep_name_offset = peer_data_offset + sizeof(struct sm2_peer_data) *
 		SM2_MAX_PEERS;
 
-	if (cmd_offset)
-		*cmd_offset = cmd_queue_offset;
-	if (inject_offset)
-		*inject_offset = inject_pool_offset;
+	if (recv_offset)
+		*recv_offset = recv_queue_offset;
+	if (fq_offset)
+		*fq_offset = free_queue_offset;
 	if (peer_offset)
 		*peer_offset = peer_data_offset;
 	if (name_offset)
@@ -154,9 +155,12 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	void *mapped_addr;
 	size_t tx_size, rx_size;
 
+	printf("Seth Waz Here \n");
+	fflush(stdout);
+
 	tx_size = roundup_power_of_two(attr->tx_count);
 	rx_size = roundup_power_of_two(attr->rx_count);
-	total_size = sm2_calculate_size_offsets(tx_size, rx_size, &cmd_queue_offset,
+	total_size = sm2_calculate_size_offsets(tx_size + rx_size, &cmd_queue_offset,
 					&inject_pool_offset,
 					&peer_data_offset,
 					&name_offset);
@@ -240,7 +244,7 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	(*smr)->peer_data_offset = peer_data_offset;
 	(*smr)->name_offset = name_offset;
 
-	sm2_cmd_queue_init(sm2_cmd_queue(*smr), rx_size);
+	sm_fifo_init((sm_fifo *) sm2_cmd_queue(*smr));
 	smr_freestack_init(sm2_inject_pool(*smr), rx_size,
 			sizeof(struct sm2_inject_buf));
 	for (i = 0; i < SM2_MAX_PEERS; i++) {

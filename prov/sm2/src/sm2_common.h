@@ -206,14 +206,19 @@ struct sm2_region {
 	size_t		name_offset;
 };
 
+
+// Updated to be FQE
 struct sm2_inject_buf {
-	union {
-		uint8_t		data[SM2_INJECT_SIZE];
-		struct {
-			uint8_t	buf[SM2_COMP_INJECT_SIZE];
-			uint8_t comp[SM2_COMP_INJECT_SIZE];
-		};
-	};
+	/* For FIFO and LIFO queues */
+    long int next;
+
+    /* For Returns*/
+    long int fifo_home;        /* fifo list to return fragment too once we are done with it */
+    long int home_free_list;   /* free list this fragment was allocated within, for returning frag to free list */
+
+    /* For our Data*/
+    int data_size;
+	uint8_t		data[SM2_INJECT_SIZE];
 };
 
 enum sm2_status {
@@ -259,8 +264,8 @@ struct sm2_attr {
 	uint16_t	flags;
 };
 
-size_t sm2_calculate_size_offsets(size_t tx_count, size_t rx_count,
-				  size_t *cmd_offset, size_t *inject_offset,
+size_t sm2_calculate_size_offsets(size_t num_fqe,
+				  size_t *recv_offset, size_t *fq_offset,
 				  size_t *peer_offset, size_t *name_offset);
 void	sm2_cleanup(void);
 int	sm2_map_create(const struct fi_provider *prov, int peer_count,

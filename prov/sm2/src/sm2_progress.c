@@ -39,6 +39,7 @@
 #include "ofi_atom.h"
 #include "ofi_mr.h"
 #include "sm2.h"
+#include "sm2_fifo.h"
 
 static int sm2_progress_inject(struct sm2_cmd *cmd, enum fi_hmem_iface iface,
 			       uint64_t device, struct iovec *iov,
@@ -179,6 +180,8 @@ static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_cmd *cmd)
 	sm2_peer_data(ep->region)[idx].addr.id = cmd->msg.hdr.id;
 
 	smr_freestack_push(sm2_inject_pool(ep->region), tx_buf);
+
+	// TODO SETH FIX THIS
 	ofi_cirque_discard(sm2_cmd_queue(ep->region));
 	assert(ep->region->map->num_peers > 0);
 }
@@ -238,6 +241,8 @@ static int sm2_progress_cmd_msg(struct sm2_ep *ep, struct sm2_cmd *cmd)
 	ret = sm2_start_common(ep, cmd, rx_entry);
 
 out:
+
+	// TODO SETH FIX THIS
 	ofi_cirque_discard(sm2_cmd_queue(ep->region));
 	return ret < 0 ? ret : 0;
 }
@@ -247,8 +252,9 @@ static void sm2_progress_cmd(struct sm2_ep *ep)
 	struct sm2_cmd *cmd;
 	int ret = 0;
 
-	while (!ofi_cirque_isempty(sm2_cmd_queue(ep->region))) {
-		cmd = ofi_cirque_head(sm2_cmd_queue(ep->region));
+	// TODO SETH FIX THIS
+	while (!sm_fifo_empty((sm_fifo *) sm2_cmd_queue(ep->region))) {
+		cmd = (struct sm2_cmd *) sm_fifo_read((sm_fifo *) sm2_cmd_queue(ep->region));
 
 		switch (cmd->msg.hdr.op) {
 		case ofi_op_msg:
