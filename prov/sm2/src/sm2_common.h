@@ -128,7 +128,7 @@ struct sm2_cmd_msg {
 };
 
 
-struct sm2_cmd {
+struct sm2_free_queue_entry {
 	union {
 		struct sm2_cmd_msg	msg;
 	};

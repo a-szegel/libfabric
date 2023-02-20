@@ -272,7 +272,7 @@ static void sm2_init_queue(struct sm2_queue *queue,
 	queue->match_func = match_func;
 }
 
-void sm2_generic_format(struct sm2_cmd *cmd, int64_t peer_id, uint32_t op,
+void sm2_generic_format(struct sm2_free_queue_entry *cmd, int64_t peer_id, uint32_t op,
 			uint64_t tag, uint64_t data, uint64_t op_flags)
 {
 	cmd->msg.hdr.op = op;
@@ -287,7 +287,7 @@ void sm2_generic_format(struct sm2_cmd *cmd, int64_t peer_id, uint32_t op,
 		cmd->msg.hdr.op_flags |= SM2_TX_COMPLETION;
 }
 
-static void sm2_format_inject(struct sm2_cmd *cmd, enum fi_hmem_iface iface,
+static void sm2_format_inject(struct sm2_free_queue_entry *cmd, enum fi_hmem_iface iface,
 		uint64_t device, const struct iovec *iov, size_t count,
 		struct sm2_region *smr, struct sm2_inject_buf *tx_buf)
 {
@@ -309,7 +309,7 @@ static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr, int
 			     const struct iovec *iov, size_t iov_count, size_t total_len,
 			     void *context)
 {
-	// struct sm2_cmd *cmd;
+	// struct sm2_free_queue_entry *cmd;
 	// struct sm2_inject_buf *tx_buf;
 
 	// // TODO SETH FIX THIS

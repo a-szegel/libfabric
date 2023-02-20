@@ -120,7 +120,7 @@ struct sm2_rx_entry {
 };
 
 struct sm2_tx_entry {
-	struct sm2_cmd	cmd;
+	struct sm2_free_queue_entry	cmd;
 	int64_t		peer_id;
 	void		*context;
 	struct iovec	iov[SM2_IOV_LIMIT];
@@ -137,7 +137,7 @@ struct sm2_tx_entry {
 
 struct sm2_sar_entry {
 	struct dlist_entry	entry;
-	struct sm2_cmd		cmd;
+	struct sm2_free_queue_entry		cmd;
 	struct fi_peer_rx_entry	*rx_entry;
 	size_t			bytes_done;
 	int			next;
@@ -194,7 +194,7 @@ static inline uint64_t sm2_get_mr_flags(void **desc)
 struct sm2_cmd_ctx {
 	struct dlist_entry entry;
 	struct sm2_ep *ep;
-	struct sm2_cmd cmd;
+	struct sm2_free_queue_entry cmd;
 };
 
 OFI_DECLARE_FREESTACK(struct sm2_rx_entry, sm2_recv_fs);
@@ -331,7 +331,7 @@ int sm2_cntr_open(struct fid_domain *domain, struct fi_cntr_attr *attr,
 
 int64_t sm2_verify_peer(struct sm2_ep *ep, fi_addr_t fi_addr);
 
-void sm2_generic_format(struct sm2_cmd *cmd, int64_t peer_id, uint32_t op,
+void sm2_generic_format(struct sm2_free_queue_entry *cmd, int64_t peer_id, uint32_t op,
 			uint64_t tag, uint64_t data, uint64_t op_flags);
 
 int sm2_select_proto(bool use_ipc, bool cma_avail, enum fi_hmem_iface iface,

@@ -41,7 +41,7 @@
 #include "sm2.h"
 #include "sm2_fifo.h"
 
-static int sm2_progress_inject(struct sm2_cmd *cmd, enum fi_hmem_iface iface,
+static int sm2_progress_inject(struct sm2_free_queue_entry *cmd, enum fi_hmem_iface iface,
 			       uint64_t device, struct iovec *iov,
 			       size_t iov_count, size_t *total_len,
 			       struct sm2_ep *ep, int err)
@@ -86,7 +86,7 @@ static int sm2_progress_inject(struct sm2_cmd *cmd, enum fi_hmem_iface iface,
 	return FI_SUCCESS;
 }
 
-static int sm2_start_common(struct sm2_ep *ep, struct sm2_cmd *cmd,
+static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *cmd,
 		struct fi_peer_rx_entry *rx_entry)
 {
 	struct sm2_sar_entry *sar = NULL;
@@ -150,7 +150,7 @@ int sm2_unexp_start(struct fi_peer_rx_entry *rx_entry)
 	return ret;
 }
 
-static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_cmd *cmd)
+static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_free_queue_entry *cmd)
 {
 	struct sm2_region *peer_smr;
 	struct sm2_inject_buf *tx_buf;
@@ -187,7 +187,7 @@ static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_cmd *cmd)
 }
 
 static int sm2_alloc_cmd_ctx(struct sm2_ep *ep,
-		struct fi_peer_rx_entry *rx_entry, struct sm2_cmd *cmd)
+		struct fi_peer_rx_entry *rx_entry, struct sm2_free_queue_entry *cmd)
 {
 	struct sm2_cmd_ctx *cmd_ctx;
 
@@ -203,7 +203,7 @@ static int sm2_alloc_cmd_ctx(struct sm2_ep *ep,
 	return FI_SUCCESS;
 }
 
-static int sm2_progress_cmd_msg(struct sm2_ep *ep, struct sm2_cmd *cmd)
+static int sm2_progress_cmd_msg(struct sm2_ep *ep, struct sm2_free_queue_entry *cmd)
 {
 	struct fid_peer_srx *peer_srx = sm2_get_peer_srx(ep);
 	struct fi_peer_rx_entry *rx_entry;
@@ -249,12 +249,12 @@ out:
 
 static void sm2_progress_cmd(struct sm2_ep *ep)
 {
-	struct sm2_cmd *cmd;
+	struct sm2_free_queue_entry *cmd;
 	int ret = 0;
 
 	// TODO SETH FIX THIS
 	while (!sm_fifo_empty((sm_fifo *) sm2_recv_queue(ep->region))) {
-		cmd = (struct sm2_cmd *) sm_fifo_read((sm_fifo *) sm2_recv_queue(ep->region));
+		cmd = (struct sm2_free_queue_entry *) sm_fifo_read((sm_fifo *) sm2_recv_queue(ep->region));
 
 		switch (cmd->msg.hdr.op) {
 		case ofi_op_msg:
