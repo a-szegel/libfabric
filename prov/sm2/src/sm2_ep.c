@@ -419,7 +419,6 @@ static int sm2_ep_close(struct fid *fid)
 
 	sm2_cmd_ctx_fs_free(ep->cmd_ctx_fs);
 	sm2_pend_fs_free(ep->pend_fs);
-	sm2_sar_fs_free(ep->sar_fs);
 	ofi_spin_destroy(&ep->tx_lock);
 
 	free((void *)ep->name);
@@ -825,7 +824,8 @@ static int sm2_ep_ctrl(struct fid *fid, int command, void *arg)
 			domain = container_of(ep->util_ep.domain,
 					      struct sm2_domain,
 					      util_domain.domain_fid);
-			ret = sm2_ep_srx_context(domain, ep->rx_size,
+			// TODO Figure out what size goes here?? ep->tx_size?
+			ret = sm2_ep_srx_context(domain, ep->tx_size,
 						 &ep->srx);
 			if (ret)
 				return ret;
@@ -920,7 +920,6 @@ int sm2_endpoint(struct fid_domain *domain, struct fi_info *info,
 	if (ret)
 		goto name;
 
-	ep->rx_size = info->rx_attr->size;
 	ep->tx_size = info->tx_attr->size;
 	ret = ofi_endpoint_init(domain, &sm2_util_prov, info, &ep->util_ep, context,
 				sm2_ep_progress);
@@ -932,9 +931,6 @@ int sm2_endpoint(struct fid_domain *domain, struct fi_info *info,
 
 	ep->cmd_ctx_fs = sm2_cmd_ctx_fs_create(info->rx_attr->size, NULL, NULL);
 	ep->pend_fs = sm2_pend_fs_create(info->tx_attr->size, NULL, NULL);
-	ep->sar_fs = sm2_sar_fs_create(info->rx_attr->size, NULL, NULL);
-
-	dlist_init(&ep->sar_list);
 
 	ep->util_ep.ep_fid.fid.ops = &sm2_ep_fi_ops;
 	ep->util_ep.ep_fid.ops = &sm2_ep_ops;

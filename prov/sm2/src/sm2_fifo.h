@@ -4,15 +4,17 @@
 #ifndef _SM2_FIFO_H_
 #define _SM2_FIFO_H_
 
+#include <stdbool.h>
+#include "sm2_common.h"
+
 #define SM_FIFO_FREE -3
 
-#include "sm2_fqe.h"
-#include <stdbool.h>
-
-// Multi Writer, Single Reader
+// Multi Writer, Single Reader Queue (Not Thread Safe)
 // This data structure must live in the SMR
 // This implementation of this is a one directional linked list with head/tail pointers
 // Every pointer is a relative offset into the Shared Memory Region
+
+// TODO need to have FIFO Queue work with offsets instead of pointers
 
 struct sm_fifo {
     long int fifo_head;
@@ -35,7 +37,7 @@ static inline bool sm_fifo_empty(sm_fifo* fifo) {
 
 /* Write, Enqueue */
 // TODO Put a real implementation for write
-static inline void sm_fifo_write(sm_fifo *fifo, sm_fqe *sm_fqe)
+static inline void sm_fifo_write(sm_fifo *fifo, struct sm2_free_queue_entry *sm_fqe)
 {
     fifo->fifo_head = (long int) sm_fqe;
 }
@@ -48,7 +50,7 @@ static inline long int sm_fifo_read(sm_fifo *fifo)
 }
 
 // TODO Need a writeback method (A way for receiver to return FQE to sender's FIFO)
-static inline void sm_fifo_write_back(sm_fqe *sm_fqe) {
+static inline void sm_fifo_write_back(struct sm2_free_queue_entry *sm_fqe) {
     // Do Something here
 }
 

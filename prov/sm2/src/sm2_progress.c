@@ -94,15 +94,11 @@ static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe,
 	uint64_t comp_flags;
 	void *comp_buf;
 	int ret;
-	uint64_t err = 0, device;
-	enum fi_hmem_iface iface;
-
-	iface = sm2_get_mr_hmem_iface(ep->util_ep.domain, rx_entry->desc,
-				      &device);
+	uint64_t err = 0;
 
 	switch (fqe->protocol_hdr.op_src) {
 	case sm2_src_inject:
-		err = sm2_progress_inject(fqe, iface, device,
+		err = sm2_progress_inject(fqe, 0, 0,
 					  rx_entry->iov, rx_entry->count,
 					  &total_len, ep, 0);
 		break;

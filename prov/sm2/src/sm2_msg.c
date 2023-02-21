@@ -288,8 +288,6 @@ static ssize_t sm2_generic_sendmsg(struct sm2_ep *ep, const struct iovec *iov,
 				   uint32_t op, uint64_t op_flags)
 {
 	struct sm2_region *peer_smr;
-	enum fi_hmem_iface iface;
-	uint64_t device;
 	int64_t id, peer_id;
 	ssize_t ret = 0;
 	size_t total_len;
@@ -304,13 +302,12 @@ static ssize_t sm2_generic_sendmsg(struct sm2_ep *ep, const struct iovec *iov,
 	peer_smr = sm2_peer_region(ep->region, id);
 
 	ofi_spin_lock(&ep->tx_lock);
-	iface = sm2_get_mr_hmem_iface(ep->util_ep.domain, desc, &device);
 
 	total_len = ofi_total_iov_len(iov, iov_count);
 	assert(!(op_flags & FI_INJECT) || total_len <= SM2_INJECT_SIZE);
 
 	ret = sm2_proto_ops[sm2_src_inject](ep, peer_smr, id, peer_id, op, tag, data, op_flags,
-				   iface, device, iov, iov_count, total_len, context);
+				   0, 0, iov, iov_count, total_len, context);
 	if (ret)
 		goto unlock_cq;
 
