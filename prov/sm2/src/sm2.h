@@ -240,21 +240,6 @@ static inline void *sm2_get_ptr(void *base, uint64_t offset)
 	return (char *) base + (uintptr_t) offset;
 }
 
-struct sm2_sock_name {
-	char name[SM2_SOCK_NAME_MAX];
-	struct dlist_entry entry;
-};
-
-struct sm2_sock_info {
-	char			name[SM2_SOCK_NAME_MAX];
-	int			listen_sock;
-	ofi_epoll_t		epollfd;
-	struct fd_signal	signal;
-	pthread_t		listener_thread;
-	int			*my_fds;
-	int			nfds;
-};
-
 struct sm2_srx_ctx {
 	struct fid_peer_srx	peer_srx;
 	struct sm2_queue	recv_queue;

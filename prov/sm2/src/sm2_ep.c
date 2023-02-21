@@ -275,25 +275,25 @@ static void sm2_init_queue(struct sm2_queue *queue,
 void sm2_generic_format(struct sm2_free_queue_entry *fqe, int64_t peer_id, uint32_t op,
 			uint64_t tag, uint64_t data, uint64_t op_flags)
 {
-	fqe->msg.hdr.op = op;
-	fqe->msg.hdr.op_flags = 0;
-	fqe->msg.hdr.tag = tag;
-	fqe->msg.hdr.id = peer_id;
-	fqe->msg.hdr.data = data;
+	fqe->protocol_hdr.op = op;
+	fqe->protocol_hdr.op_flags = 0;
+	fqe->protocol_hdr.tag = tag;
+	fqe->protocol_hdr.id = peer_id;
+	fqe->protocol_hdr.data = data;
 
 	if (op_flags & FI_REMOTE_CQ_DATA)
-		fqe->msg.hdr.op_flags |= SM2_REMOTE_CQ_DATA;
+		fqe->protocol_hdr.op_flags |= SM2_REMOTE_CQ_DATA;
 	if (op_flags & FI_COMPLETION)
-		fqe->msg.hdr.op_flags |= SM2_TX_COMPLETION;
+		fqe->protocol_hdr.op_flags |= SM2_TX_COMPLETION;
 }
 
 static void sm2_format_inject(struct sm2_free_queue_entry *fqe, enum fi_hmem_iface iface,
 		uint64_t device, const struct iovec *iov, size_t count,
-		struct sm2_region *smr, struct sm2_inject_buf *tx_buf)
+		struct sm2_region *smr, struct sm2_free_queue_entry *tx_buf)
 {
-	fqe->msg.hdr.op_src = sm2_src_inject;
-	fqe->msg.hdr.src_data = sm2_get_offset(smr, tx_buf);
-	fqe->msg.hdr.size = ofi_copy_from_hmem_iov(tx_buf->data, SM2_INJECT_SIZE,
+	fqe->protocol_hdr.op_src = sm2_src_inject;
+	fqe->protocol_hdr.src_data = sm2_get_offset(smr, tx_buf);
+	fqe->protocol_hdr.size = ofi_copy_from_hmem_iov(tx_buf->data, SM2_INJECT_SIZE,
 						   iface, device, iov, count, 0);
 }
 
@@ -310,7 +310,7 @@ static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr, int
 			     void *context)
 {
 	// struct sm2_free_queue_entry *fqe;
-	// struct sm2_inject_buf *tx_buf;
+	// struct sm2_free_queue_entry *tx_buf;
 
 	// // TODO SETH FIX THIS
 	// fqe = ofi_cirque_next(sm2_recv_queue(peer_smr));
@@ -328,12 +328,6 @@ static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr, int
 sm2_proto_func sm2_proto_ops[sm2_src_max] = {
 	[sm2_src_inject] = &sm2_do_inject,
 };
-
-static void sm2_cleanup_epoll(struct sm2_sock_info *sock_info)
-{
-	fd_signal_free(&sock_info->signal);
-	ofi_epoll_close(sock_info->epollfd);
-}
 
 int sm2_srx_bind(struct fid *fid, struct fid *bfid, uint64_t flags)
 {
@@ -414,15 +408,6 @@ static int sm2_ep_close(struct fid *fid)
 	struct sm2_ep *ep;
 
 	ep = container_of(fid, struct sm2_ep, util_ep.ep_fid.fid);
-
-	if (ep->sock_info) {
-		fd_signal_set(&ep->sock_info->signal);
-		pthread_join(ep->sock_info->listener_thread, NULL);
-		close(ep->sock_info->listen_sock);
-		unlink(ep->sock_info->name);
-		sm2_cleanup_epoll(ep->sock_info);
-		free(ep->sock_info);
-	}
 
 	ofi_endpoint_close(&ep->util_ep);
 
@@ -829,10 +814,8 @@ static int sm2_ep_ctrl(struct fid *fid, int command, void *arg)
 			return -FI_ENOAV;
 
 		attr.name = sm2_no_prefix(ep->name);
-		attr.rx_count = ep->rx_size;
-		attr.tx_count = ep->tx_size;
-		attr.flags = ep->util_ep.caps & FI_HMEM ?
-				SM2_FLAG_HMEM_ENABLED : 0;
+		attr.num_fqe = ep->tx_size;
+		attr.flags = ep->util_ep.caps & 0;
 
 		ret = sm2_create(&sm2_prov, av->sm2_map, &attr, &ep->region);
 		if (ret)

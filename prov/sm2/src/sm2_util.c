@@ -74,16 +74,14 @@ size_t sm2_calculate_size_offsets(size_t num_fqe,
 	size_t peer_data_offset, ep_name_offset;
 	size_t total_size;
 
-	// Tmp to try and get this working
+	// TODO  REMOVE: TEMPORARY to try and get this working
 	num_fqe = 5;
 
 	/* Align recv_queue offset to 128-bit boundary. */
-	recv_queue_offset = ofi_get_aligned_size(sizeof(struct sm2_region), 16); // this will be the sizeof head and tail pointer
+	recv_queue_offset = ofi_get_aligned_size(sizeof(struct sm2_region), 16);
 	free_queue_offset = recv_queue_offset + sizeof(struct sm_fifo);
-	peer_data_offset = free_queue_offset +
-		freestack_size(sizeof(struct sm2_inject_buf), num_fqe); // Freestack_entry will change
-	ep_name_offset = peer_data_offset + sizeof(struct sm2_peer_data) *
-		SM2_MAX_PEERS;
+	peer_data_offset = free_queue_offset + freestack_size(sizeof(struct sm2_free_queue_entry), num_fqe);
+	ep_name_offset = peer_data_offset + sizeof(struct sm2_peer_data) * SM2_MAX_PEERS;
 
 	if (recv_offset)
 		*recv_offset = recv_queue_offset;
@@ -149,14 +147,12 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	       const struct sm2_attr *attr, struct sm2_region *volatile *smr)
 {
 	struct sm2_ep_name *ep_name;
-	size_t total_size, num_fqe;
+	size_t total_size;
 	size_t recv_queue_offset, free_stack_offset, peer_data_offset, name_offset;
 	int fd, ret, i;
 	void *mapped_addr;
 
-	// TODO FIX THIS
-	num_fqe = 500;
-	total_size = sm2_calculate_size_offsets(num_fqe, &recv_queue_offset,
+	total_size = sm2_calculate_size_offsets(attr->num_fqe, &recv_queue_offset,
 					&free_stack_offset,
 					&peer_data_offset,
 					&name_offset);
@@ -225,7 +221,7 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	(*smr)->name_offset = name_offset;
 
 	sm_fifo_init(sm2_recv_queue(*smr));
-	smr_freestack_init(sm2_free_stack(*smr), num_fqe, sizeof(struct sm2_inject_buf));
+	smr_freestack_init(sm2_free_stack(*smr), attr->num_fqe, sizeof(struct sm2_free_queue_entry));
 
 	for (i = 0; i < SM2_MAX_PEERS; i++) {
 		sm2_peer_addr_init(&sm2_peer_data(*smr)[i].addr);

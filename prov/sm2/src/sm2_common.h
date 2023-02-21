@@ -52,15 +52,26 @@
 extern "C" {
 #endif
 
-
 #define SM2_VERSION	5
 
-#define SM2_FLAG_ATOMIC	(1 << 0)
-#define SM2_FLAG_DEBUG	(1 << 1)
-#define SM2_FLAG_IPC_SOCK (1 << 2)
-#define SM2_FLAG_HMEM_ENABLED (1 << 3)
+//reserves 0-255 for defined ops and room for new ops
+//256 and beyond reserved for ctrl ops
+#define SM2_OP_MAX (1 << 8)
+#define SM2_REMOTE_CQ_DATA	(1 << 0)
+#define SM2_TX_COMPLETION	(1 << 2)
+#define SM2_RX_COMPLETION	(1 << 3)
 
-#define SM2_CMD_SIZE		4096
+#define SM2_INJECT_SIZE		4096
+#define SM2_MAX_PEERS	256
+
+#define SM2_DIR "/dev/shm/"
+#define SM2_NAME_MAX	256
+#define SM2_PATH_MAX	(SM2_NAME_MAX + sizeof(SM2_DIR))
+
+extern struct dlist_entry sm2_ep_name_list;
+extern pthread_mutex_t sm2_ep_list_lock;
+
+struct sm2_region;
 
 /* SMR op_src: Specifies data source location */
 enum {
@@ -68,14 +79,14 @@ enum {
 	sm2_src_max,
 };
 
-//reserves 0-255 for defined ops and room for new ops
-//256 and beyond reserved for ctrl ops
-#define SM2_OP_MAX (1 << 8)
+struct sm2_nemesis_hdr {
+	/* For FIFO and LIFO queues */
+    long int next;
 
-#define SM2_REMOTE_CQ_DATA	(1 << 0)
-#define SM2_TX_COMPLETION	(1 << 2)
-#define SM2_RX_COMPLETION	(1 << 3)
-#define SM2_MULTI_RECV		(1 << 4)
+    /* For Returns*/
+    long int fifo_home;        /* fifo list to return fragment too once we are done with it */
+    long int home_free_list;   /* free list this fragment was allocated within, for returning frag to free list */
+};
 
 /*
  * Unique sm2_op_hdr for smr message protocol:
@@ -86,7 +97,7 @@ enum {
  * 	src_data - src of additional op data (inject offset / resp offset)
  * 	data - remote CQ data
  */
-struct sm2_msg_hdr {
+struct sm2_protocol_hdr {
 	uint64_t		msg_id;
 	int64_t			id;
 	uint32_t		op;
@@ -103,44 +114,13 @@ struct sm2_msg_hdr {
 			uint8_t	atomic_op;
 		};
 	};
-} __attribute__ ((aligned(16)));
-
-#define SM2_BUF_BATCH_MAX	64
-#define SM2_MSG_DATA_LEN	(SM2_CMD_SIZE - sizeof(struct sm2_msg_hdr))
-
-union sm2_cmd_data {
-	uint8_t			msg[SM2_MSG_DATA_LEN];
-	struct {
-		size_t		iov_count;
-		struct iovec	iov[(SM2_MSG_DATA_LEN - sizeof(size_t)) /
-				    sizeof(struct iovec)];
-	};
-	struct {
-		uint32_t	buf_batch_size;
-		int16_t		sar[SM2_BUF_BATCH_MAX];
-	};
-	struct ipc_info		ipc_info;
 };
-
-struct sm2_cmd_msg {
-	struct sm2_msg_hdr	hdr;
-	union sm2_cmd_data	data;
-};
-
 
 struct sm2_free_queue_entry {
-	union {
-		struct sm2_cmd_msg	msg;
-	};
+	struct sm2_nemesis_hdr nemesis_hdr;
+	struct sm2_protocol_hdr protocol_hdr;
+	uint8_t data[SM2_INJECT_SIZE];
 };
-
-#define SM2_INJECT_SIZE		4096
-#define SM2_COMP_INJECT_SIZE	(SM2_INJECT_SIZE / 2)
-
-#define SM2_DIR "/dev/shm/"
-#define SM2_NAME_MAX	256
-#define SM2_PATH_MAX	(SM2_NAME_MAX + sizeof(SM2_DIR))
-#define SM2_SOCK_NAME_MAX sizeof(((struct sockaddr_un *)0)->sun_path)
 
 struct sm2_addr {
 	char		name[SM2_NAME_MAX];
@@ -152,33 +132,17 @@ struct sm2_peer_data {
 	uint32_t		name_sent;
 };
 
-extern struct dlist_entry sm2_ep_name_list;
-extern pthread_mutex_t sm2_ep_list_lock;
-extern struct dlist_entry sm2_sock_name_list;
-extern pthread_mutex_t sm2_sock_list_lock;
-
-struct sm2_region;
-
 struct sm2_ep_name {
 	char name[SM2_NAME_MAX];
 	struct sm2_region *region;
 	struct dlist_entry entry;
 };
 
-static inline const char *sm2_no_prefix(const char *addr)
-{
-	char *start;
-
-	return (start = strstr(addr, "://")) ? start + 3 : addr;
-}
-
 struct sm2_peer {
 	struct sm2_addr		peer;
 	fi_addr_t		fiaddr;
 	struct sm2_region	*region;
 };
-
-#define SM2_MAX_PEERS	256
 
 struct sm2_map {
 	ofi_spin_t		lock;
@@ -206,27 +170,42 @@ struct sm2_region {
 	size_t		name_offset;
 };
 
-
-// Updated to be FQE
-struct sm2_inject_buf {
-	/* For FIFO and LIFO queues */
-    long int next;
-
-    /* For Returns*/
-    long int fifo_home;        /* fifo list to return fragment too once we are done with it */
-    long int home_free_list;   /* free list this fragment was allocated within, for returning frag to free list */
-
-    /* For our Data*/
-    int data_size;
-	uint8_t		data[SM2_INJECT_SIZE];
+struct sm2_attr {
+	const char	*name;
+	size_t		num_fqe;
+	uint16_t	flags;
 };
 
-enum sm2_status {
-	SM2_STATUS_SUCCESS = 0, 	/* success*/
-	SM2_STATUS_BUSY = FI_EBUSY, 	/* busy */
 
-	SM2_STATUS_OFFSET = 1024, 	/* Beginning of shm-specific codes */
-};
+size_t sm2_calculate_size_offsets(size_t num_fqe,
+				  size_t *recv_offset, size_t *fq_offset,
+				  size_t *peer_offset, size_t *name_offset);
+void	sm2_cleanup(void);
+int	sm2_map_create(const struct fi_provider *prov, int peer_count,
+		       uint16_t caps, struct sm2_map **map);
+int	sm2_map_to_region(const struct fi_provider *prov, struct sm2_map *map,
+			  int64_t id);
+void	sm2_map_to_endpoint(struct sm2_region *region, int64_t id);
+void	sm2_unmap_from_endpoint(struct sm2_region *region, int64_t id);
+void	sm2_exchange_all_peers(struct sm2_region *region);
+int	sm2_map_add(const struct fi_provider *prov,
+		    struct sm2_map *map, const char *name, int64_t *id);
+void	sm2_map_del(struct sm2_map *map, int64_t id);
+void	sm2_map_free(struct sm2_map *map);
+
+struct sm2_region *sm2_map_get(struct sm2_map *map, int64_t id);
+
+int	sm2_create(const struct fi_provider *prov, struct sm2_map *map,
+		   const struct sm2_attr *attr, struct sm2_region *volatile *smr);
+void	sm2_free(struct sm2_region *smr);
+
+
+static inline const char *sm2_no_prefix(const char *addr)
+{
+	char *start;
+
+	return (start = strstr(addr, "://")) ? start + 3 : addr;
+}
 
 static inline struct sm2_region *sm2_peer_region(struct sm2_region *smr, int i)
 {
@@ -254,35 +233,6 @@ static inline void sm2_set_map(struct sm2_region *smr, struct sm2_map *map)
 {
 	smr->map = map;
 }
-
-struct sm2_attr {
-	const char	*name;
-	size_t		rx_count;
-	size_t		tx_count;
-	uint16_t	flags;
-};
-
-size_t sm2_calculate_size_offsets(size_t num_fqe,
-				  size_t *recv_offset, size_t *fq_offset,
-				  size_t *peer_offset, size_t *name_offset);
-void	sm2_cleanup(void);
-int	sm2_map_create(const struct fi_provider *prov, int peer_count,
-		       uint16_t caps, struct sm2_map **map);
-int	sm2_map_to_region(const struct fi_provider *prov, struct sm2_map *map,
-			  int64_t id);
-void	sm2_map_to_endpoint(struct sm2_region *region, int64_t id);
-void	sm2_unmap_from_endpoint(struct sm2_region *region, int64_t id);
-void	sm2_exchange_all_peers(struct sm2_region *region);
-int	sm2_map_add(const struct fi_provider *prov,
-		    struct sm2_map *map, const char *name, int64_t *id);
-void	sm2_map_del(struct sm2_map *map, int64_t id);
-void	sm2_map_free(struct sm2_map *map);
-
-struct sm2_region *sm2_map_get(struct sm2_map *map, int64_t id);
-
-int	sm2_create(const struct fi_provider *prov, struct sm2_map *map,
-		   const struct sm2_attr *attr, struct sm2_region *volatile *smr);
-void	sm2_free(struct sm2_region *smr);
 
 #ifdef __cplusplus
 }
