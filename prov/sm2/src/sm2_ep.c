@@ -40,6 +40,7 @@
 #include "ofi_mr.h"
 #include "sm2_signal.h"
 #include "sm2.h"
+#include "sm2_fifo.h"
 
 extern struct fi_ops_msg sm2_msg_ops, sm2_no_recv_msg_ops, sm2_srx_msg_ops;
 extern struct fi_ops_tagged sm2_tag_ops, sm2_no_recv_tag_ops, sm2_srx_tag_ops;
@@ -200,26 +201,26 @@ static struct fi_ops_ep sm2_ep_ops = {
 
 static void sm2_send_name(struct sm2_ep *ep, int64_t id)
 {
-	// struct sm2_region *peer_smr;
-	// struct sm2_free_queue_entry *tx_buf;
+	struct sm2_region *peer_smr;
+	struct sm2_free_queue_entry *fqe;
 
-	// peer_smr = sm2_peer_region(ep->region, id);
+	peer_smr = sm2_peer_region(ep->region, id);
 
-	// if (sm2_peer_data(ep->region)[id].name_sent)
-	// 	return;
+	if (sm2_peer_data(ep->region)[id].name_sent)
+		return;
 
-	// // TODO SETH FIX THIS
-	// tx_buf = smr_freestack_pop(sm2_free_stack(peer_smr));
+	// Pop FQE from local region
+	fqe = smr_freestack_pop(sm2_free_stack(ep->region));
 
-	// tx_buf->msg.hdr.op = SM2_OP_MAX + ofi_ctrl_connreq;
-	// tx_buf->msg.hdr.id = id;
-	// tx_buf->msg.hdr.data = ep->region->pid;
+	fqe->protocol_hdr.op = SM2_OP_MAX + ofi_ctrl_connreq;
+	fqe->protocol_hdr.id = id;
+	fqe->protocol_hdr.data = ep->region->pid;
 
-	// tx_buf->msg.hdr.size = strlen(ep->name) + 1;
-	// memcpy(tx_buf->data, ep->name, cmd->msg.hdr.size);
+	fqe->protocol_hdr.size = strlen(ep->name) + 1;
+	memcpy(fqe->data, ep->name, fqe->protocol_hdr.size);
 
-	// sm2_peer_data(ep->region)[id].name_sent = 1;
-	// sm_fifo_write(sm2_recv_queue(peer_smr), tx_buf);
+	sm2_peer_data(ep->region)[id].name_sent = 1;
+	sm_fifo_write(sm2_recv_queue(peer_smr), fqe);
 }
 
 int64_t sm2_verify_peer(struct sm2_ep *ep, fi_addr_t fi_addr)

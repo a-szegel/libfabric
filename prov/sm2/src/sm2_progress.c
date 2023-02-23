@@ -201,6 +201,7 @@ static int sm2_alloc_cmd_ctx(struct sm2_ep *ep,
 
 static int sm2_progress_recv_msg(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe)
 {
+	struct sm2_region *peer_smr = ep->region->map->peers[fqe->protocol_hdr.id].region;
 	struct fid_peer_srx *peer_srx = sm2_get_peer_srx(ep);
 	struct fi_peer_rx_entry *rx_entry;
 	fi_addr_t addr;
@@ -250,6 +251,7 @@ static void sm2_progress_recv(struct sm2_ep *ep)
 
 	// TODO SETH FIX THIS
 	while (!sm_fifo_empty((sm_fifo *) sm2_recv_queue(ep->region))) {
+		// This will pop FQE off of FIFO recv queue, and we will own it until we return it
 		fqe = (struct sm2_free_queue_entry *) sm_fifo_read((sm_fifo *) sm2_recv_queue(ep->region));
 
 		switch (fqe->protocol_hdr.op) {

@@ -176,6 +176,18 @@ struct sm2_attr {
 	uint16_t	flags;
 };
 
+static inline int get_local_peer_idx_from_global_id(long global_id) {
+	int pid = PID_MASK & global_id;
+	int ep_id = EP_ID_MASK & global_id;
+
+	for (peer in peers) {
+		if (pid == peer.pid && ep_id == peer.ep_id) {
+			return local_index
+		}
+	}
+	return -1;
+}
+
 
 size_t sm2_calculate_size_offsets(size_t num_fqe,
 				  size_t *recv_offset, size_t *fq_offset,
