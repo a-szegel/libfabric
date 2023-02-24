@@ -202,12 +202,15 @@ static struct fi_ops_ep sm2_ep_ops = {
 static void sm2_send_name(struct sm2_ep *ep, int64_t id)
 {
 	struct sm2_region *peer_smr;
+	struct sm2_fifo *fifo;
 	struct sm2_free_queue_entry *fqe;
 
 	peer_smr = sm2_peer_region(ep->region, id);
 
 	if (sm2_peer_data(ep->region)[id].name_sent)
 		return;
+
+	fifo = sm2_recv_queue(peer_smr);
 
 	// Pop FQE from local region
 	fqe = smr_freestack_pop(sm2_free_stack(ep->region));
@@ -220,7 +223,7 @@ static void sm2_send_name(struct sm2_ep *ep, int64_t id)
 	memcpy(fqe->data, ep->name, fqe->protocol_hdr.size);
 
 	sm2_peer_data(ep->region)[id].name_sent = 1;
-	sm_fifo_write(sm2_recv_queue(peer_smr), fqe);
+	sm2_fifo_write(fifo, ep->region, fqe);
 }
 
 int64_t sm2_verify_peer(struct sm2_ep *ep, fi_addr_t fi_addr)

@@ -79,7 +79,7 @@ size_t sm2_calculate_size_offsets(size_t num_fqe,
 
 	/* Align recv_queue offset to 128-bit boundary. */
 	recv_queue_offset = ofi_get_aligned_size(sizeof(struct sm2_region), 16);
-	free_queue_offset = recv_queue_offset + sizeof(struct sm_fifo);
+	free_queue_offset = recv_queue_offset + sizeof(struct sm2_fifo);
 	peer_data_offset = free_queue_offset + freestack_size(sizeof(struct sm2_free_queue_entry), num_fqe);
 	ep_name_offset = peer_data_offset + sizeof(struct sm2_peer_data) * SM2_MAX_PEERS;
 
@@ -220,7 +220,7 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	(*smr)->peer_data_offset = peer_data_offset;
 	(*smr)->name_offset = name_offset;
 
-	sm_fifo_init(sm2_recv_queue(*smr));
+	sm2_fifo_init(sm2_recv_queue(*smr));
 	smr_freestack_init(sm2_free_stack(*smr), attr->num_fqe, sizeof(struct sm2_free_queue_entry));
 
 	for (i = 0; i < SM2_MAX_PEERS; i++) {

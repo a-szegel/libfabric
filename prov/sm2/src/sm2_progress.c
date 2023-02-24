@@ -247,12 +247,13 @@ out:
 static void sm2_progress_recv(struct sm2_ep *ep)
 {
 	struct sm2_free_queue_entry *fqe;
+	struct sm2_region *owning_region;
 	int ret = 0;
 
 	// TODO SETH FIX THIS
-	while (!sm_fifo_empty((sm_fifo *) sm2_recv_queue(ep->region))) {
+	while (!sm2_fifo_empty(sm2_recv_queue(ep->region))) {
 		// This will pop FQE off of FIFO recv queue, and we will own it until we return it
-		fqe = (struct sm2_free_queue_entry *) sm_fifo_read((sm_fifo *) sm2_recv_queue(ep->region));
+		fqe = sm2_fifo_read(sm2_recv_queue(ep->region), owning_region);
 
 		switch (fqe->protocol_hdr.op) {
 		case ofi_op_msg:
