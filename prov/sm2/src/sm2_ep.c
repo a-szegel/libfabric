@@ -199,54 +199,14 @@ static struct fi_ops_ep sm2_ep_ops = {
 	.tx_size_left = fi_no_tx_size_left,
 };
 
-static void sm2_send_name(struct sm2_ep *ep, int64_t id)
-{
-	struct sm2_region *peer_smr;
-	struct sm2_fifo *fifo;
-	struct sm2_free_queue_entry *fqe;
-
-	peer_smr = sm2_peer_region(ep->region, id);
-
-	if (sm2_peer_data(ep->region)[id].name_sent)
-		return;
-
-	fifo = sm2_recv_queue(peer_smr);
-
-	// Pop FQE from local region
-	fqe = smr_freestack_pop(sm2_free_stack(ep->region));
-
-	fqe->protocol_hdr.op = SM2_OP_MAX + ofi_ctrl_connreq;
-	fqe->protocol_hdr.id = id;
-	fqe->protocol_hdr.data = ep->region->pid;
-
-	fqe->protocol_hdr.size = strlen(ep->name) + 1;
-	memcpy(fqe->data, ep->name, fqe->protocol_hdr.size);
-
-	sm2_peer_data(ep->region)[id].name_sent = 1;
-	sm2_fifo_write(fifo, ep->region, fqe);
-}
-
 int64_t sm2_verify_peer(struct sm2_ep *ep, fi_addr_t fi_addr)
 {
 	int64_t id;
-	int ret;
 
 	id = sm2_addr_lookup(ep->util_ep.av, fi_addr);
 	assert(id < SM2_MAX_PEERS);
 
-	if (sm2_peer_data(ep->region)[id].addr.id >= 0)
-		return id;
-
-	if (ep->region->map->peers[id].peer.id < 0) {
-		ret = sm2_map_to_region(&sm2_prov, ep->region->map, id);
-		if (ret == -ENOENT)
-			return -1;
-
-	}
-
-	sm2_send_name(ep, id);
-
-	return -1;
+	return id;
 }
 
 static int sm2_match_msg(struct dlist_entry *item, const void *args)
@@ -293,11 +253,10 @@ void sm2_generic_format(struct sm2_free_queue_entry *fqe, int64_t peer_id, uint3
 
 static void sm2_format_inject(struct sm2_free_queue_entry *fqe, enum fi_hmem_iface iface,
 		uint64_t device, const struct iovec *iov, size_t count,
-		struct sm2_region *smr, struct sm2_free_queue_entry *tx_buf)
+		struct sm2_region *smr)
 {
 	fqe->protocol_hdr.op_src = sm2_src_inject;
-	fqe->protocol_hdr.src_data = sm2_get_offset(smr, tx_buf);
-	fqe->protocol_hdr.size = ofi_copy_from_hmem_iov(tx_buf->data, SM2_INJECT_SIZE,
+	fqe->protocol_hdr.size = ofi_copy_from_hmem_iov(fqe->data, SM2_INJECT_SIZE,
 						   iface, device, iov, count, 0);
 }
 
@@ -313,19 +272,21 @@ static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr, int
 			     const struct iovec *iov, size_t iov_count, size_t total_len,
 			     void *context)
 {
-	// struct sm2_free_queue_entry *fqe;
-	// struct sm2_free_queue_entry *tx_buf;
+	struct sm2_fifo *fifo;
+	struct sm2_free_queue_entry *fqe;
 
-	// // TODO SETH FIX THIS
-	// fqe = ofi_cirque_next(sm2_recv_queue(peer_smr));
-	// tx_buf = smr_freestack_pop(sm2_free_stack(peer_smr));
+	fifo = sm2_recv_queue(peer_smr);
 
-	// sm2_generic_format(fqe, peer_id, op, tag, data, op_flags);
-	// sm2_format_inject(fqe, iface, device, iov, iov_count, peer_smr, tx_buf);
+	// Pop FQE from local region
+	fqe = smr_freestack_pop(sm2_free_stack(ep->region));
+	if (!fqe) {
+		return -FI_EAGAIN;
+	}
 
-	// // TODO SETH FIX THIS
-	// ofi_cirque_commit(sm2_recv_queue(peer_smr));
+	sm2_generic_format(fqe, peer_id, op, tag, data, op_flags);
+	sm2_format_inject(fqe, iface, device, iov, iov_count, peer_smr);
 
+	sm2_fifo_write(fifo, ep->region, fqe);
 	return FI_SUCCESS;
 }
 

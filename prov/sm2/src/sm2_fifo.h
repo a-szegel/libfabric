@@ -9,10 +9,14 @@
 #include <stdint.h>
 #include "sm2_common.h"
 
-#define sm2_fifo_FREE -3
+#define SM2_FIFO_FREE -3
 
 #define atomic_swap_ptr(addr, value) \
         atomic_exchange_explicit((_Atomic unsigned long *) addr, value, memory_order_relaxed)
+
+#define atomic_compare_exchange(x, y, z) \
+    __atomic_compare_exchange_n((int64_t *) (x), (int64_t *) (y), (int64_t)(z), \
+                                 false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
 
 // Multi Writer, Single Reader Queue (Not Thread Safe)
 // This data structure must live in the SMR
@@ -41,18 +45,20 @@ static inline struct sm2_free_queue_entry* offset_to_virtual_addr(struct sm2_reg
 // Initialize FIFO queue to empty state
 static inline void sm2_fifo_init(struct sm2_fifo *fifo)
 {
-    fifo->fifo_head = sm2_fifo_FREE;
-    fifo->fifo_tail = sm2_fifo_FREE;
+    fifo->fifo_head = SM2_FIFO_FREE;
+    fifo->fifo_tail = SM2_FIFO_FREE;
 }
 
 static inline bool sm2_fifo_empty(struct sm2_fifo* fifo) {
-    if (fifo->fifo_head == sm2_fifo_FREE)
+    if (fifo->fifo_head == SM2_FIFO_FREE)
         return true;
     return false;
 }
 
 /* Write, Enqueue */
 // TODO Remove Owning Region, it is the pt2pt only hack
+// TODO Add Memory Barriers Back In
+// TODO Verify This is correct
 static inline void sm2_fifo_write(struct sm2_fifo *fifo, struct sm2_region *owning_region, struct sm2_free_queue_entry *fqe)
 {
     struct sm2_free_queue_entry *prev_fqe;
@@ -60,13 +66,13 @@ static inline void sm2_fifo_write(struct sm2_fifo *fifo, struct sm2_region *owni
     long int prev;
 
     // Set next pointer to NULL
-    fqe->nemesis_hdr.next = sm2_fifo_FREE;
+    fqe->nemesis_hdr.next = SM2_FIFO_FREE;
 
     prev = atomic_swap_ptr(&fifo->fifo_tail, offset);
 
     assert(prev != offset);
 
-    if (OFI_LIKELY(sm2_fifo_FREE != prev)) {
+    if (OFI_LIKELY(SM2_FIFO_FREE != prev)) {
         prev_fqe = offset_to_virtual_addr(owning_region, prev);
         prev_fqe->nemesis_hdr.next = offset;
     } else {
@@ -75,11 +81,35 @@ static inline void sm2_fifo_write(struct sm2_fifo *fifo, struct sm2_region *owni
 }
 
 /* Read, Dequeue */
-// TODO Put a real implementation in here
 // TODO Remove Owning Region, it is the pt2pt only hack
+// TODO Add Memory Barriers Back In
+// TODO Verify This is correct
 static inline struct sm2_free_queue_entry* sm2_fifo_read(struct sm2_fifo *fifo, struct sm2_region *owning_region)
 {
-    return offset_to_virtual_addr(owning_region, fifo->fifo_head);
+    struct sm2_free_queue_entry* fqe;
+    long int prev_head;
+
+    if (SM2_FIFO_FREE == fifo->fifo_head) {
+        return NULL;
+    }
+
+    prev_head = fifo->fifo_head;
+    fqe = offset_to_virtual_addr(owning_region, fifo->fifo_head);
+
+    fifo->fifo_head = SM2_FIFO_FREE;
+
+    assert(fqe->nemesis_hdr.next != prev_head);
+
+    if (OFI_UNLIKELY(SM2_FIFO_FREE == fqe->nemesis_hdr.next)) {
+        if (!atomic_compare_exchange(&fifo->fifo_tail, &prev_head, SM2_FIFO_FREE)) {
+            while (SM2_FIFO_FREE == fqe->nemesis_hdr.next) {}
+            fifo->fifo_head = fqe->nemesis_hdr.next;
+        }
+    } else {
+        fifo->fifo_head = fqe->nemesis_hdr.next;
+    }
+
+    return fqe;
 }
 
 // TODO Need a writeback method (A way for receiver to return FQE to sender's FIFO)

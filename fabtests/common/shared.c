@@ -1411,59 +1411,20 @@ int ft_init_av_dst_addr(struct fid_av *av_ptr, struct fid_ep *ep_ptr,
 			goto set_rx_seq_close;
 	}
 
+	// TODO Find a better way than this hack for Nemesis pt2pt
+	// A better way involves not modifying the fabtest so it can be merged to main
+	// This is hard b/c we need to hard code the AV somewhere, and we need the AV to hardcode the AV
+	sleep(10);
 	if (opts.dst_addr) {
 		ret = ft_av_insert(av_ptr, fi->dest_addr, 1, remote_addr, 0, NULL);
 		if (ret)
 			return ret;
-
-		addrlen = FT_MAX_CTRL_MSG;
-		ret = fi_getname(&ep_ptr->fid, temp, &addrlen);
-		if (ret) {
-			FT_PRINTERR("fi_getname", ret);
-			return ret;
-		}
-
-		ret = ft_hmem_copy_to(opts.iface, opts.device,
-				      tx_buf + ft_tx_prefix_size(), temp, addrlen);
-		if (ret)
-			return ret;
-
-		ret = (int) ft_tx(ep, *remote_addr, addrlen, &tx_ctx);
-		if (ret)
-			return ret;
-
-		ret = ft_rx(ep, 1);
-		if (ret)
-			return ret;
 	} else {
-		ret = ft_get_rx_comp(rx_seq);
-		if (ret)
-			return ret;
-
-		ret = ft_hmem_copy_from(opts.iface, opts.device, temp,
-					rx_buf + ft_rx_prefix_size(),
-					FT_MAX_CTRL_MSG);
-		if (ret)
-			return ret;
-
-		/* Test passing NULL fi_addr on one of the sides (server) if
-		 * AV type is FI_AV_TABLE */
-		ret = ft_av_insert(av_ptr, temp, 1,
-				   ((fi->domain_attr->av_type == FI_AV_TABLE) ?
-				       NULL : remote_addr), 0, NULL);
-		if (ret)
-			return ret;
-
-		ret = ft_post_rx(ep, rx_size, &rx_ctx);
-		if (ret)
-			return ret;
-
-		if (fi->domain_attr->av_type == FI_AV_TABLE)
-			*remote_addr = 0;
-
-		ret = (int) ft_tx(ep, *remote_addr, 1, &tx_ctx);
-		if (ret)
-			return ret;
+		ret = -1;
+		while (ret != 0) {
+			ret = ft_av_insert(av_ptr, "fi_shm://127.0.0.1:1000:0", 1, remote_addr, 0, NULL);
+			sleep(1);
+		}
 	}
 
 set_rx_seq_close:

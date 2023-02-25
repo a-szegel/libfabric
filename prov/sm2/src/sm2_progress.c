@@ -46,29 +46,14 @@ static int sm2_progress_inject(struct sm2_free_queue_entry *fqe, enum fi_hmem_if
 			       size_t iov_count, size_t *total_len,
 			       struct sm2_ep *ep, int err)
 {
-	struct sm2_free_queue_entry *tx_buf;
-	size_t inj_offset;
 	ssize_t hmem_copy_ret;
 
-	inj_offset = (size_t) fqe->protocol_hdr.src_data;
-	tx_buf = sm2_get_ptr(ep->region, inj_offset);
 
-	if (err) {
-		smr_freestack_push(sm2_free_stack(ep->region), tx_buf);
-		return err;
-	}
-
-	if (fqe->protocol_hdr.op == ofi_op_read_req) {
-		hmem_copy_ret = ofi_copy_from_hmem_iov(tx_buf->data,
-						       fqe->protocol_hdr.size,
-						       iface, device, iov,
-						       iov_count, 0);
-	} else {
-		hmem_copy_ret = ofi_copy_to_hmem_iov(iface, device, iov,
-						     iov_count, 0, tx_buf->data,
+	hmem_copy_ret = ofi_copy_to_hmem_iov(iface, device, iov,
+						     iov_count, 0, fqe->data,
 						     fqe->protocol_hdr.size);
-		smr_freestack_push(sm2_free_stack(ep->region), tx_buf);
-	}
+
+	// TODO Could potentially return free queue entry here
 
 	if (hmem_copy_ret < 0) {
 		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
@@ -132,6 +117,8 @@ static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe,
 		sm2_get_peer_srx(ep)->owner_ops->free_entry(rx_entry);
 	}
 
+	// TODO HERE Return FQE?
+
 	return 0;
 }
 
@@ -144,42 +131,6 @@ int sm2_unexp_start(struct fi_peer_rx_entry *rx_entry)
 	ofi_freestack_push(cmd_ctx->ep->cmd_ctx_fs, cmd_ctx);
 
 	return ret;
-}
-
-static void sm2_progress_connreq(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe)
-{
-	struct sm2_region *peer_smr;
-	struct sm2_free_queue_entry *tx_buf;
-	size_t inj_offset;
-	int64_t idx = -1;
-	int ret = 0;
-
-	inj_offset = (size_t) fqe->protocol_hdr.src_data;
-	tx_buf = sm2_get_ptr(ep->region, inj_offset);
-
-	ret = sm2_map_add(&sm2_prov, ep->region->map,
-			  (char *) tx_buf->data, &idx);
-	if (ret)
-		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
-			"Error processing mapping request\n");
-
-	peer_smr = sm2_peer_region(ep->region, idx);
-
-	if (peer_smr->pid != (int) fqe->protocol_hdr.data) {
-		//TODO track and update/complete in error any transfers
-		//to or from old mapping
-		munmap(peer_smr, peer_smr->total_size);
-		sm2_map_to_region(&sm2_prov, ep->region->map, idx);
-		peer_smr = sm2_peer_region(ep->region, idx);
-	}
-	sm2_peer_data(peer_smr)[fqe->protocol_hdr.id].addr.id = idx;
-	sm2_peer_data(ep->region)[idx].addr.id = fqe->protocol_hdr.id;
-
-	smr_freestack_push(sm2_free_stack(ep->region), tx_buf);
-
-	// TODO SETH FIX THIS
-	// ofi_cirque_discard(sm2_recv_queue(ep->region));
-	assert(ep->region->map->num_peers > 0);
 }
 
 static int sm2_alloc_cmd_ctx(struct sm2_ep *ep,
@@ -201,7 +152,6 @@ static int sm2_alloc_cmd_ctx(struct sm2_ep *ep,
 
 static int sm2_progress_recv_msg(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe)
 {
-	struct sm2_region *peer_smr = ep->region->map->peers[fqe->protocol_hdr.id].region;
 	struct fid_peer_srx *peer_srx = sm2_get_peer_srx(ep);
 	struct fi_peer_rx_entry *rx_entry;
 	fi_addr_t addr;
@@ -239,15 +189,15 @@ static int sm2_progress_recv_msg(struct sm2_ep *ep, struct sm2_free_queue_entry 
 
 out:
 
-	// TODO SETH FIX THIS
-	// ofi_cirque_discard(sm2_recv_queue(ep->region));
 	return ret < 0 ? ret : 0;
 }
 
 static void sm2_progress_recv(struct sm2_ep *ep)
 {
 	struct sm2_free_queue_entry *fqe;
-	struct sm2_region *owning_region;
+	// TODO Owning Region is part of hack!
+	// TODO Should this be 1, is self 0?
+	struct sm2_region *owning_region = sm2_peer_region(ep->region, 0);
 	int ret = 0;
 
 	// TODO SETH FIX THIS
@@ -259,9 +209,6 @@ static void sm2_progress_recv(struct sm2_ep *ep)
 		case ofi_op_msg:
 		case ofi_op_tagged:
 			ret = sm2_progress_recv_msg(ep, fqe);
-			break;
-		case SM2_OP_MAX + ofi_ctrl_connreq:
-			sm2_progress_connreq(ep, fqe);
 			break;
 		default:
 			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
