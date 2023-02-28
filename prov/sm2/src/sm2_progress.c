@@ -53,8 +53,6 @@ static int sm2_progress_inject(struct sm2_free_queue_entry *fqe, enum fi_hmem_if
 						     iov_count, 0, fqe->data,
 						     fqe->protocol_hdr.size);
 
-	// TODO Could potentially return free queue entry here
-
 	if (hmem_copy_ret < 0) {
 		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
 			"inject recv failed with code %d\n",
@@ -87,6 +85,10 @@ static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe,
 					  rx_entry->iov, rx_entry->count,
 					  &total_len, ep, 0);
 		break;
+	case sm2_buffer_return:
+		// TODO This is currently not being used b/c of hack
+		smr_freestack_push(sm2_free_stack(ep->region), fqe);
+		break;
 	default:
 		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
 			"unidentified operation type\n");
@@ -113,11 +115,15 @@ static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe,
 		if (ret) {
 			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
 				"unable to process rx completion\n");
+		} else {
+			/* Return Free Queue Entries here */
+			// TODO Shouldn't need this hack... should just be able to write FQE back with FQE
+			struct sm2_region *owning_region = sm2_peer_region(ep->region, 0);
+			sm2_fifo_write_back(fqe, owning_region);
 		}
+
 		sm2_get_peer_srx(ep)->owner_ops->free_entry(rx_entry);
 	}
-
-	// TODO HERE Return FQE?
 
 	return 0;
 }
@@ -192,7 +198,7 @@ out:
 	return ret < 0 ? ret : 0;
 }
 
-static void sm2_progress_recv(struct sm2_ep *ep)
+void sm2_progress_recv(struct sm2_ep *ep)
 {
 	struct sm2_free_queue_entry *fqe;
 	// TODO Owning Region is part of hack!

@@ -76,6 +76,7 @@ struct sm2_region;
 /* SMR op_src: Specifies data source location */
 enum {
 	sm2_src_inject,	/* inject buffers */
+	sm2_buffer_return,
 	sm2_src_max,
 };
 

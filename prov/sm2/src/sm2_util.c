@@ -74,9 +74,6 @@ size_t sm2_calculate_size_offsets(size_t num_fqe,
 	size_t peer_data_offset, ep_name_offset;
 	size_t total_size;
 
-	// TODO  REMOVE: TEMPORARY to try and get this working
-	num_fqe = 5;
-
 	/* Align recv_queue offset to 128-bit boundary. */
 	recv_queue_offset = ofi_get_aligned_size(sizeof(struct sm2_region), 16);
 	free_queue_offset = recv_queue_offset + sizeof(struct sm2_fifo);

@@ -112,9 +112,24 @@ static inline struct sm2_free_queue_entry* sm2_fifo_read(struct sm2_fifo *fifo, 
     return fqe;
 }
 
-// TODO Need a writeback method (A way for receiver to return FQE to sender's FIFO)
-static inline void sm2_fifo_write_back(struct sm2_free_queue_entry *sm_fqe) {
-    // Do Something here
+// TODO Remove Owning Region
+// TODO use nemesis send instead of putting back on FQE
+static inline void sm2_fifo_write_back(struct sm2_free_queue_entry *fqe, struct sm2_region *owning_region) {
+    fqe->protocol_hdr.op_src = sm2_buffer_return;
+
+    // This is really bad b/c it will make our performance seem better than it actually is!
+    // Can't take this out b/c in sm2_progress_recv(), we have an assumption that the buffer
+    // that is sent to us is always from a peer.
+    // Three Fixes:
+    // 1. Fix Hack (long term)
+    // 2. Use a separate fifo queue for returning buffers (which we only call when we are out)
+    //     BAD Hurts  performance
+    //     BAD more work for something we will just delete later
+    // Do what we did here... cheap easy, except it makes us think we have better performance than we actually do
+
+    smr_freestack_push(sm2_free_stack(owning_region), fqe);
+
+    // sm2_fifo_write(sm2_recv_queue(owning_region), owning_region, fqe);
 }
 
 #endif /* _SM2_FIFO_H_ */

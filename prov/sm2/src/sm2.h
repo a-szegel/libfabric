@@ -316,6 +316,7 @@ struct sm2_rx_entry *sm2_get_recv_entry(struct sm2_srx_ctx *srx,
 
 void sm2_ep_progress(struct util_ep *util_ep);
 
+void sm2_progress_recv(struct sm2_ep *ep);
 
 int sm2_unexp_start(struct fi_peer_rx_entry *rx_entry);
 #endif

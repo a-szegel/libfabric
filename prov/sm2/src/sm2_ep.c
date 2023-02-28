@@ -277,11 +277,15 @@ static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr, int
 
 	fifo = sm2_recv_queue(peer_smr);
 
-	// Pop FQE from local region
-	fqe = smr_freestack_pop(sm2_free_stack(ep->region));
-	if (!fqe) {
-		return -FI_EAGAIN;
+	if (smr_freestack_isempty(sm2_free_stack(ep->region))) {
+		sm2_progress_recv(ep);
+		if (smr_freestack_isempty(sm2_free_stack(ep->region))) {
+			return -FI_EAGAIN;
+		}
 	}
+
+	// Pop FQE from local region for sending
+	fqe = smr_freestack_pop(sm2_free_stack(ep->region));
 
 	sm2_generic_format(fqe, peer_id, op, tag, data, op_flags);
 	sm2_format_inject(fqe, iface, device, iov, iov_count, peer_smr);
@@ -778,6 +782,7 @@ static int sm2_ep_ctrl(struct fid *fid, int command, void *arg)
 			return -FI_ENOAV;
 
 		attr.name = sm2_no_prefix(ep->name);
+		// TODO Decide on correct default number of FQE's
 		attr.num_fqe = ep->tx_size;
 		attr.flags = ep->util_ep.caps & 0;
 
