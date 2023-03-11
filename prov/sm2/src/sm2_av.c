@@ -74,8 +74,7 @@ static int sm2_av_insert(struct fid_av *av_fid, const void *addr, size_t count,
 
 
 	for (i = 0; i < count; i++, addr = (char *) addr + strlen(addr) + 1) {
-		util_addr = sm2_coordinator_allocate_entry(addr, &sm2_av->sm2_mmap, &util_addr, false);
-		ret = util_addr >= 0 ? 0 : -1;
+		ret = sm2_coordinator_allocate_entry(addr, &sm2_av->sm2_mmap, &util_addr, false);
 		if (ret && util_av->eq) {
 			ofi_av_write_event(util_av, i, -ret, context);
 		}
@@ -143,7 +142,7 @@ static int sm2_av_lookup(struct fid_av *av, fi_addr_t fi_addr, void *addr,
 	strncpy(addr, entries[fi_addr].ep_name, *addrlen - 1);
 	((char*)addr)[*addrlen] = '\0';
 	*addrlen = strnlen(entries[fi_addr].ep_name, SM2_NAME_MAX-1) + 1;
-	
+
 	return 0;
 }
 
@@ -178,10 +177,10 @@ static struct fi_ops_av sm2_av_ops = {
 
 /**
  * @brief create and open an AV
- * 
+ *
  * Allocate space for the AV
  * Ensure attr->type is FI_AV_TABLE or FI_AV_UNSPEC
- * 
+ *
  * @param domain
  * @param attr
  * @param[out] **av
