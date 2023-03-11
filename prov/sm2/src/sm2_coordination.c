@@ -285,7 +285,13 @@ ssize_t sm2_coordinator_allocate_entry(const char* name, struct sm2_mmap *map, i
 			// if PID lives this is fine... this means that someone else allocated the peer before we did
 			goto found;
 		}
+	} else if (entries[jentry].pid < 0) {
+		// Someone else allocated our entry for us
+		// We need to keep PID negative until we are able to allocate our FQE
+		// This will happen later in sm2_create()
+		goto found;
 	}
+
 	if (jentry >= 0 && entries[jentry].pid < 0) {
 		if (!pid_lives( entries[jentry].pid )) {
 			FI_WARN( &sm2_prov, FI_LOG_AV,
@@ -313,6 +319,7 @@ ssize_t sm2_coordinator_allocate_entry(const char* name, struct sm2_mmap *map, i
 	return -FI_EAVAIL;
 
 found_and_allocated:
+    // Need to allocate before we get here
 	if (self) entries[jentry].pid = pid;
 	if (!self) entries[jentry].pid = -pid;
 

@@ -77,7 +77,7 @@ size_t sm2_calculate_size_offsets(ptrdiff_t num_fqe,
 	/* Third memory block: the message objects in a free queue */
 	if (fq_offset) *fq_offset = total_size;
 	total_size += freestack_size(sizeof(struct sm2_free_queue_entry), num_fqe);
-	
+
 	/*
  	 * Revisit later to see if we really need the size adjustment, or
  	 * at most align to a multiple of a page size.
@@ -104,12 +104,11 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	FI_WARN(prov, FI_LOG_EP_CTRL, "Claiming an entry for (%s)\n", attr->name);
 	sm2_coordinator_lock(sm2_mmap);
 	ret = sm2_coordinator_allocate_entry(attr->name, sm2_mmap, id, true);
-	sm2_coordinator_unlock(sm2_mmap);
 
 	/* TODO: handle address-in-use error (FI_EBUSY?)*/
 	/* TODO: handle no available space on device error */
 	/* TODO: handle no available slots left error */
-	
+
 
 	ep_name = calloc(1, sizeof(*ep_name));
 	if (!ep_name) {
@@ -161,6 +160,15 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 
 	/* TODO: still true?: Must be set last to signal full initialization to peers */
 	smr->pid = getpid();
+
+	/*
+	 * Need to set PID in header here...
+	 * this will unblock other processes trying to send to us
+	 */
+	sm2_mmap_entries(sm2_mmap)[*id].pid = smr->pid;
+
+	/* Need to unlock coordinator so that others can add themselves to header */
+	sm2_coordinator_unlock(sm2_mmap);
 	return 0;
 
 remove:
