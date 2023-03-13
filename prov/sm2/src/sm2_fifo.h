@@ -55,6 +55,23 @@
 	__atomic_compare_exchange_n((int64_t *) (x), (int64_t *) (y), (int64_t)(z), \
 								 false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
 
+/* TODO: Move to ofi_atom*/
+
+static inline void atomic_mb(void)
+{
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+}
+
+static inline void atomic_rmb(void)
+{
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+}
+
+static inline void atomic_wmb(void)
+{
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+}
+
 struct sm2_fifo {
 	long int head;
 	long int tail;
@@ -82,17 +99,22 @@ static inline void sm2_fifo_write(struct sm2_ep *ep, int peer_id,
 	long int offset = sm2_absptr_to_relptr(fqe, map);
 	long int prev;
 
+	// atomic_mb();
+
 	fqe->nemesis_hdr.next = SM2_FIFO_FREE;
 
+	atomic_wmb();
 	prev = atomic_swap_ptr(&peer_fifo->tail, offset);
+	atomic_rmb();
 
 	assert(prev != offset);
 
 	if (OFI_LIKELY(SM2_FIFO_FREE != prev)) {
 		/* not empty */
-		if (prev + sizeof(fqe) > map->size) {
+		if (OFI_UNLIKELY(prev + sizeof(fqe) > map->size)) {
 			/* Need to re-map */
 			sm2_mmap_remap(map, prev + sizeof(fqe));
+			atomic_mb();
 		}
 
 		prev_fqe = sm2_relptr_to_absptr(prev, map);
@@ -100,6 +122,8 @@ static inline void sm2_fifo_write(struct sm2_ep *ep, int peer_id,
 	} else {
 		peer_fifo->head = offset;
 	}
+
+	atomic_wmb();
 }
 
 /* Read, Dequeue */
@@ -116,13 +140,16 @@ static inline struct sm2_free_queue_entry* sm2_fifo_read(struct sm2_ep *ep)
 		return NULL;
 	}
 
+	atomic_rmb();
+
 	prev_head = self_fifo->head;
 
-	if (prev_head + sizeof(fqe) > map->size) {
+	if (OFI_UNLIKELY(prev_head + sizeof(fqe) > map->size)) {
 		/* Need to re-map, and re-generate pointers */
 		sm2_mmap_remap(map, prev_head + sizeof(fqe));
 		self_region = sm2_smr_region(ep, ep->self_fiaddr);
 		self_fifo = sm2_recv_queue(self_region);
+		atomic_mb();
 	}
 
 	fqe = (struct sm2_free_queue_entry*)sm2_relptr_to_absptr(prev_head, map);
@@ -131,14 +158,18 @@ static inline struct sm2_free_queue_entry* sm2_fifo_read(struct sm2_ep *ep)
 	assert(fqe->nemesis_hdr.next != prev_head);
 
 	if (OFI_UNLIKELY(SM2_FIFO_FREE == fqe->nemesis_hdr.next)) {
+		atomic_rmb();
 		if (!atomic_compare_exchange(&self_fifo->tail, &prev_head, SM2_FIFO_FREE)) {
-			while (SM2_FIFO_FREE == fqe->nemesis_hdr.next) {}
+			while (SM2_FIFO_FREE == fqe->nemesis_hdr.next) {
+				atomic_mb();
+			}
 			self_fifo->head = fqe->nemesis_hdr.next;
 		}
 	} else {
 		self_fifo->head = fqe->nemesis_hdr.next;
 	}
 
+	atomic_wmb();
 	return fqe;
 }
 
@@ -148,7 +179,6 @@ static inline void sm2_fifo_write_back(struct sm2_ep *ep,
 	struct sm2_mmap *map = ep->mmap_regions;
 
 	fqe->protocol_hdr.op_src = sm2_buffer_return;
-
 	sm2_fifo_write(ep, sm2_region_ptr_to_id(map, fqe), fqe);
 }
 
