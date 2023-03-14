@@ -108,18 +108,8 @@ static int sm2_av_insert(struct fid_av *av_fid, const void *addr, size_t count,
 static int sm2_av_remove(struct fid_av *av_fid, fi_addr_t *fi_addr, size_t count,
 			 uint64_t flags)
 {
-	struct util_av *util_av;
-	struct sm2_av *sm2_av;
-	int ret = 0;
-
-	util_av = container_of(av_fid, struct util_av, av_fid);
-	sm2_av = container_of(util_av, struct sm2_av, util_av);
-
-	ofi_mutex_lock(&util_av->lock);
-	ret = sm2_coordinator_free_entry(&sm2_av->sm2_mmap, *fi_addr);
-	ofi_mutex_unlock(&util_av->lock);
-
-	return ret;
+	/* No-OP */
+	return 0;
 }
 
 static int sm2_av_lookup(struct fid_av *av, fi_addr_t fi_addr, void *addr,
