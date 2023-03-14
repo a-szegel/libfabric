@@ -95,14 +95,6 @@ struct sm2_av {
 	size_t			used;	  // get rid of this
 };
 
-/*
-struct sm2_av {
-	struct util_av		util_av;
-	struct sm2_map		*sm2_map;
-	size_t			used;
-};
-*/
-
 static inline int64_t sm2_addr_lookup(struct util_av *av, fi_addr_t fiaddr)
 {
 	return *((int64_t *) ofi_av_get_addr(av, fiaddr));
@@ -241,10 +233,6 @@ struct sm2_ep {
 	int			self_fiaddr;
 	//struct sm2_region	*volatile region;
 	struct sm2_mmap		*mmap_regions;
-	//if double locking is needed, shm region lock must
-	//be acquired before any shm EP locks
-
-	// TODO Determine if this spin lock is needed
 	ofi_spin_t		tx_lock;
 
 	struct fid_ep		*srx;
@@ -254,7 +242,7 @@ struct sm2_ep {
 };
 
 static inline struct sm2_region *sm2_smr_region(struct sm2_ep *ep, int id)
-{	
+{
 	return sm2_mmap_ep_region(ep->mmap_regions, id);
 }
 

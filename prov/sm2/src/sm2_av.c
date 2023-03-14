@@ -74,7 +74,9 @@ static int sm2_av_insert(struct fid_av *av_fid, const void *addr, size_t count,
 
 
 	for (i = 0; i < count; i++, addr = (char *) addr + strlen(addr) + 1) {
+		FI_WARN(&sm2_prov, FI_LOG_AV, "fi_av_insert(): About to call sm2_coordinator_allocate_entry() on addr %s, my_pid: %d, count: %zu,  \n", (char*) addr, getpid(), count);
 		ret = sm2_coordinator_allocate_entry(addr, &sm2_av->sm2_mmap, &util_addr, false);
+		FI_WARN(&sm2_prov, FI_LOG_AV, "fi_av_insert(): finished sm2_coordinator_allocate_entry() resulting AV Found = %d \n", util_addr);
 		if (ret && util_av->eq) {
 			ofi_av_write_event(util_av, i, -ret, context);
 		}
@@ -210,6 +212,11 @@ int sm2_av_open(struct fid_domain *domain, struct fi_av_attr *attr,
 
 	if (attr->type == FI_AV_UNSPEC)
 		attr->type = FI_AV_MAP;
+
+	if (attr->type != FI_AV_MAP) {
+		FI_WARN(&sm2_prov, FI_LOG_AV, "Only FI_AV_MAP Supported\n");
+		return -FI_EINVAL;
+	}
 
 	util_domain = container_of(domain, struct util_domain, domain_fid);
 
