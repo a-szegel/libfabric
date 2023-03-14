@@ -81,15 +81,6 @@ enum {
 	sm2_src_max,
 };
 
-struct sm2_nemesis_hdr {
-	/* For FIFO and LIFO queues */
-    int64_t next;
-
-    /* For Returns*/
-    long int fifo_home;        /* fifo list to return fragment too once we are done with it */
-    long int home_free_list;   /* free list this fragment was allocated within, for returning frag to free list */
-};
-
 /*
  * Unique sm2_op_hdr for smr message protocol:
  * 	addr - local shm_id of peer sending msg (for shm lookup)
@@ -100,6 +91,8 @@ struct sm2_nemesis_hdr {
  * 	data - remote CQ data
  */
 struct sm2_protocol_hdr {
+	// This is volatile for a reason, many things touch this
+    volatile long int next;
 	uint64_t		msg_id;
 	int64_t			id;
 	uint32_t		op;
@@ -119,7 +112,6 @@ struct sm2_protocol_hdr {
 };
 
 struct sm2_free_queue_entry {
-	struct sm2_nemesis_hdr nemesis_hdr;
 	struct sm2_protocol_hdr protocol_hdr;
 	uint8_t data[SM2_INJECT_SIZE];
 };
@@ -214,12 +206,12 @@ struct sm2_coord_file_header {
 
         ptrdiff_t       ep_enumerations_offset; /* struct sm2_ep_allocation_entry */
         ptrdiff_t       ep_regions_offset;      /* struct ep_region */
-        
+
 };
 
 static inline struct sm2_ep_allocation_entry *sm2_mmap_entries(struct sm2_mmap *map)
 {
-	struct sm2_coord_file_header *header = (void*)map->base;
+	struct sm2_coord_file_header *header = (void*) map->base;
 	return (struct sm2_ep_allocation_entry *) (map->base + header->ep_enumerations_offset);
 }
 
@@ -238,18 +230,9 @@ static inline struct sm2_region *sm2_mmap_ep_region(struct sm2_mmap *map, int id
 	return (struct sm2_region *) (map->base + header->ep_regions_offset + header->ep_region_size*id);
 }
 
-/* use the regular ep_region_size to determine which id owns this pointer. 
-	This is probably a hack. TODO do we need this?
-*/
-static inline int sm2_region_ptr_to_id(struct sm2_mmap *map, void *ptr)
-{
-	struct sm2_coord_file_header *header = (void*)map->base;
-	char *region0 = map->base + header->ep_regions_offset;
-	return ((char*)ptr - region0) / header->ep_region_size;
-}
-
 /* @return True if pid is still alive. */
-static inline bool pid_lives(int pid) {
+static inline bool pid_lives(int pid)
+{
 	int err = kill( pid, 0 );
 	return err == 0;
 }
