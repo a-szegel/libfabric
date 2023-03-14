@@ -56,7 +56,7 @@
 								 false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
 
 /* TODO: Move to ofi_atom*/
-
+// TODO These need a different impl for ARM based machines
 static inline void atomic_mb(void)
 {
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
@@ -99,8 +99,6 @@ static inline void sm2_fifo_write(struct sm2_ep *ep, int peer_id,
 	long int offset = sm2_absptr_to_relptr(fqe, map);
 	long int prev;
 
-	// atomic_mb();
-
 	fqe->nemesis_hdr.next = SM2_FIFO_FREE;
 
 	atomic_wmb();
@@ -127,7 +125,6 @@ static inline void sm2_fifo_write(struct sm2_ep *ep, int peer_id,
 }
 
 /* Read, Dequeue */
-// TODO Add Memory Barriers Back In
 static inline struct sm2_free_queue_entry* sm2_fifo_read(struct sm2_ep *ep)
 {
 	struct sm2_mmap *map = ep->mmap_regions;
@@ -161,6 +158,7 @@ static inline struct sm2_free_queue_entry* sm2_fifo_read(struct sm2_ep *ep)
 		atomic_rmb();
 		if (!atomic_compare_exchange(&self_fifo->tail, &prev_head, SM2_FIFO_FREE)) {
 			while (SM2_FIFO_FREE == fqe->nemesis_hdr.next) {
+				// TODO Figure out why we need this to be a MB instead of a RMB like OMPI
 				atomic_mb();
 			}
 			self_fifo->head = fqe->nemesis_hdr.next;
@@ -179,7 +177,7 @@ static inline void sm2_fifo_write_back(struct sm2_ep *ep,
 	struct sm2_mmap *map = ep->mmap_regions;
 
 	fqe->protocol_hdr.op_src = sm2_buffer_return;
-	sm2_fifo_write(ep, sm2_region_ptr_to_id(map, fqe), fqe);
+	sm2_fifo_write(ep, fqe->protocol_hdr.id, fqe);
 }
 
 #endif /* _SM2_FIFO_H_ */
