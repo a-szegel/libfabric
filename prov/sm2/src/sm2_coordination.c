@@ -362,7 +362,7 @@ int sm2_coordinator_lookup_entry(const char* name, struct sm2_mmap *map)
 		}
 		if (entries[jentry].ep_name[0] != '\0')
 		{
-			printf("Searching for %s.  AV[%d]=%s\n",name, jentry, entries[jentry].ep_name);
+			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL, "Searching for %s. Not yet found in spot AV[%d]=%s\n",name, jentry, entries[jentry].ep_name);
 		}
 	}
 	return -1;
