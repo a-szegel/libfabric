@@ -249,13 +249,13 @@ static void sm2_init_queue(struct sm2_queue *queue,
 	queue->match_func = match_func;
 }
 
-void sm2_generic_format(struct sm2_free_queue_entry *fqe, int64_t peer_id, uint32_t op,
+void sm2_generic_format(struct sm2_free_queue_entry *fqe, int64_t self_id, uint32_t op,
 			uint64_t tag, uint64_t data, uint64_t op_flags)
 {
 	fqe->protocol_hdr.op = op;
 	fqe->protocol_hdr.op_flags = 0;
 	fqe->protocol_hdr.tag = tag;
-	fqe->protocol_hdr.id = peer_id;
+	fqe->protocol_hdr.id = self_id;
 	fqe->protocol_hdr.data = data;
 
 	if (op_flags & FI_REMOTE_CQ_DATA)
@@ -300,7 +300,7 @@ static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr, int
 	/* Pop FQE from local region for sending */
 	fqe = smr_freestack_pop(sm2_free_stack(self_region));
 
-	sm2_generic_format(fqe, peer_id, op, tag, data, op_flags);
+	sm2_generic_format(fqe, ep->self_fiaddr, op, tag, data, op_flags);
 	sm2_format_inject(fqe, iface, device, iov, iov_count, peer_smr);
 
 	sm2_fifo_write(ep, peer_id, fqe);
@@ -897,6 +897,7 @@ int sm2_endpoint(struct fid_domain *domain, struct fi_info *info,
 		return -FI_ENOMEM;
 
 	ret = sm2_endpoint_name(ep, name, info->src_addr, info->src_addrlen);
+
 	if (ret)
 		goto ep;
 	ret = sm2_setname(&ep->util_ep.ep_fid.fid, name, SM2_NAME_MAX);
