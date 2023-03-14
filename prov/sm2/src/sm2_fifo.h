@@ -174,8 +174,6 @@ static inline struct sm2_free_queue_entry* sm2_fifo_read(struct sm2_ep *ep)
 static inline void sm2_fifo_write_back(struct sm2_ep *ep,
 		struct sm2_free_queue_entry *fqe)
 {
-	struct sm2_mmap *map = ep->mmap_regions;
-
 	fqe->protocol_hdr.op_src = sm2_buffer_return;
 	sm2_fifo_write(ep, fqe->protocol_hdr.id, fqe);
 }
