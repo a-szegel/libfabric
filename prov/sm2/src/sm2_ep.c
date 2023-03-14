@@ -288,6 +288,8 @@ static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr, int
 	struct sm2_free_queue_entry *fqe;
 	struct sm2_region *self_region;
 
+	assert(total_len <= 4096);
+
 	self_region = sm2_smr_region(ep, ep->self_fiaddr);
 
 	if (smr_freestack_isempty(sm2_free_stack(self_region))) {
