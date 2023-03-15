@@ -128,6 +128,7 @@ int sm2_unexp_start(struct fi_peer_rx_entry *rx_entry)
 	struct sm2_cmd_ctx *cmd_ctx = rx_entry->peer_context;
 	int ret;
 
+	// TODO Fix this b/c &cmd_ctx->cmd is not a FQE... this is being added to the the FIFO stack and murdering us
 	ret = sm2_start_common(cmd_ctx->ep, &cmd_ctx->cmd, rx_entry);
 	ofi_freestack_push(cmd_ctx->ep->cmd_ctx_fs, cmd_ctx);
 

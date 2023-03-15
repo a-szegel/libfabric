@@ -133,15 +133,6 @@ struct sm2_peer {
 	struct sm2_region	*region;
 };
 
-struct sm2_map {
-	ofi_spin_t		lock;
-	int64_t			cur_id;
-	int 			num_peers;
-	uint16_t		flags;
-	struct ofi_rbmap	rbmap;
-	//struct sm2_peer		peers[SM2_MAX_PEERS];
-};
-
 struct sm2_region {
 	uint8_t		version;
 	uint8_t		resv;
@@ -163,18 +154,8 @@ struct sm2_attr {
 size_t sm2_calculate_size_offsets(ptrdiff_t num_fqe,
 				  ptrdiff_t *rq_offset,
 				  ptrdiff_t *mp_offset );
-void	sm2_cleanup(void);
-int	sm2_map_create(const struct fi_provider *prov, int peer_count,
-		       uint16_t caps, struct sm2_map **map);
-int	sm2_map_to_region(const struct fi_provider *prov, struct sm2_map *map,
-			  int64_t id);
-void	sm2_map_to_endpoint(struct sm2_region *region, int64_t id);
-void	sm2_unmap_from_endpoint(struct sm2_region *region, int64_t id);
-void	sm2_exchange_all_peers(struct sm2_region *region);
-void	sm2_map_del(struct sm2_map *map, int64_t id);
-void	sm2_map_free(struct sm2_map *map);
+void sm2_cleanup(void);
 
-/* ---- */
 
 struct sm2_mmap {
         char *base;
@@ -182,9 +163,9 @@ struct sm2_mmap {
         int fd;
 };
 
-int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
+int sm2_create(const struct fi_provider *prov,
 	       const struct sm2_attr *attr, struct sm2_mmap *sm2_mmap, int *id);
-void	sm2_free(struct sm2_region *smr);
+void sm2_free(struct sm2_region *smr);
 
 
 struct sm2_private_aux {
@@ -249,7 +230,7 @@ static inline void* sm2_relptr_to_absptr(int64_t relptr, struct sm2_mmap *map)
 }
 static inline int64_t sm2_absptr_to_relptr(void *absptr, struct sm2_mmap *map)
 {
-	return (int64_t) ((char*)absptr - map->base );
+	return (int64_t) ((char*)absptr - map->base);
 }
 
 ssize_t sm2_mmap_unmap_and_close(struct sm2_mmap *map );

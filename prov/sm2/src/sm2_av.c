@@ -238,10 +238,6 @@ int sm2_av_open(struct fid_domain *domain, struct fi_av_attr *attr,
 	header = (void*) sm2_av->sm2_mmap.base;
 	sm2_av->sm2_aux = calloc( header->ep_enumerations_max, sizeof(struct sm2_private_aux));
 
-
-	// ret = sm2_map_create(&sm2_prov, SM2_MAX_PEERS,
-	// 		     util_domain->info_domain_caps & FI_HMEM ?
-	// 		     SM2_FLAG_HMEM_ENABLED : 0, &sm2_av->sm2_map);
 	if (ret)
 		goto close;
 

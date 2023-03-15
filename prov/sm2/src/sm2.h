@@ -90,9 +90,6 @@ struct sm2_av {
 	struct util_av		util_av;
 	struct sm2_mmap		sm2_mmap;
 	struct sm2_private_aux  *sm2_aux;
-
-	struct sm2_map		*sm2_map; // get rid of this
-	size_t			used;	  // get rid of this
 };
 
 static inline int64_t sm2_addr_lookup(struct util_av *av, fi_addr_t fiaddr)
@@ -231,10 +228,8 @@ struct sm2_ep {
 	const char		*name;
 	uint64_t		msg_id;
 	int			self_fiaddr;
-	//struct sm2_region	*volatile region;
 	struct sm2_mmap		*mmap_regions;
 	ofi_spin_t		tx_lock;
-
 	struct fid_ep		*srx;
 	struct sm2_cmd_ctx_fs	*cmd_ctx_fs;
 	struct sm2_pend_fs	*pend_fs;

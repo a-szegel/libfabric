@@ -88,7 +88,7 @@ size_t sm2_calculate_size_offsets(ptrdiff_t num_fqe,
 }
 
 
-int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
+int sm2_create(const struct fi_provider *prov,
 	       const struct sm2_attr *attr, struct sm2_mmap *sm2_mmap, int *id)
 {
 	struct sm2_ep_name *ep_name;
@@ -108,7 +108,6 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 	/* TODO: handle address-in-use error (FI_EBUSY?)*/
 	/* TODO: handle no available space on device error */
 	/* TODO: handle no available slots left error */
-
 
 	ep_name = calloc(1, sizeof(*ep_name));
 	if (!ep_name) {
@@ -136,15 +135,7 @@ int sm2_create(const struct fi_provider *prov, struct sm2_map *map,
 		goto remove;
 	}
 
-	/* TODO: SM2_FLAG_HMEM_ENABLED.  Need to handle re-mapping as well */
-	/*
-	if (attr->flags & SM2_FLAG_HMEM_ENABLED) {
-		ret = ofi_hmem_host_register(mapped_addr, total_size);
-		if (ret)
-			FI_WARN(prov, FI_LOG_EP_CTRL,
-				"unable to register shm with iface\n");
-	}
-	*/
+	/* TODO: Handle SM2_FLAG_HMEM_ENABLED */
 
 	pthread_mutex_unlock(&sm2_ep_list_lock);
 	smr = mapped_addr;
@@ -177,14 +168,4 @@ remove:
 	free(ep_name);
 close:
 	return ret;
-}
-
-void sm2_unmap_from_endpoint(struct sm2_region *region, int64_t id)
-{
-
-}
-
-void sm2_map_free(struct sm2_map *map)
-{
-
 }

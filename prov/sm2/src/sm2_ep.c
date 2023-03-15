@@ -214,12 +214,13 @@ int64_t sm2_verify_peer(struct sm2_ep *ep, fi_addr_t fi_addr)
 
 	sm2_av = container_of(ep->util_ep.av, struct sm2_av, util_av);
 	entries = sm2_mmap_entries(&sm2_av->sm2_mmap);
+
+	// TODO... should this be atomic?
 	if (entries[id].pid <= 0) return -FI_EAGAIN;
 
 	sm2_coordinator_extend_for_entry(&sm2_av->sm2_mmap, id);
 
 	return id;
-
 }
 
 static int sm2_match_msg(struct dlist_entry *item, const void *args)
@@ -801,7 +802,7 @@ static int sm2_ep_ctrl(struct fid *fid, int command, void *arg)
 		attr.num_fqe = ep->tx_size;
 		attr.flags = ep->util_ep.caps & 0;
 
-		ret = sm2_create(&sm2_prov, av->sm2_map, &attr, &av->sm2_mmap, &self_id);
+		ret = sm2_create(&sm2_prov, &attr, &av->sm2_mmap, &self_id);
 		ep->mmap_regions = &av->sm2_mmap;
 		ep->self_fiaddr = self_id;
 
@@ -826,7 +827,6 @@ static int sm2_ep_ctrl(struct fid *fid, int command, void *arg)
 			ep->util_ep.ep_fid.msg = &sm2_no_recv_msg_ops;
 			ep->util_ep.ep_fid.tagged = &sm2_no_recv_tag_ops;
 		}
-		//sm2_exchange_all_peers(ep->region);
 
 		break;
 	default:
