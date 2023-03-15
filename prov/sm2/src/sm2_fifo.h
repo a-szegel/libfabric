@@ -55,8 +55,16 @@
 	__atomic_compare_exchange_n((int64_t *) (x), (int64_t *) (y), (int64_t)(z), \
 								 false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
 
-/* TODO: Move to ofi_atom*/
-// TODO These need a different impl for ARM based machines
+
+// TODO MOVE TO its own FILE
+#if defined(PLATFORM_ARCH_X86_64) && defined(PLATFORM_COMPILER_GNU) && __GNUC__ < 8
+    /* work around a bug in older gcc versions where ACQUIRE seems to get
+     * treated as a no-op instead */
+#define OPAL_BUSTED_ATOMIC_MB 1
+#else
+#define OPAL_BUSTED_ATOMIC_MB 0
+#endif
+
 static inline void atomic_mb(void)
 {
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
@@ -64,13 +72,19 @@ static inline void atomic_mb(void)
 
 static inline void atomic_rmb(void)
 {
+#if OPAL_BUSTED_ATOMIC_MB
+    __asm__ __volatile__("" : : : "memory");
+#else
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
+#endif
 }
 
 static inline void atomic_wmb(void)
 {
     __atomic_thread_fence(__ATOMIC_RELEASE);
 }
+
+// TODO MOVE TO OWN FILE ^^^^^^^^^^^^^^^
 
 struct sm2_fifo {
 	long int head;
@@ -87,8 +101,6 @@ static inline void sm2_fifo_init(struct sm2_fifo *fifo)
 }
 
 /* Write, Enqueue */
-// TODO Add Memory Barriers Back In
-// TODO Verify This is correct
 static inline void sm2_fifo_write(struct sm2_ep *ep, int peer_id,
         struct sm2_free_queue_entry *fqe)
 {
@@ -99,7 +111,15 @@ static inline void sm2_fifo_write(struct sm2_ep *ep, int peer_id,
 	long int offset = sm2_absptr_to_relptr(fqe, map);
 	long int prev;
 
-	fqe->nemesis_hdr.next = SM2_FIFO_FREE;
+	// TODO Remove When Done Debugging
+	long int max_offset_for_two_peers = (2 * ((struct sm2_coord_file_header *) map->base)->ep_region_size + ((struct sm2_coord_file_header *) map->base)->ep_regions_offset);
+	assert(max_offset_for_two_peers == 34623488);
+	assert(offset < max_offset_for_two_peers);
+	assert(peer_fifo->head != 0);
+	assert(peer_fifo->tail != 0);
+	assert(offset != 0);
+
+	fqe->protocol_hdr.next = SM2_FIFO_FREE;
 
 	atomic_wmb();
 	prev = atomic_swap_ptr(&peer_fifo->tail, offset);
@@ -108,7 +128,6 @@ static inline void sm2_fifo_write(struct sm2_ep *ep, int peer_id,
 	assert(prev != offset);
 
 	if (OFI_LIKELY(SM2_FIFO_FREE != prev)) {
-		/* not empty */
 		if (OFI_UNLIKELY(prev + sizeof(fqe) > map->size)) {
 			/* Need to re-map */
 			sm2_mmap_remap(map, prev + sizeof(fqe));
@@ -116,7 +135,7 @@ static inline void sm2_fifo_write(struct sm2_ep *ep, int peer_id,
 		}
 
 		prev_fqe = sm2_relptr_to_absptr(prev, map);
-		prev_fqe->nemesis_hdr.next = offset;
+		prev_fqe->protocol_hdr.next = offset;
 	} else {
 		peer_fifo->head = offset;
 	}
@@ -132,6 +151,13 @@ static inline struct sm2_free_queue_entry* sm2_fifo_read(struct sm2_ep *ep)
 	struct sm2_fifo *self_fifo = sm2_recv_queue(self_region);
 	struct sm2_free_queue_entry* fqe;
 	long int prev_head;
+
+	// TODO Remove Debugging when fixed
+	assert(self_fifo->head != 0);
+	assert(self_fifo->tail != 0);
+
+	// TODO Do I need this
+	atomic_mb();
 
 	if (SM2_FIFO_FREE == self_fifo->head) {
 		return NULL;
@@ -152,19 +178,21 @@ static inline struct sm2_free_queue_entry* sm2_fifo_read(struct sm2_ep *ep)
 	fqe = (struct sm2_free_queue_entry*)sm2_relptr_to_absptr(prev_head, map);
 	self_fifo->head = SM2_FIFO_FREE;
 
-	assert(fqe->nemesis_hdr.next != prev_head);
+	// TODO REMOVE DEBUGGING WHEN FIXED
+	assert(fqe != 0);
+	assert(fqe->protocol_hdr.next != prev_head);
+	assert(fqe->protocol_hdr.next != 0);
 
-	if (OFI_UNLIKELY(SM2_FIFO_FREE == fqe->nemesis_hdr.next)) {
+	if (OFI_UNLIKELY(SM2_FIFO_FREE == fqe->protocol_hdr.next)) {
 		atomic_rmb();
 		if (!atomic_compare_exchange(&self_fifo->tail, &prev_head, SM2_FIFO_FREE)) {
-			while (SM2_FIFO_FREE == fqe->nemesis_hdr.next) {
-				// TODO Figure out why we need this to be a MB instead of a RMB like OMPI
-				atomic_mb();
+			while (SM2_FIFO_FREE == fqe->protocol_hdr.next) {
+				atomic_rmb();
 			}
-			self_fifo->head = fqe->nemesis_hdr.next;
+			self_fifo->head = fqe->protocol_hdr.next;
 		}
 	} else {
-		self_fifo->head = fqe->nemesis_hdr.next;
+		self_fifo->head = fqe->protocol_hdr.next;
 	}
 
 	atomic_wmb();
