@@ -69,6 +69,9 @@ extern "C" {
 #define SM2_NAME_MAX	256
 #define SM2_PATH_MAX	(SM2_NAME_MAX + sizeof(SM2_DIR))
 
+#define SM2_COORDINATION_FILE "/dev/shm/fi_sm2_mmaps"
+#define SM2_COORDINATION_DIR "/dev/shm"
+
 extern struct dlist_entry sm2_ep_name_list;
 extern pthread_mutex_t sm2_ep_list_lock;
 
@@ -151,22 +154,11 @@ struct sm2_attr {
 	uint16_t	flags;
 };
 
-size_t sm2_calculate_size_offsets(ptrdiff_t num_fqe,
-				  ptrdiff_t *rq_offset,
-				  ptrdiff_t *mp_offset );
-void sm2_cleanup(void);
-
-
 struct sm2_mmap {
         char *base;
         size_t size;
         int fd;
 };
-
-int sm2_create(const struct fi_provider *prov,
-	       const struct sm2_attr *attr, struct sm2_mmap *sm2_mmap, int *id);
-void sm2_free(struct sm2_region *smr);
-
 
 struct sm2_private_aux {
 	fi_addr_t	cqfid;
@@ -176,7 +168,6 @@ struct sm2_ep_allocation_entry {
         int pid;
         char ep_name[SM2_NAME_MAX];
 };
-
 
 struct sm2_coord_file_header {
 	int             file_version;
@@ -189,6 +180,23 @@ struct sm2_coord_file_header {
         ptrdiff_t       ep_regions_offset;      /* struct ep_region */
 
 };
+
+ssize_t sm2_mmap_unmap_and_close(struct sm2_mmap *map );
+void* sm2_mmap_remap(struct sm2_mmap *map, size_t at_least );
+void* sm2_mmap_map(int fd, struct sm2_mmap *map );
+ssize_t sm2_coordinator_open_and_lock(struct sm2_mmap *map_shared);
+ssize_t sm2_coordinator_allocate_entry(const char* name, struct sm2_mmap *map, int *av_key, bool self);
+int sm2_coordinator_lookup_entry(const char* name, struct sm2_mmap *map);
+ssize_t sm2_coordinator_free_entry(struct sm2_mmap *map, int av_key);
+ssize_t sm2_coordinator_lock(struct sm2_mmap *map);
+ssize_t sm2_coordinator_unlock(struct sm2_mmap *map);
+void* sm2_coordinator_extend_for_entry(struct sm2_mmap *map, int last_valid_entry);
+size_t sm2_calculate_size_offsets(ptrdiff_t num_fqe, ptrdiff_t *rq_offset,
+				ptrdiff_t *mp_offset);
+void sm2_cleanup(void);
+int sm2_create(const struct fi_provider *prov, const struct sm2_attr *attr,
+				struct sm2_mmap *sm2_mmap, int *id);
+void sm2_free(struct sm2_region *smr);
 
 static inline struct sm2_ep_allocation_entry *sm2_mmap_entries(struct sm2_mmap *map)
 {
@@ -223,7 +231,6 @@ static inline bool sm2_mapping_long_enough_check( struct sm2_mmap *map, int jent
 	return entry_offset <= map->size;
 }
 
-
 static inline void* sm2_relptr_to_absptr(int64_t relptr, struct sm2_mmap *map)
 {
 	return (void*) (map->base + relptr);
@@ -233,23 +240,9 @@ static inline int64_t sm2_absptr_to_relptr(void *absptr, struct sm2_mmap *map)
 	return (int64_t) ((char*)absptr - map->base);
 }
 
-ssize_t sm2_mmap_unmap_and_close(struct sm2_mmap *map );
-void* sm2_mmap_remap(struct sm2_mmap *map, size_t at_least );
-void* sm2_mmap_map(int fd, struct sm2_mmap *map );
-ssize_t sm2_coordinator_open_and_lock(struct sm2_mmap *map_shared);
-ssize_t sm2_coordinator_allocate_entry(const char* name, struct sm2_mmap *map, int *av_key, bool self);
-int sm2_coordinator_lookup_entry(const char* name, struct sm2_mmap *map);
-ssize_t sm2_coordinator_free_entry(struct sm2_mmap *map, int av_key);
-ssize_t sm2_coordinator_lock(struct sm2_mmap *map);
-ssize_t sm2_coordinator_unlock(struct sm2_mmap *map);
-void* sm2_coordinator_extend_for_entry(struct sm2_mmap *map, int last_valid_entry);
-
-
-#define SM2_COORDINATION_FILE "/dev/shm/fi_sm2_mmaps"
-#define SM2_COORDINATION_DIR "/dev/shm"
-
 #ifdef __cplusplus
 }
+
 #endif
 
 #endif /* _OFI_SM2_COMMON_H_ */

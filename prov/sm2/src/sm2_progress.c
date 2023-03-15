@@ -73,7 +73,6 @@ static int sm2_progress_inject(struct sm2_free_queue_entry *fqe, enum fi_hmem_if
 static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe,
 		struct fi_peer_rx_entry *rx_entry)
 {
-	struct sm2_sar_entry *sar = NULL;
 	size_t total_len = 0;
 	uint64_t comp_flags;
 	void *comp_buf;
@@ -95,30 +94,30 @@ static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe,
 	comp_buf = rx_entry->iov[0].iov_base;
 	comp_flags = sm2_rx_cq_flags(fqe->protocol_hdr.op, rx_entry->flags,
 				     fqe->protocol_hdr.op_flags);
-	if (!sar) {
-		if (err) {
-			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
-				"error processing op\n");
-			ret = sm2_write_err_comp(ep->util_ep.rx_cq,
-						 rx_entry->context,
-						 comp_flags, rx_entry->tag,
-						 err);
-		} else {
-			ret = sm2_complete_rx(ep, rx_entry->context, fqe->protocol_hdr.op,
-					      comp_flags, total_len, comp_buf,
-					      fqe->protocol_hdr.id, fqe->protocol_hdr.tag,
-					      fqe->protocol_hdr.data);
-		}
-		if (ret) {
-			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
-				"unable to process rx completion\n");
-		} else {
-			/* Return Free Queue Entries here */
-			sm2_fifo_write_back(ep, fqe);
-		}
 
-		sm2_get_peer_srx(ep)->owner_ops->free_entry(rx_entry);
+	if (err) {
+		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
+			"error processing op\n");
+		ret = sm2_write_err_comp(ep->util_ep.rx_cq,
+					 rx_entry->context,
+					 comp_flags, rx_entry->tag,
+					 err);
+	} else {
+		ret = sm2_complete_rx(ep, rx_entry->context, fqe->protocol_hdr.op,
+				      comp_flags, total_len, comp_buf,
+				      fqe->protocol_hdr.id, fqe->protocol_hdr.tag,
+				      fqe->protocol_hdr.data);
 	}
+	if (ret) {
+		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
+			"unable to process rx completion\n");
+	} else {
+		/* Return Free Queue Entries here */
+		sm2_fifo_write_back(ep, fqe);
+	}
+
+	sm2_get_peer_srx(ep)->owner_ops->free_entry(rx_entry);
+
 
 	return 0;
 }
