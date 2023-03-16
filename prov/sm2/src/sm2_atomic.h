@@ -1,6 +1,9 @@
 /*
+ *
+ * This code was taken from OMPI, and modified to make naming neutral
+ * https://github.com/open-mpi/ompi
+ *
  * Copyright (c) 2023 Amazon.com, Inc. or its affiliates. All rights reserved.
- * Copyright (c) 2020-2021 Intel Corporation. All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -31,50 +34,43 @@
  * SOFTWARE.
  */
 
-#ifndef _SM2_SIGNAL_H_
-#define _SM2_SIGNAL_H_
-#include <signal.h>
-#include "sm2_common.h"
-#include "sm2.h"
 
-extern struct sigaction *sm2_old_action;
+#include <stdatomic.h>
+#include <stdbool.h>
 
-static void sm2_handle_signal(int signum, siginfo_t *info, void *ucontext)
+
+/* TODO: Switch to using libfabric atomics, ofi_atom */
+
+#define atomic_swap_ptr(addr, value) \
+	atomic_exchange_explicit((_Atomic unsigned long *) addr, value, memory_order_relaxed)
+
+#define atomic_compare_exchange(x, y, z) \
+	__atomic_compare_exchange_n((int64_t *) (x), (int64_t *) (y), (int64_t)(z), \
+								 false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
+
+#if defined(PLATFORM_ARCH_X86_64) && defined(PLATFORM_COMPILER_GNU) && __GNUC__ < 8
+    /* work around a bug in older gcc versions where ACQUIRE seems to get
+     * treated as a no-op instead */
+#define BUSTED_ATOMIC_MB 1
+#else
+#define BUSTED_ATOMIC_MB 0
+#endif
+
+static inline void atomic_mb(void)
 {
-	struct sm2_ep_name *ep_name;
-	int ret;
-
-	dlist_foreach_container(&sm2_ep_name_list, struct sm2_ep_name,
-				ep_name, entry) {
-		shm_unlink(ep_name->name);
-	}
-
-	/* Register the original signum handler, SIG_DFL or otherwise */
-	ret = sigaction(signum, &sm2_old_action[signum], NULL);
-	if (ret)
-		return;
-
-	/* call the original handler */
-	if (sm2_old_action[signum].sa_flags & SA_SIGINFO)
-		sm2_old_action[signum].sa_sigaction(signum, info, ucontext);
-	else
-		raise(signum);
-
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
 }
 
-static inline void sm2_reg_sig_handler(int signum)
+static inline void atomic_rmb(void)
 {
-	struct sigaction action;
-	int ret;
-
-	memset(&action, 0, sizeof(action));
-	action.sa_sigaction = sm2_handle_signal;
-	action.sa_flags |= SA_SIGINFO | SA_ONSTACK;
-
-	ret = sigaction(signum, &action, &sm2_old_action[signum]);
-	if (ret)
-		FI_WARN(&sm2_prov, FI_LOG_FABRIC,
-			"Unable to register handler for sig %d\n", signum);
+#if BUSTED_ATOMIC_MB
+    __asm__ __volatile__("" : : : "memory");
+#else
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+#endif
 }
 
-#endif /* _sm2_SIGNAL_H_ */
+static inline void atomic_wmb(void)
+{
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+}
