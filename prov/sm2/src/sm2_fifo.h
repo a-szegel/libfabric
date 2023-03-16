@@ -60,9 +60,9 @@
 #if defined(PLATFORM_ARCH_X86_64) && defined(PLATFORM_COMPILER_GNU) && __GNUC__ < 8
     /* work around a bug in older gcc versions where ACQUIRE seems to get
      * treated as a no-op instead */
-#define OPAL_BUSTED_ATOMIC_MB 1
+#define BUSTED_ATOMIC_MB 1
 #else
-#define OPAL_BUSTED_ATOMIC_MB 0
+#define BUSTED_ATOMIC_MB 0
 #endif
 
 static inline void atomic_mb(void)
@@ -72,7 +72,7 @@ static inline void atomic_mb(void)
 
 static inline void atomic_rmb(void)
 {
-#if OPAL_BUSTED_ATOMIC_MB
+#if BUSTED_ATOMIC_MB
     __asm__ __volatile__("" : : : "memory");
 #else
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
@@ -94,8 +94,6 @@ struct sm2_fifo {
 /* Initialize FIFO queue to empty state */
 static inline void sm2_fifo_init(struct sm2_fifo *fifo)
 {
-	// ofi_atomic_initialize64( &fifo->head, SM2_FIFO_FREE );
-	// ofi_atomic_initialize64( &fifo->tail, SM2_FIFO_FREE );
 	fifo->head = SM2_FIFO_FREE;
 	fifo->tail = SM2_FIFO_FREE;
 }
@@ -111,10 +109,6 @@ static inline void sm2_fifo_write(struct sm2_ep *ep, int peer_id,
 	long int offset = sm2_absptr_to_relptr(fqe, map);
 	long int prev;
 
-	// TODO Remove When Done Debugging
-	long int max_offset_for_two_peers = (2 * ((struct sm2_coord_file_header *) map->base)->ep_region_size + ((struct sm2_coord_file_header *) map->base)->ep_regions_offset);
-	assert(max_offset_for_two_peers == 34623488);
-	assert(offset < max_offset_for_two_peers);
 	assert(peer_fifo->head != 0);
 	assert(peer_fifo->tail != 0);
 	assert(offset != 0);
@@ -152,12 +146,10 @@ static inline struct sm2_free_queue_entry* sm2_fifo_read(struct sm2_ep *ep)
 	struct sm2_free_queue_entry* fqe;
 	long int prev_head;
 
-	// TODO Remove Debugging when fixed
 	assert(self_fifo->head != 0);
 	assert(self_fifo->tail != 0);
 
-	// TODO Do I need this
-	atomic_mb();
+	// TODO Do I need this: atomic_mb();
 
 	if (SM2_FIFO_FREE == self_fifo->head) {
 		return NULL;
@@ -178,9 +170,8 @@ static inline struct sm2_free_queue_entry* sm2_fifo_read(struct sm2_ep *ep)
 	fqe = (struct sm2_free_queue_entry*)sm2_relptr_to_absptr(prev_head, map);
 	self_fifo->head = SM2_FIFO_FREE;
 
-	// TODO REMOVE DEBUGGING WHEN FIXED
-	assert(fqe != 0);
 	assert(fqe->protocol_hdr.next != prev_head);
+	assert(fqe != 0);
 	assert(fqe->protocol_hdr.next != 0);
 
 	if (OFI_UNLIKELY(SM2_FIFO_FREE == fqe->protocol_hdr.next)) {
@@ -203,6 +194,7 @@ static inline void sm2_fifo_write_back(struct sm2_ep *ep,
 		struct sm2_free_queue_entry *fqe)
 {
 	fqe->protocol_hdr.op_src = sm2_buffer_return;
+	assert(fqe->protocol_hdr.id != ep->self_fiaddr);
 	sm2_fifo_write(ep, fqe->protocol_hdr.id, fqe);
 }
 
