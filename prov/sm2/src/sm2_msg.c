@@ -388,8 +388,9 @@ static ssize_t sm2_generic_inject(struct fid_ep *ep_fid, const void *buf,
 	ret = sm2_proto_ops[sm2_src_inject](ep, peer_smr, id, peer_id, op, tag, data,
 			op_flags, FI_HMEM_SYSTEM, 0, &msg_iov, 1, len, NULL);
 
-	assert(!ret);
-	ofi_ep_tx_cntr_inc_func(&ep->util_ep, op);
+	if (OFI_LIKELY(!ret)) {
+		ofi_ep_tx_cntr_inc_func(&ep->util_ep, op);
+	}
 
 	return ret;
 }
