@@ -159,11 +159,13 @@ static int sm2_progress_recv_msg(struct sm2_ep *ep, struct sm2_free_queue_entry 
 	int ret;
 
 	addr = fqe->protocol_hdr.id;
+
 	if (fqe->protocol_hdr.op == ofi_op_tagged) {
 		ret = peer_srx->owner_ops->get_tag(peer_srx, addr,
 				fqe->protocol_hdr.tag, &rx_entry);
 		if (ret == -FI_ENOENT) {
-			ret = sm2_alloc_cmd_ctx(ep, rx_entry, fqe);
+			ret = sm2_alloc_fqe_ctx(ep, rx_entry, fqe);
+			sm2_fifo_write_back(ep, fqe);
 			if (ret)
 				return ret;
 
@@ -174,7 +176,8 @@ static int sm2_progress_recv_msg(struct sm2_ep *ep, struct sm2_free_queue_entry 
 		ret = peer_srx->owner_ops->get_msg(peer_srx, addr,
 				fqe->protocol_hdr.size, &rx_entry);
 		if (ret == -FI_ENOENT) {
-			ret = sm2_alloc_cmd_ctx(ep, rx_entry, fqe);
+			ret = sm2_alloc_fqe_ctx(ep, rx_entry, fqe);
+			sm2_fifo_write_back(ep, fqe);
 			if (ret)
 				return ret;
 
