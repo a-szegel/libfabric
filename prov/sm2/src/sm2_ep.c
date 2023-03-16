@@ -391,13 +391,33 @@ static int sm2_srx_close(struct fid *fid)
 static int sm2_ep_close(struct fid *fid)
 {
 	struct sm2_ep *ep;
+	struct sm2_mmap *map;
+	struct sm2_region *self_region;
 
 	ep = container_of(fid, struct sm2_ep, util_ep.ep_fid.fid);
+	map = ep->mmap_regions;
+	self_region = sm2_smr_region(ep, ep->self_fiaddr);
+
+
+	// TODO Do some effort to try and make free stack full before we quit
+	// TODO What do we do about messages that we aren't going handle?
+	bool is_full = smr_freestack_isfull(sm2_free_stack(self_region));
+	FI_WARN(&sm2_prov, FI_LOG_EP_CTRL, "Shutting down before progress... is free stack full? %d\n", is_full);
+
+	sm2_progress_recv(ep);
+
+	is_full = smr_freestack_isfull(sm2_free_stack(self_region));
+	FI_WARN(&sm2_prov, FI_LOG_EP_CTRL, "Shutting down after progress... is free stack full? %d\n", is_full);
+
 
 	ofi_endpoint_close(&ep->util_ep);
 
-	// if (ep->region)
-	// 	sm2_free(ep->region);
+	// Set our PID to 0 in the regions map if our free queue entry stack is full
+	// if (smr_freestack_isfull(sm2_free_stack(self_region))) {
+	// 	sm2_coordinator_lock(map);
+	// 	sm2_coordinator_free_entry(map, ep->self_fiaddr);
+	// 	sm2_coordinator_unlock(map);
+	// }
 
 	if (ep->util_ep.ep_fid.msg != &sm2_no_recv_msg_ops)
 		sm2_srx_close(&ep->srx->fid);

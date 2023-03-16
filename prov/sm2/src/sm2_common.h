@@ -140,8 +140,6 @@ struct sm2_region {
 	uint8_t		version;
 	uint8_t		resv;
 	uint16_t	flags;
-	int		pid;
-	size_t		total_size;
 
 	/* offsets from start of sm2_region */
 	ptrdiff_t	recv_queue_offset;   // Turns into our FIFO Queue offset
@@ -161,12 +159,14 @@ struct sm2_mmap {
 };
 
 struct sm2_private_aux {
-	fi_addr_t	cqfid;
+	fi_addr_t	cqfid;   // fi_addr to report during in cqe's if av_user_data is on
+	int pid;             // This is for verify peer, make sure entry didn't get replaced with someone new
 };
 
 struct sm2_ep_allocation_entry {
-        int pid;
-        char ep_name[SM2_NAME_MAX];
+    int pid;                       // This is for allocation startup
+    char ep_name[SM2_NAME_MAX];
+    uint32_t startup_ready;        // TODO Make atomic
 };
 
 struct sm2_coord_file_header {

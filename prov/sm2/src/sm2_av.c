@@ -233,6 +233,9 @@ int sm2_av_open(struct fid_domain *domain, struct fi_av_attr *attr,
 	(*av)->ops = &sm2_av_ops;
 
 	sm2_coordinator_open_and_lock(&sm2_av->sm2_mmap);
+
+	// TODO Attempt to shrink region to one
+
 	sm2_coordinator_unlock(&sm2_av->sm2_mmap);
 
 	header = (void*) sm2_av->sm2_mmap.base;

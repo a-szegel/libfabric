@@ -265,11 +265,48 @@ ssize_t sm2_coordinator_allocate_entry(const char* name, struct sm2_mmap *map, i
 
 	entries = sm2_mmap_entries(map);
 
+retry_lookup:
 	jentry = sm2_coordinator_lookup_entry(name, map);
-	if (jentry >= 0 && entries[jentry].pid > 0) {
+	if (jentry >= 0) {
+
+		// Map Now
+		sm2_coordinator_extend_for_entry(map, jentry);
+		entries = sm2_mmap_entries(map);
+		header = (void*)map->base;
+
+		// Check if it is dirty and unclean
+		if (entries[jentry].pid && !pid_lives(abs(entries[jentry].pid))) {
+			struct sm2_region *peer_region = sm2_mmap_ep_region(map, jentry);
+			if (!smr_freestack_isfull(sm2_free_stack(peer_region))) {
+				// Region did not shut down properly, but other processes
+				// might be using it, make it a zombie region - never
+				// use this region for as long as the file exists
+				entries[jentry].ep_name[0] = '\0';
+				goto retry_lookup;
+			}
+		}
+
+		if (!self) {
+			if (!pid_lives(abs(entries[jentry].pid))) {
+				entries[jentry].pid = 0;
+			}
+			// Someone else allocated the entry for us
+			goto found;
+		}
+
+		if (entries[jentry].pid <= 0) {
+			if (!pid_lives(abs(entries[jentry].pid))) {
+				FI_WARN( &sm2_prov, FI_LOG_AV,
+					"during sm2 allocation of space for endpoint named %s"
+					" pid %d pre-allocated space at AV[%d] and then died!\n",
+					name, -entries[jentry].pid, jentry);
+			}
+			goto found;
+		}
+
 		FI_WARN( &sm2_prov, FI_LOG_AV,
-			"during sm2 allocation of space for endpoint named %s"
-			" an existing address was found at AV[%d]\n",
+			"During sm2 allocation of space for endpoint named %s"
+			" an existing conflicting address was found at AV[%d]\n",
 			name, jentry);
 
 		if (!pid_lives( entries[jentry].pid )) {
@@ -279,56 +316,62 @@ ssize_t sm2_coordinator_allocate_entry(const char* name, struct sm2_mmap *map, i
 			// it is possible that EP's referencing this region are
 			// still alive... don't know how to check (they likely
 			// died if PID died)
-			goto found_and_allocated;
-		}
-		else {
-			// if PID lives this is fine... this means that someone else allocated the peer before we did
 			goto found;
 		}
-	} else if (entries[jentry].pid < 0) {
-		// Someone else allocated our entry for us
-		// We need to keep PID negative until we are able to allocate our FQE
-		// This will happen later in sm2_create()
-		goto found;
-	}
-
-	if (jentry >= 0 && entries[jentry].pid < 0) {
-		if (!pid_lives( entries[jentry].pid )) {
+		else {
+			// Error condition, ADDRINUSE
+			//TODO FIX THIS with correct RV
 			FI_WARN( &sm2_prov, FI_LOG_AV,
-				"during sm2 allocation of space for endpoint named %s"
-				" pid %d pre-allocated space at AV[%d] and then died!\n",
-				name, -entries[jentry].pid, jentry);
+			        "ERROR: The endpoint (pid: %d) with conflicting address %s is still alive.\n", entries[jentry].pid, name);
+			return -FI_EAVAIL;
 		}
-		goto found_and_allocated;
 	}
 
 	/* fine, we could not find the entry, so now look for an empty slot */
 	for (jentry=0; jentry < header->ep_enumerations_max; jentry++) {
-		peer_pid = abs(entries[jentry].pid);
-		if (peer_pid == 0) goto found_and_allocated;
-		if (!pid_lives(peer_pid)) {
-			struct sm2_region *peer_region = sm2_mmap_ep_region(map, jentry);
-			if (smr_freestack_isfull(sm2_free_stack(peer_region))) {
-				/* we found a slot with a dead PID and a*/
-				goto found_and_allocated;
-			};
+		peer_pid = entries[jentry].pid;
+		if (peer_pid == 0) goto found;
+		else if (peer_pid < 0) {
+			// A third peer might have entered this address into their AV,
+			// and there is no current way to check this... need to keep this
+			// entry in the file until we clean up
+			continue;
+		} else {
+			if (!pid_lives(peer_pid)) {
+				sm2_coordinator_extend_for_entry(map, jentry);
+				entries = sm2_mmap_entries(map);
+				header = (void*)map->base;
+				struct sm2_region *peer_region = sm2_mmap_ep_region(map, jentry);
+
+				if (entries[jentry].startup_ready && smr_freestack_isfull(sm2_free_stack(peer_region))) {
+					/* we found a slot with a dead PID and the freestack is full */
+					entries[jentry].pid = 0;
+					goto found;
+				};
+			}
 		}
 	}
 
-	fprintf(stderr, "No available entries were found in the coordination file, all %d were used\n",header->ep_enumerations_max);
+	fprintf(stderr, "No available entries were found in the coordination file, all %d were used\n", header->ep_enumerations_max);
 	return -FI_EAVAIL;
 
-found_and_allocated:
-    // Need to allocate before we get here
-	if (self) entries[jentry].pid = pid;
-	if (!self) entries[jentry].pid = -pid;
+found:
+
+	if (self) {
+		entries[jentry].startup_ready = 0;
+		entries[jentry].pid = pid;
+	}
+
+	if (!self && entries[jentry].pid == 0) {
+		entries[jentry].startup_ready = 0;
+		entries[jentry].pid = -pid;
+	}
 
 	FI_WARN(&sm2_prov, FI_LOG_AV,
 		"Allocated sm2 region for %s at AV[%d]\n",
 		name, jentry);
 	strncpy(entries[jentry].ep_name, name, SM2_NAME_MAX);
 
-found:
 	*av_key = jentry;
 
 	/* With the entry allocated, we now need to ensure it's mapped. */
@@ -362,7 +405,9 @@ int sm2_coordinator_lookup_entry(const char* name, struct sm2_mmap *map)
 		}
 		if (entries[jentry].ep_name[0] != '\0')
 		{
-			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL, "Searching for %s. Not yet found in spot AV[%d]=%s\n",name, jentry, entries[jentry].ep_name);
+			struct sm2_region *peer_region = sm2_mmap_ep_region(map, jentry);
+			bool is_full = smr_freestack_isfull(sm2_free_stack(peer_region));
+			FI_WARN(&sm2_prov, FI_LOG_EP_CTRL, "Searching for %s. Not yet found in spot AV[%d]=%s, PID= %d, is FQE stack full: %d \n",name, jentry, entries[jentry].ep_name, entries[jentry].pid, is_full);
 		}
 	}
 	return -1;

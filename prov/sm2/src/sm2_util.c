@@ -149,14 +149,12 @@ int sm2_create(const struct fi_provider *prov,
 	sm2_fifo_init(sm2_recv_queue(smr));
 	smr_freestack_init(sm2_free_stack(smr), attr->num_fqe, sizeof(struct sm2_free_queue_entry));
 
-	/* TODO: still true?: Must be set last to signal full initialization to peers */
-	smr->pid = getpid();
-
 	/*
 	 * Need to set PID in header here...
 	 * this will unblock other processes trying to send to us
 	 */
-	sm2_mmap_entries(sm2_mmap)[*id].pid = smr->pid;
+	assert(sm2_mmap_entries(sm2_mmap)[*id].pid == getpid())
+	sm2_mmap_entries(sm2_mmap)[*id].startup_ready = 1;
 
 	/* Need to unlock coordinator so that others can add themselves to header */
 	sm2_coordinator_unlock(sm2_mmap);
