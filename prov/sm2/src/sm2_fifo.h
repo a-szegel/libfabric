@@ -29,62 +29,25 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
+/*
+ * Multi Writer, Single Reader FIFO Queue (Not Thread Safe)
+ * This implementation of this Queue is a one directional linked list
+ * with head/tail pointers where every pointer is a relative offset
+ * into the Shared Memory Region.
+ */
+
 #ifndef _SM2_FIFO_H_
 #define _SM2_FIFO_H_
 
-#include <stdbool.h>
-#include <stdatomic.h>
 #include <stdint.h>
 #include "sm2_common.h"
 #include "sm2.h"
+#include "sm2_atomic.h"
 
-/*
- * Multi Writer, Single Reader Queue (Not Thread Safe)
- * This data structure must live in the SMR
- * This implementation of this is a one directional linked list with head/tail pointers
- * Every pointer is a relative offset into the Shared Memory Region
- */
 
 #define SM2_FIFO_FREE -3
 
-/* TODO: Switch to ofi_atom */
-#define atomic_swap_ptr(addr, value) \
-	atomic_exchange_explicit((_Atomic unsigned long *) addr, value, memory_order_relaxed)
-
-#define atomic_compare_exchange(x, y, z) \
-	__atomic_compare_exchange_n((int64_t *) (x), (int64_t *) (y), (int64_t)(z), \
-								 false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
-
-
-// TODO MOVE TO its own FILE
-#if defined(PLATFORM_ARCH_X86_64) && defined(PLATFORM_COMPILER_GNU) && __GNUC__ < 8
-    /* work around a bug in older gcc versions where ACQUIRE seems to get
-     * treated as a no-op instead */
-#define BUSTED_ATOMIC_MB 1
-#else
-#define BUSTED_ATOMIC_MB 0
-#endif
-
-static inline void atomic_mb(void)
-{
-    __atomic_thread_fence(__ATOMIC_SEQ_CST);
-}
-
-static inline void atomic_rmb(void)
-{
-#if BUSTED_ATOMIC_MB
-    __asm__ __volatile__("" : : : "memory");
-#else
-    __atomic_thread_fence(__ATOMIC_ACQUIRE);
-#endif
-}
-
-static inline void atomic_wmb(void)
-{
-    __atomic_thread_fence(__ATOMIC_RELEASE);
-}
-
-// TODO MOVE TO OWN FILE ^^^^^^^^^^^^^^^
 
 struct sm2_fifo {
 	long int head;
