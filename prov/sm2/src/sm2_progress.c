@@ -71,7 +71,7 @@ static int sm2_progress_inject(struct sm2_free_queue_entry *fqe, enum fi_hmem_if
 }
 
 static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe,
-		struct fi_peer_rx_entry *rx_entry)
+		struct fi_peer_rx_entry *rx_entry, bool return_fqe)
 {
 	size_t total_len = 0;
 	uint64_t comp_flags;
@@ -111,7 +111,7 @@ static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe,
 	if (ret) {
 		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL,
 			"unable to process rx completion\n");
-	} else {
+	} else if (return_fqe) {
 		/* Return Free Queue Entries here */
 		sm2_fifo_write_back(ep, fqe);
 	}
@@ -124,29 +124,28 @@ static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe,
 
 int sm2_unexp_start(struct fi_peer_rx_entry *rx_entry)
 {
-	struct sm2_cmd_ctx *cmd_ctx = rx_entry->peer_context;
+	struct sm2_fqe_ctx *fqe_ctx = rx_entry->peer_context;
 	int ret;
 
-	// TODO Fix this b/c &cmd_ctx->cmd is not a FQE... this is being added to the the FIFO stack and murdering us
-	ret = sm2_start_common(cmd_ctx->ep, &cmd_ctx->cmd, rx_entry);
-	ofi_freestack_push(cmd_ctx->ep->cmd_ctx_fs, cmd_ctx);
+	ret = sm2_start_common(fqe_ctx->ep, &fqe_ctx->fqe, rx_entry, false);
+	ofi_freestack_push(fqe_ctx->ep->fqe_ctx_fs, fqe_ctx);
 
 	return ret;
 }
 
-static int sm2_alloc_cmd_ctx(struct sm2_ep *ep,
+static int sm2_alloc_fqe_ctx(struct sm2_ep *ep,
 		struct fi_peer_rx_entry *rx_entry, struct sm2_free_queue_entry *fqe)
 {
-	struct sm2_cmd_ctx *cmd_ctx;
+	struct sm2_fqe_ctx *fqe_ctx;
 
-	if (ofi_freestack_isempty(ep->cmd_ctx_fs))
+	if (ofi_freestack_isempty(ep->fqe_ctx_fs))
 		return -FI_EAGAIN;
 
-	cmd_ctx = ofi_freestack_pop(ep->cmd_ctx_fs);
-	memcpy(&cmd_ctx->cmd, fqe, sizeof(*fqe));
-	cmd_ctx->ep = ep;
+	fqe_ctx = ofi_freestack_pop(ep->fqe_ctx_fs);
+	memcpy(&fqe_ctx->fqe, fqe, sizeof(*fqe));
+	fqe_ctx->ep = ep;
 
-	rx_entry->peer_context = cmd_ctx;
+	rx_entry->peer_context = fqe_ctx;
 
 	return FI_SUCCESS;
 }
@@ -189,7 +188,7 @@ static int sm2_progress_recv_msg(struct sm2_ep *ep, struct sm2_free_queue_entry 
 		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL, "Error getting rx_entry\n");
 		return ret;
 	}
-	ret = sm2_start_common(ep, fqe, rx_entry);
+	ret = sm2_start_common(ep, fqe, rx_entry, true);
 
 out:
 

@@ -164,14 +164,14 @@ static inline uint64_t sm2_get_mr_flags(void **desc)
 	return ((struct ofi_mr *) *desc)->flags;
 }
 
-struct sm2_cmd_ctx {
+struct sm2_fqe_ctx {
 	struct dlist_entry entry;
 	struct sm2_ep *ep;
-	struct sm2_free_queue_entry cmd;
+	struct sm2_free_queue_entry fqe;
 };
 
 OFI_DECLARE_FREESTACK(struct sm2_rx_entry, sm2_recv_fs);
-OFI_DECLARE_FREESTACK(struct sm2_cmd_ctx, sm2_cmd_ctx_fs);
+OFI_DECLARE_FREESTACK(struct sm2_fqe_ctx, sm2_fqe_ctx_fs);
 OFI_DECLARE_FREESTACK(struct sm2_tx_entry, sm2_pend_fs);
 
 struct sm2_queue {
@@ -231,7 +231,7 @@ struct sm2_ep {
 	struct sm2_mmap		*mmap_regions;
 	ofi_spin_t		tx_lock;
 	struct fid_ep		*srx;
-	struct sm2_cmd_ctx_fs	*cmd_ctx_fs;
+	struct sm2_fqe_ctx_fs	*fqe_ctx_fs;
 	struct sm2_pend_fs	*pend_fs;
 	int			ep_idx;
 };
@@ -324,8 +324,6 @@ void sm2_ep_progress(struct util_ep *util_ep);
 void sm2_progress_recv(struct sm2_ep *ep);
 
 int sm2_unexp_start(struct fi_peer_rx_entry *rx_entry);
-
-
 
 static inline struct sm2_region *sm2_peer_region(struct sm2_ep *ep, int id)
 {

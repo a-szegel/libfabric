@@ -402,7 +402,7 @@ static int sm2_ep_close(struct fid *fid)
 	if (ep->util_ep.ep_fid.msg != &sm2_no_recv_msg_ops)
 		sm2_srx_close(&ep->srx->fid);
 
-	sm2_cmd_ctx_fs_free(ep->cmd_ctx_fs);
+	sm2_fqe_ctx_fs_free(ep->fqe_ctx_fs);
 	sm2_pend_fs_free(ep->pend_fs);
 	ofi_spin_destroy(&ep->tx_lock);
 
@@ -687,9 +687,9 @@ static struct fi_ops_srx_owner sm2_srx_owner_ops = {
 
 static int sm2_discard(struct fi_peer_rx_entry *rx_entry)
 {
-	struct sm2_cmd_ctx *cmd_ctx = rx_entry->peer_context;
+	struct sm2_fqe_ctx *fqe_ctx = rx_entry->peer_context;
 
-	ofi_freestack_push(cmd_ctx->ep->cmd_ctx_fs, cmd_ctx);
+	ofi_freestack_push(fqe_ctx->ep->fqe_ctx_fs, fqe_ctx);
 	return FI_SUCCESS;
 }
 
@@ -919,7 +919,7 @@ int sm2_endpoint(struct fid_domain *domain, struct fi_info *info,
 	ep->util_ep.ep_fid.msg = &sm2_msg_ops;
 	ep->util_ep.ep_fid.tagged = &sm2_tag_ops;
 
-	ep->cmd_ctx_fs = sm2_cmd_ctx_fs_create(info->rx_attr->size, NULL, NULL);
+	ep->fqe_ctx_fs = sm2_fqe_ctx_fs_create(info->rx_attr->size, NULL, NULL);
 	ep->pend_fs = sm2_pend_fs_create(info->tx_attr->size, NULL, NULL);
 
 	ep->util_ep.ep_fid.fid.ops = &sm2_ep_fi_ops;
