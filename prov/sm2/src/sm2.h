@@ -192,6 +192,24 @@ static inline void *sm2_get_ptr(void *base, uint64_t offset)
 	return (char *)base + (uintptr_t)offset;
 }
 
+struct sm2_sar_progress_data {
+	bool active_sar_msg;
+	struct sm2_region *peer_smr;
+	int64_t peer_id;
+	uint32_t op;
+	uint64_t tag;
+	uint64_t data;
+	uint64_t op_flags;
+	struct ofi_mr **desc;
+	enum fi_hmem_iface iface;
+	uint64_t device;
+	const struct iovec *iov;
+	size_t iov_count;
+	size_t total_len;
+	void *context;
+	size_t bytes_remaining;
+};
+
 struct sm2_ep {
 	struct util_ep util_ep;
 	sm2_rx_comp_func rx_comp;
@@ -205,6 +223,8 @@ struct sm2_ep {
 	struct sm2_fqe_ctx_fs *fqe_ctx_fs;
 	struct sm2_pend_fs *pend_fs;
 	int ep_idx;
+	/* Temp Limit to 1 SAR in progress at a time */
+	struct sm2_sar_progress_data sar_data;
 };
 
 static inline struct sm2_region *sm2_smr_region(struct sm2_ep *ep, int id)
@@ -246,7 +266,7 @@ int sm2_select_proto(bool use_ipc, bool cma_avail, enum fi_hmem_iface iface, uin
 		     uint64_t total_len, uint64_t op_flags);
 typedef ssize_t (*sm2_proto_func)(struct sm2_ep *ep, struct sm2_region *peer_smr,
 				  int64_t id, int64_t peer_id, uint32_t op, uint64_t tag,
-				  uint64_t data, uint64_t op_flags,
+				  uint64_t data, uint64_t op_flags, struct ofi_mr **desc,
 				  enum fi_hmem_iface iface, uint64_t device,
 				  const struct iovec *iov, size_t iov_count,
 				  size_t total_len, void *context);
@@ -275,6 +295,8 @@ void sm2_ep_progress(struct util_ep *util_ep);
 void sm2_progress_recv(struct sm2_ep *ep);
 
 int sm2_unexp_start(struct fi_peer_rx_entry *rx_entry);
+
+void sm2_send_next_sar(struct sm2_ep *ep);
 
 static inline struct sm2_region *sm2_peer_region(struct sm2_ep *ep, int id)
 {

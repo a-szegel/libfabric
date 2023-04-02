@@ -59,8 +59,7 @@ void sm2_cleanup(void)
 	pthread_mutex_unlock(&sm2_ep_list_lock);
 }
 
-size_t sm2_calculate_size_offsets(ptrdiff_t num_fqe, ptrdiff_t *rq_offset,
-				  ptrdiff_t *fq_offset)
+size_t sm2_calculate_size_offsets(ptrdiff_t *rq_offset, ptrdiff_t *fq_offset, ptrdiff_t *sar_fq_offset)
 {
 	size_t total_size;
 
@@ -75,7 +74,12 @@ size_t sm2_calculate_size_offsets(ptrdiff_t num_fqe, ptrdiff_t *rq_offset,
 	/* Third memory block: the message objects in a free queue */
 	if (fq_offset)
 		*fq_offset = total_size;
-	total_size += freestack_size(sizeof(struct sm2_free_queue_entry), num_fqe);
+	total_size += freestack_size(sizeof(struct sm2_free_queue_entry), SM2_NUM_INJECT_FQE);
+
+	/* Fourth memory block: the message objects in a sar free queue */
+	if (sar_fq_offset)
+		*sar_fq_offset = total_size;
+	total_size += freestack_size(sizeof(struct sm2_sar_free_queue_entry), SM2_NUM_SAR_FQE);
 
 	/*
 	 * Revisit later to see if we really need the size adjustment, or
@@ -90,12 +94,12 @@ int sm2_create(const struct fi_provider *prov, const struct sm2_attr *attr,
 	       struct sm2_mmap *sm2_mmap, int *id)
 {
 	struct sm2_ep_name *ep_name;
-	ptrdiff_t recv_queue_offset, free_stack_offset;
+	ptrdiff_t recv_queue_offset, free_stack_offset, sar_free_stack_offset;
 	int ret;
 	void *mapped_addr;
 	struct sm2_region *smr;
 
-	sm2_calculate_size_offsets(attr->num_fqe, &recv_queue_offset, &free_stack_offset);
+	sm2_calculate_size_offsets(&recv_queue_offset, &free_stack_offset, &sar_free_stack_offset);
 
 	FI_WARN(prov, FI_LOG_EP_CTRL, "Claiming an entry for (%s)\n", attr->name);
 	sm2_coordinator_lock(sm2_mmap);
@@ -140,16 +144,19 @@ int sm2_create(const struct fi_provider *prov, const struct sm2_attr *attr,
 	smr->flags = attr->flags;
 	smr->recv_queue_offset = recv_queue_offset;
 	smr->free_stack_offset = free_stack_offset;
+	smr->sar_free_stack_offset = sar_free_stack_offset;
 
 	sm2_fifo_init(sm2_recv_queue(smr));
-	smr_freestack_init(sm2_free_stack(smr), attr->num_fqe,
+	smr_freestack_init(sm2_free_stack(smr), SM2_NUM_INJECT_FQE,
 			   sizeof(struct sm2_free_queue_entry));
+	smr_freestack_init(sm2_sar_free_stack(smr), SM2_NUM_SAR_FQE,
+			   sizeof(struct sm2_sar_free_queue_entry));
+
+	assert(sm2_mmap_entries(sm2_mmap)[*id].pid == getpid());
 
 	/*
-	 * Need to set PID in header here...
-	 * this will unblock other processes trying to send to us
+	 * Unblock Other processes trying to send to us
 	 */
-	assert(sm2_mmap_entries(sm2_mmap)[*id].pid == getpid());
 	sm2_mmap_entries(sm2_mmap)[*id].startup_ready = 1;
 	atomic_wmb();
 

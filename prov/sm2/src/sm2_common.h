@@ -62,8 +62,11 @@ extern "C" {
 #define SM2_TX_COMPLETION (1 << 2)
 #define SM2_RX_COMPLETION (1 << 3)
 
-#define SM2_INJECT_SIZE 4096
 #define SM2_MAX_PEERS 256
+#define SM2_INJECT_SIZE 4096
+#define SM2_SAR_SIZE 32768
+#define SM2_NUM_SAR_FQE 16
+#define SM2_NUM_INJECT_FQE 2048
 
 #define SM2_DIR "/dev/shm/"
 #define SM2_NAME_MAX 256
@@ -80,6 +83,7 @@ struct sm2_region;
 /* SMR op_src: Specifies data source location */
 enum {
 	sm2_src_inject, /* inject buffers */
+	sm2_src_single_sar, /* segmented large message transfers (one at a time) */
 	sm2_buffer_return,
 	sm2_src_max,
 };
@@ -117,7 +121,15 @@ struct sm2_protocol_hdr {
 
 struct sm2_free_queue_entry {
 	struct sm2_protocol_hdr protocol_hdr;
+	bool is_sar_buffer;
 	uint8_t data[SM2_INJECT_SIZE];
+};
+
+struct sm2_sar_free_queue_entry {
+	struct sm2_protocol_hdr protocol_hdr;
+	bool is_sar_buffer;
+	uint8_t data[SM2_SAR_SIZE];
+	bool sar_complete;
 };
 
 struct sm2_addr {
@@ -145,6 +157,7 @@ struct sm2_region {
 	/* offsets from start of sm2_region */
 	ptrdiff_t recv_queue_offset; // Turns into our FIFO Queue offset
 	ptrdiff_t free_stack_offset;
+	ptrdiff_t sar_free_stack_offset;
 };
 
 struct sm2_attr {
@@ -193,8 +206,7 @@ ssize_t sm2_coordinator_free_entry(struct sm2_mmap *map, int av_key);
 ssize_t sm2_coordinator_lock(struct sm2_mmap *map);
 ssize_t sm2_coordinator_unlock(struct sm2_mmap *map);
 void *sm2_coordinator_extend_for_entry(struct sm2_mmap *map, int last_valid_entry);
-size_t sm2_calculate_size_offsets(ptrdiff_t num_fqe, ptrdiff_t *rq_offset,
-				  ptrdiff_t *mp_offset);
+size_t sm2_calculate_size_offsets(ptrdiff_t *rq_offset, ptrdiff_t *fq_offset, ptrdiff_t *sar_fq_offset);
 void sm2_cleanup(void);
 int sm2_create(const struct fi_provider *prov, const struct sm2_attr *attr,
 	       struct sm2_mmap *sm2_mmap, int *id);
@@ -211,9 +223,15 @@ static inline struct sm2_fifo *sm2_recv_queue(struct sm2_region *smr)
 {
 	return (struct sm2_fifo *)((char *)smr + smr->recv_queue_offset);
 }
+
 static inline struct smr_freestack *sm2_free_stack(struct sm2_region *smr)
 {
 	return (struct smr_freestack *)((char *)smr + smr->free_stack_offset);
+}
+
+static inline struct smr_freestack *sm2_sar_free_stack(struct sm2_region *smr)
+{
+	return (struct smr_freestack *)((char *)smr + smr->sar_free_stack_offset);
 }
 
 static inline struct sm2_region *sm2_mmap_ep_region(struct sm2_mmap *map, int id)

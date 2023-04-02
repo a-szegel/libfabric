@@ -188,6 +188,7 @@ static void sm2_format_inject(struct sm2_free_queue_entry *fqe, enum fi_hmem_ifa
 			      uint64_t device, const struct iovec *iov, size_t count,
 			      struct sm2_region *smr)
 {
+	fqe->is_sar_buffer = false; // TODO figure out how to get this out of the path of inject (init is fine)
 	fqe->protocol_hdr.op_src = sm2_src_inject;
 	fqe->protocol_hdr.size = ofi_copy_from_hmem_iov(fqe->data, SM2_INJECT_SIZE, iface,
 							device, iov, count, 0);
@@ -196,19 +197,23 @@ static void sm2_format_inject(struct sm2_free_queue_entry *fqe, enum fi_hmem_ifa
 int sm2_select_proto(bool use_ipc, bool cma_avail, enum fi_hmem_iface iface, uint32_t op,
 		     uint64_t total_len, uint64_t op_flags)
 {
-	return sm2_src_inject;
+	if (total_len > SM2_INJECT_SIZE) {
+		return sm2_src_single_sar;
+	} else {
+		return sm2_src_inject;
+	}
 }
 
 static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr, int64_t id,
 			     int64_t peer_id, uint32_t op, uint64_t tag, uint64_t data,
-			     uint64_t op_flags, enum fi_hmem_iface iface, uint64_t device,
+			     uint64_t op_flags,  struct ofi_mr **desc, enum fi_hmem_iface iface, uint64_t device,
 			     const struct iovec *iov, size_t iov_count, size_t total_len,
 			     void *context)
 {
 	struct sm2_free_queue_entry *fqe;
 	struct sm2_region *self_region;
 
-	assert(total_len <= 4096);
+	assert(total_len <= SM2_INJECT_SIZE);
 
 	self_region = sm2_smr_region(ep, ep->self_fiaddr);
 
@@ -227,6 +232,79 @@ static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr, int
 
 	sm2_fifo_write(ep, peer_id, fqe);
 	return FI_SUCCESS;
+}
+
+static ssize_t sm2_do_single_sar(struct sm2_ep *ep, struct sm2_region *peer_smr, int64_t self_id,
+			     int64_t peer_id, uint32_t op, uint64_t tag, uint64_t data,
+			     uint64_t op_flags, struct ofi_mr **desc, enum fi_hmem_iface iface, uint64_t device,
+			     const struct iovec *iov, size_t iov_count, size_t total_len,
+			     void *context)
+{
+	struct sm2_region *self_region;
+	struct sm2_sar_progress_data *sar = &ep->sar_data;
+
+	/* One SAR Request in transit at a time */
+	if (sar->active_sar_msg) {
+		sm2_send_next_sar(ep);
+		return -FI_EAGAIN;
+	}
+	sar->active_sar_msg = true;
+
+	self_region = sm2_smr_region(ep, ep->self_fiaddr);
+
+	if (smr_freestack_isempty(sm2_sar_free_stack(self_region))) {
+		sm2_progress_recv(ep);
+		if (smr_freestack_isempty(sm2_sar_free_stack(self_region))) {
+			return -FI_EAGAIN;
+		}
+	}
+
+	// Populate the Active SAR structure
+	sar->peer_smr = peer_smr;
+	sar->peer_id = peer_id;
+	sar->op = op;
+	sar->tag = tag;
+	sar->data = data;
+	sar->op_flags = op_flags;
+	sar->desc = desc;
+	sar->iface = iface;
+	sar->device = device;
+	sar->iov = iov;
+	sar->iov_count = iov_count;
+	sar->total_len = total_len;
+	sar->context = context;
+	sar->bytes_remaining = total_len;
+
+	sm2_send_next_sar(ep);
+
+	return FI_SUCCESS;
+}
+
+void sm2_send_next_sar(struct sm2_ep *ep) {
+	struct sm2_sar_free_queue_entry *fqe;
+	struct sm2_region *self_region = sm2_smr_region(ep, ep->self_fiaddr);
+	struct sm2_sar_progress_data *sar = &ep->sar_data;
+	size_t size_to_send;
+
+	/* Pop FQE from local region for sending */
+	while (!smr_freestack_isempty(sm2_sar_free_stack(self_region)) && sar->bytes_remaining > 0) {
+		size_to_send = MIN(SM2_SAR_SIZE, sar->bytes_remaining);
+
+		fqe = smr_freestack_pop(sm2_sar_free_stack(self_region));
+		sm2_generic_format((struct sm2_free_queue_entry *) fqe, ep->self_fiaddr, sar->op, sar->tag, sar->data, sar->op_flags, sar->context);
+		fqe->sar_complete = false;
+		fqe->protocol_hdr.op_src = sm2_src_single_sar;
+		size_to_send = ofi_copy_from_mr_iov(fqe->data, size_to_send, ep->sar_data.desc, ep->sar_data.iov, ep->sar_data.iov_count,
+				sar->total_len - sar->bytes_remaining);
+		sm2_fifo_write(ep, sar->peer_id, (struct sm2_free_queue_entry *) fqe);
+
+		sar->bytes_remaining -= size_to_send;
+	}
+
+	if (sar->bytes_remaining == 0) {
+		/* Can Start Another SAR communication */
+		ep->sar_data.active_sar_msg = false;
+	}
 }
 
 static void sm2_retreive_fqe_and_close_fifo(struct sm2_ep *ep, int timeout_s)
@@ -578,6 +656,7 @@ int sm2_endpoint(struct fid_domain *domain, struct fi_info *info, struct fid_ep 
 	ep->util_ep.ep_fid.ops = &sm2_ep_ops;
 	ep->util_ep.ep_fid.cm = &sm2_cm_ops;
 	ep->util_ep.ep_fid.rma = NULL;
+	ep->sar_data.active_sar_msg = false;
 
 	*ep_fid = &ep->util_ep.ep_fid;
 	return 0;
@@ -593,6 +672,7 @@ ep:
 
 sm2_proto_func sm2_proto_ops[sm2_src_max] = {
     [sm2_src_inject] = &sm2_do_inject,
+	[sm2_src_single_sar] = &sm2_do_single_sar
 };
 
 

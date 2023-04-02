@@ -126,6 +126,7 @@ static ssize_t sm2_generic_sendmsg(struct sm2_ep *ep, const struct iovec *iov,
 	int64_t id, peer_id;
 	ssize_t ret = 0;
 	size_t total_len;
+	int proto;
 
 	assert(iov_count <= SM2_IOV_LIMIT);
 
@@ -141,9 +142,12 @@ static ssize_t sm2_generic_sendmsg(struct sm2_ep *ep, const struct iovec *iov,
 	total_len = ofi_total_iov_len(iov, iov_count);
 	assert(!(op_flags & FI_INJECT) || total_len <= SM2_INJECT_SIZE);
 
-	ret = sm2_proto_ops[sm2_src_inject](ep, peer_smr, id, peer_id, op, tag, data,
-					    op_flags, 0, 0, iov, iov_count, total_len,
+	proto = sm2_select_proto(false, false, 0, op, total_len,op_flags);
+
+	ret = sm2_proto_ops[proto](ep, peer_smr, id, peer_id, op, tag, data,
+					    op_flags, (struct ofi_mr **) desc, 0, 0, iov, iov_count, total_len,
 					    context);
+
 	if (ret)
 		goto unlock_cq;
 
@@ -222,7 +226,7 @@ static ssize_t sm2_generic_inject(struct fid_ep *ep_fid, const void *buf, size_t
 	peer_smr = sm2_peer_region(ep, id);
 
 	ret = sm2_proto_ops[sm2_src_inject](ep, peer_smr, id, peer_id, op, tag, data,
-					    op_flags, FI_HMEM_SYSTEM, 0, &msg_iov, 1, len,
+					    op_flags, NULL, FI_HMEM_SYSTEM, 0, &msg_iov, 1, len,
 					    NULL);
 
 	if (OFI_LIKELY(!ret)) {

@@ -44,7 +44,7 @@
 
 static int sm2_progress_inject(struct sm2_free_queue_entry *fqe, enum fi_hmem_iface iface,
 			       uint64_t device, struct iovec *iov, size_t iov_count,
-			       size_t *total_len, struct sm2_ep *ep, int err)
+			       size_t *total_len, struct sm2_ep *ep)
 {
 	ssize_t hmem_copy_ret;
 
@@ -66,6 +66,64 @@ static int sm2_progress_inject(struct sm2_free_queue_entry *fqe, enum fi_hmem_if
 	return FI_SUCCESS;
 }
 
+static struct smr_pend_entry *sm2_progress_single_sar(struct sm2_sar_free_queue_entry *fqe,
+			struct fi_peer_rx_entry *rx_entry, struct ofi_mr **mr,
+			struct iovec *iov, size_t iov_count,
+			size_t *total_len, struct smr_ep *ep)
+{
+	assert(false);
+	// struct smr_region *peer_smr;
+	// struct smr_pend_entry *sar_entry;
+	// struct smr_resp *resp;
+	// struct iovec sar_iov[SMR_IOV_LIMIT];
+	// int next = 0;
+
+	// peer_smr = smr_peer_region(ep->region, cmd->msg.hdr.id);
+	// resp = smr_get_ptr(peer_smr, cmd->msg.hdr.src_data);
+
+	// memcpy(sar_iov, iov, sizeof(*iov) * iov_count);
+	// (void) ofi_truncate_iov(sar_iov, &iov_count, cmd->msg.hdr.size);
+
+	// ofi_ep_lock_acquire(&ep->util_ep);
+	// sar_entry = ofi_freestack_pop(ep->pend_fs);
+	// sar_entry->in_use = true;
+	// dlist_insert_tail(&sar_entry->entry, &ep->sar_list);
+	// ofi_ep_lock_release(&ep->util_ep);
+
+	// if (cmd->msg.hdr.op == ofi_op_read_req)
+	// 	smr_try_progress_to_sar(ep, peer_smr, smr_sar_pool(ep->region),
+	// 			resp, cmd, mr, sar_iov, iov_count,
+	// 			total_len, &next, sar_entry);
+	// else
+	// 	smr_try_progress_from_sar(ep, peer_smr,
+	// 			smr_sar_pool(ep->region), resp, cmd, mr,
+	// 			sar_iov, iov_count, total_len, &next,
+	// 			sar_entry);
+	// ofi_ep_lock_acquire(&ep->util_ep);
+	// sar_entry->in_use = false;
+
+	// if (*total_len == cmd->msg.hdr.size) {
+	// 	dlist_remove(&sar_entry->entry);
+	// 	ofi_freestack_push(ep->pend_fs, sar_entry);
+	// 	ofi_ep_lock_release(&ep->util_ep);
+	// 	return NULL;
+	// }
+	// ofi_ep_lock_release(&ep->util_ep);
+	// sar_entry->cmd = *cmd;
+	// sar_entry->bytes_done = *total_len;
+	// sar_entry->next = next;
+	// memcpy(sar_entry->iov, sar_iov, sizeof(*sar_iov) * iov_count);
+	// sar_entry->iov_count = iov_count;
+	// sar_entry->rx_entry = rx_entry ? rx_entry : NULL;
+	// if (mr)
+	// 	memcpy(sar_entry->mr, mr, sizeof(*mr) * iov_count);
+	// else
+	// 	memset(sar_entry->mr, 0, sizeof(*mr) * iov_count);
+
+	// *total_len = cmd->msg.hdr.size;
+	// return sar_entry;
+}
+
 static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe,
 			    struct fi_peer_rx_entry *rx_entry, bool return_fqe)
 {
@@ -78,8 +136,12 @@ static int sm2_start_common(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe,
 	switch (fqe->protocol_hdr.op_src) {
 	case sm2_src_inject:
 		err = sm2_progress_inject(fqe, 0, 0, rx_entry->iov, rx_entry->count,
-					  &total_len, ep, 0);
+					  &total_len, ep);
 		break;
+	case sm2_src_single_sar:
+		err = sm2_progress_single_sar(fqe, rx_entry, rx_entry->desc, rx_entry->iov, rx_entry->count,
+					  &total_len, ep);
+		return; /* SAR does all progress in single_sar progress function including buffer return */
 	default:
 		FI_WARN(&sm2_prov, FI_LOG_EP_CTRL, "unidentified operation type\n");
 		err = -FI_EINVAL;
@@ -187,23 +249,55 @@ out:
 	return ret < 0 ? ret : 0;
 }
 
+static inline void sm2_handle_buffer_return(struct sm2_ep *ep, struct sm2_free_queue_entry *fqe)
+{
+	int ret;
+	struct sm2_sar_free_queue_entry * sar_fqe;
+
+	if (OFI_LIKELY(!fqe->is_sar_buffer)) {
+		/* Handle Delivery Complete */
+		if (OFI_UNLIKELY(fqe->protocol_hdr.op_flags & FI_DELIVERY_COMPLETE)) {
+			ret = sm2_complete_tx(ep, (void*) fqe->protocol_hdr.context, fqe->protocol_hdr.op, fqe->protocol_hdr.op_flags);
+			if (OFI_UNLIKELY(ret)) {
+				FI_WARN(&sm2_prov, FI_LOG_EP_CTRL, "Unable to process FI_DELIVERY_COMPLETE completion\n");
+			}
+		}
+
+		smr_freestack_push(sm2_free_stack(sm2_smr_region(ep, ep->self_fiaddr)), fqe);
+	} else {
+		/* For SSAR's
+		 * 1. Return the buffer to the freestack
+		 * 2. Progress the SSAR as much as possible
+		 * 3. if applicable, write completion (FI_TRANSIT_COMPLETE or FI_DELIVERY_COMPLETE)
+		 */
+		sar_fqe = (struct sm2_sar_free_queue_entry *) fqe;
+		if (OFI_UNLIKELY((fqe->protocol_hdr.op_flags & FI_DELIVERY_COMPLETE) && sar_fqe->sar_complete)) {
+			ret = sm2_complete_tx(ep, (void*) fqe->protocol_hdr.context, fqe->protocol_hdr.op, fqe->protocol_hdr.op_flags);
+			if (OFI_UNLIKELY(ret)) {
+				FI_WARN(&sm2_prov, FI_LOG_EP_CTRL, "Unable to process FI_DELIVERY_COMPLETE completion\n");
+			}
+
+			smr_freestack_push(sm2_sar_free_stack(sm2_smr_region(ep, ep->self_fiaddr)), fqe);
+			return;
+		}
+
+		smr_freestack_push(sm2_sar_free_stack(sm2_smr_region(ep, ep->self_fiaddr)), fqe);
+		sm2_send_next_sar(ep);
+	}
+}
+
 void sm2_progress_recv(struct sm2_ep *ep)
 {
 	struct sm2_free_queue_entry *fqe;
 	int ret = 0;
 
 	while (NULL != (fqe = sm2_fifo_read(ep))) {
+		/* Handle FQE's that are being returned */
 		if (fqe->protocol_hdr.op_src == sm2_buffer_return) {
-			/* Handle Delivery Complete */
-			if (fqe->protocol_hdr.op_flags & FI_DELIVERY_COMPLETE) {
-				ret = sm2_complete_tx(ep, (void*) fqe->protocol_hdr.context, fqe->protocol_hdr.op, fqe->protocol_hdr.op_flags);
-				if (OFI_UNLIKELY(ret)) {
-					FI_WARN(&sm2_prov, FI_LOG_EP_CTRL, "Unable to process FI_DELIVERY_COMPLETE completion\n");
-				}
-			}
-			smr_freestack_push(sm2_free_stack(sm2_smr_region(ep, ep->self_fiaddr)), fqe);
+			sm2_handle_buffer_return(ep, fqe);
 			continue;
 		}
+
 		switch (fqe->protocol_hdr.op) {
 		case ofi_op_msg:
 		case ofi_op_tagged:
