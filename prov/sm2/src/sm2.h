@@ -71,8 +71,6 @@
 #ifndef _SM2_H_
 #define _SM2_H_
 
-#define SM2_IOV_LIMIT 4
-
 struct sm2_env {
 	size_t sar_threshold;
 	int disable_cma;
@@ -242,10 +240,9 @@ int64_t sm2_verify_peer(struct sm2_ep *ep, fi_addr_t fi_addr);
 void sm2_generic_format(struct sm2_free_queue_entry *cmd, int64_t peer_id, uint32_t op,
 			uint64_t tag, uint64_t data, uint64_t op_flags, void* context);
 
-int sm2_select_proto(bool use_ipc, bool cma_avail, enum fi_hmem_iface iface, uint32_t op,
-		     uint64_t total_len, uint64_t op_flags);
+int sm2_select_proto(uint64_t total_len);
 typedef ssize_t (*sm2_proto_func)(struct sm2_ep *ep, struct sm2_region *peer_smr,
-				  int64_t id, int64_t peer_id, uint32_t op, uint64_t tag,
+				  int64_t peer_id, uint32_t op, uint64_t tag,
 				  uint64_t data, uint64_t op_flags,
 				  enum fi_hmem_iface iface, uint64_t device,
 				  const struct iovec *iov, size_t iov_count,
