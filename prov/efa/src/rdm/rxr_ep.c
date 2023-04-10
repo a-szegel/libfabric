@@ -66,8 +66,8 @@ const char *rxr_ep_raw_addr_str(struct rxr_ep *ep, char *buf, size_t *buflen)
 
 /**
  * @brief return peer's raw address in #efa_ep_addr
- * 
- * @param[in] ep		end point 
+ *
+ * @param[in] ep		end point
  * @param[in] addr 		libfabric address
  * @returns
  * If peer exists, return peer's raw addrress as pointer to #efa_ep_addr;
@@ -105,8 +105,8 @@ int32_t rxr_ep_get_peer_ahn(struct rxr_ep *ep, fi_addr_t addr)
 
 /**
  * @brief return peer's raw address in a reable string
- * 
- * @param[in] ep		end point 
+ *
+ * @param[in] ep		end point
  * @param[in] addr 		libfabric address
  * @param[out] buf		a buffer tat to be used to store string
  * @param[in,out] buflen	length of `buf` as input. length of the string as output.
@@ -120,8 +120,8 @@ const char *rxr_ep_get_peer_raw_addr_str(struct rxr_ep *ep, fi_addr_t addr, char
 
 /**
  * @brief get pointer to efa_rdm_peer structure for a given libfabric address
- * 
- * @param[in]		ep		endpoint 
+ *
+ * @param[in]		ep		endpoint
  * @param[in]		addr 		libfabric address
  * @returns if peer exists, return pointer to #efa_rdm_peer;
  *          otherwise, return NULL.
@@ -2174,7 +2174,12 @@ int rxr_endpoint(struct fid_domain *domain, struct fi_info *info,
 		if (ret)
 			goto err_destroy_base_ep;
 
-		assert(!strcmp(efa_domain->shm_info->fabric_attr->name, "shm"));
+		if (rxr_env.use_sm2) {
+			assert(!strcmp(efa_domain->shm_info->fabric_attr->name, "sm2"));
+		} else {
+			assert(!strcmp(efa_domain->shm_info->fabric_attr->name, "shm"));
+		}
+
 		ret = fi_endpoint(efa_domain->shm_domain, efa_domain->shm_info,
 				  &rxr_ep->shm_ep, rxr_ep);
 		if (ret)
