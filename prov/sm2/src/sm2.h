@@ -76,6 +76,8 @@
 #define SM2_PREFIX_NS		"fi_ns://"
 #define SM2_VERSION		1
 #define SM2_IOV_LIMIT		4
+#define SM2_INJECT_USER_DATA_LENGTH \
+	(SM2_INJECT_SIZE - sizeof(struct sm2_xfer_header))
 
 extern struct fi_provider sm2_prov;
 extern struct fi_info sm2_info;
@@ -115,12 +117,12 @@ struct sm2_xfer_header {
 	uint32_t op_flags;
 	uint32_t proto;
 	sm2_gid_t sender_gid;
-} __attribute__((aligned(16)));
+};
 
 struct sm2_xfer_entry {
 	struct sm2_xfer_header hdr;
-	uint8_t user_data[SM2_INJECT_SIZE];
-} __attribute__((aligned(16)));
+	uint8_t user_data[SM2_INJECT_USER_DATA_LENGTH];
+} __attribute__((packed));
 
 struct sm2_ep_name {
 	char name[FI_NAME_MAX];

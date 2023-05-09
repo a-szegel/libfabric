@@ -100,7 +100,8 @@ static ssize_t sm2_generic_sendmsg(struct sm2_ep *ep, const struct iovec *iov,
 	ofi_spin_lock(&ep->tx_lock);
 
 	total_len = ofi_total_iov_len(iov, iov_count);
-	assert(!(op_flags & FI_INJECT) || total_len <= SM2_INJECT_SIZE);
+	assert(!(op_flags & FI_INJECT) ||
+	       total_len <= SM2_INJECT_USER_DATA_LENGTH);
 
 	ret = sm2_proto_ops[sm2_proto_inject](ep, peer_smr, peer_gid, op, tag,
 					      data, op_flags, mr, iov,
@@ -172,7 +173,7 @@ static ssize_t sm2_generic_inject(struct fid_ep *ep_fid, const void *buf,
 	ssize_t ret = 0;
 	struct iovec msg_iov;
 
-	assert(len <= SM2_INJECT_SIZE);
+	assert(len <= SM2_INJECT_USER_DATA_LENGTH);
 
 	msg_iov.iov_base = (void *) buf;
 	msg_iov.iov_len = len;

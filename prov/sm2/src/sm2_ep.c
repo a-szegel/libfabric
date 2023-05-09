@@ -199,8 +199,9 @@ static void sm2_format_inject(struct sm2_xfer_entry *xfer_entry,
 			      size_t count)
 {
 	xfer_entry->hdr.proto = sm2_proto_inject;
-	xfer_entry->hdr.size = ofi_copy_from_mr_iov(
-		xfer_entry->user_data, SM2_INJECT_SIZE, mr, iov, count, 0);
+	xfer_entry->hdr.size = ofi_copy_from_mr_iov(xfer_entry->user_data,
+						    SM2_INJECT_USER_DATA_LENGTH,
+						    mr, iov, count, 0);
 }
 
 static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr,
@@ -215,7 +216,7 @@ static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr,
 		container_of(ep->util_ep.av, struct sm2_av, util_av);
 	struct sm2_mmap *map = &av->mmap;
 
-	assert(total_len <= SM2_INJECT_SIZE);
+	assert(total_len <= SM2_INJECT_USER_DATA_LENGTH);
 
 	self_region = sm2_mmap_ep_region(map, ep->gid);
 
