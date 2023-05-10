@@ -78,6 +78,8 @@
 #define SM2_IOV_LIMIT		4
 #define SM2_INJECT_USER_DATA_LENGTH \
 	(SM2_INJECT_SIZE - sizeof(struct sm2_xfer_header))
+#define SM2_INLINE_USER_DATA_LENGTH \
+	(SM2_INLINE_SIZE - sizeof(struct sm2_xfer_header))
 
 extern struct fi_provider sm2_prov;
 extern struct fi_info sm2_info;
@@ -139,6 +141,12 @@ static inline struct smr_freestack *sm2_inject_freestack(struct sm2_region *smr)
 {
 	return (struct smr_freestack *) ((char *) smr +
 					 smr->inject_freestack_offset);
+}
+
+static inline struct smr_freestack *sm2_inline_freestack(struct sm2_region *smr)
+{
+	return (struct smr_freestack *) ((char *) smr +
+					 smr->inline_freestack_offset);
 }
 
 int sm2_fabric(struct fi_fabric_attr *attr, struct fid_fabric **fabric,
