@@ -372,7 +372,7 @@ int sm2_progress_addr(struct fi_peer_rx_entry *rx_entry)
 		container_of(ep->util_ep.av, struct sm2_av, util_av);
 
 	rx_entry->addr =
-		sm2_av->reverse_lookup[xfer_ctx->xfer_entry.sender_gid];
+		sm2_av->reverse_lookup[xfer_ctx->xfer_entry.hdr.sender_gid];
 	return rx_entry->addr == FI_ADDR_UNSPEC ? -FI_EAGAIN : FI_SUCCESS;
 }
 
