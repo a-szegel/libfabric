@@ -129,7 +129,7 @@ static ssize_t smr_generic_rma(struct smr_ep *ep, const struct iovec *iov,
 	if (smr_peer_data(ep->region)[id].sar)
 		return -FI_EAGAIN;
 
-	ofi_spin_lock(&ep->tx_lock);
+	ofi_genlock_lock(&ep->util_ep.lock);
 
 	if (smr_freestack_left(smr_cmd_pool(ep->region)) < cmds)
 		goto out;
@@ -197,7 +197,7 @@ static ssize_t smr_generic_rma(struct smr_ep *ep, const struct iovec *iov,
 	}
 
 out:
-	ofi_spin_unlock(&ep->tx_lock);
+	ofi_genlock_unlock(&ep->util_ep.lock);
 	return ret;
 }
 
@@ -336,7 +336,7 @@ static ssize_t smr_generic_rma_inject(struct fid_ep *ep_fid, const void *buf,
 	cmds = 1 + !(domain->fast_rma && !(flags & FI_REMOTE_CQ_DATA) &&
 		     smr_cma_enabled(ep, peer_smr));
 
-	ofi_spin_lock(&ep->tx_lock);
+	ofi_genlock_lock(&ep->util_ep.lock);
 	if (smr_freestack_left(smr_cmd_pool(ep->region)) < cmds ||
 	    smr_peer_data(ep->region)[id].sar)
 		goto out;
@@ -360,7 +360,7 @@ static ssize_t smr_generic_rma_inject(struct fid_ep *ep_fid, const void *buf,
 			data, flags, NULL, &iov, 1, len, NULL,
 			smr_get_peer_ptr(ep->region, id, peer_id, rma_cmd));
 out:
-	ofi_spin_unlock(&ep->tx_lock);
+	ofi_genlock_unlock(&ep->util_ep.lock);
 	return ret;
 }
 

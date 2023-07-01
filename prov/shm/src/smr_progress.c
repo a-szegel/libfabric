@@ -156,7 +156,6 @@ static void smr_progress_resp(struct smr_ep *ep)
 	struct smr_tx_entry *pending;
 	int ret;
 
-	ofi_spin_lock(&ep->tx_lock);
 	while (1) {
 		cmd = smr_read_resp(ep->region);
 		if (!cmd)
@@ -186,7 +185,6 @@ static void smr_progress_resp(struct smr_ep *ep)
 		smr_freestack_push(smr_cmd_pool(ep->region), cmd);
 		ofi_freestack_push(ep->tx_fs, pending);
 	}
-	ofi_spin_unlock(&ep->tx_lock);
 }
 
 static int smr_progress_inline(struct smr_ep *ep, struct smr_cmd *cmd,
@@ -946,7 +944,6 @@ static void smr_progress_cmd(struct smr_ep *ep)
 	 * Other processes are free to post on the queue without the need
 	 * for locking the queue.
 	 */
-	ofi_genlock_lock(&ep->util_ep.lock);
 	while (1) {
 		cmd = smr_read_cmd(ep->region);
 		if (!cmd)
@@ -975,7 +972,6 @@ static void smr_progress_cmd(struct smr_ep *ep)
 				"unidentified operation type\n");
 		}
 	}
-	ofi_genlock_unlock(&ep->util_ep.lock);
 }
 
 static void smr_progress_ipc_list(struct smr_ep *ep)
@@ -1045,8 +1041,11 @@ void smr_ep_progress(struct util_ep *util_ep)
 		if (smr_env.use_dsa_sar)
 			smr_dsa_progress(ep);
 		smr_progress_connreq(ep);
+
+		ofi_genlock_lock(&ep->util_ep.lock);
 		smr_progress_resp(ep);
 		smr_progress_cmd(ep);
+		ofi_genlock_unlock(&ep->util_ep.lock);
 	}
 	/* always drive forward the ipc list since the completion is
 	 * independent of any action by the provider */

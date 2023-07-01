@@ -197,7 +197,7 @@ static ssize_t smr_generic_atomic(struct smr_ep *ep,
 	if (smr_peer_data(ep->region)[id].sar)
 		return -FI_EAGAIN;
 
-	ofi_spin_lock(&ep->tx_lock);
+	ofi_genlock_lock(&ep->util_ep.lock);
 	if (smr_freestack_left(smr_cmd_pool(ep->region)) < 2)
 		goto out;
 
@@ -254,7 +254,7 @@ static ssize_t smr_generic_atomic(struct smr_ep *ep,
 		}
 	}
 out:
-	ofi_spin_unlock(&ep->tx_lock);
+	ofi_genlock_unlock(&ep->util_ep.lock);
 	return ret;
 }
 
@@ -336,7 +336,7 @@ static ssize_t smr_atomic_inject(struct fid_ep *ep_fid, const void *buf,
 	peer_id = smr_peer_data(ep->region)[id].addr.id;
 	peer_smr = smr_peer_region(ep->region, id);
 
-	ofi_spin_lock(&ep->tx_lock);//replace with ep lock? genlock?
+	ofi_genlock_lock(&ep->util_ep.lock);
 	if (smr_peer_data(ep->region)[id].sar) {
 		ret = -FI_EAGAIN;
 		goto out;
@@ -367,7 +367,7 @@ static ssize_t smr_atomic_inject(struct fid_ep *ep_fid, const void *buf,
 	}
 	ofi_ep_tx_cntr_inc_func(&ep->util_ep, ofi_op_atomic);
 out:
-	ofi_spin_unlock(&ep->tx_lock);
+	ofi_genlock_unlock(&ep->util_ep.lock);
 	return ret;
 }
 

@@ -220,9 +220,6 @@ struct smr_ep {
 	const char		*name;
 	uint64_t		msg_id;
 	struct smr_region	*volatile region;
-	//if double locking is needed, shm region lock must
-	//be acquired before any shm EP locks
-	ofi_spin_t		tx_lock;
 
 	struct fid_ep		*srx;
 	struct smr_tx_fs	*tx_fs;
