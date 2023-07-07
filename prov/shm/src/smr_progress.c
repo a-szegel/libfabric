@@ -150,43 +150,6 @@ static int smr_progress_return(struct smr_ep *ep, struct smr_cmd *cmd,
 	return FI_SUCCESS;
 }
 
-static void smr_progress_resp(struct smr_ep *ep)
-{
-	struct smr_cmd *cmd;
-	struct smr_tx_entry *pending;
-	int ret;
-
-	while (1) {
-		cmd = smr_read_resp(ep->region);
-		if (!cmd)
-			break;
-
-		pending = (struct smr_tx_entry *) cmd->msg.hdr.tx_ctx;
-		ret = smr_progress_return(ep, cmd, pending);
-		if (!(cmd->msg.hdr.op_flags & FI_DELIVERY_COMPLETE)) {
-			smr_freestack_push(smr_cmd_pool(ep->region), cmd);
-			continue;
-		}
-
-		assert(pending);//do I even need pending anymore? context?
-		if (ret) {
-			ret = smr_write_err_comp(ep->util_ep.tx_cq, pending->context,
-					cmd->msg.hdr.op_flags, cmd->msg.hdr.tag, ret);
-		} else {
-			ret = smr_complete_tx(ep, pending->context,
-					 cmd->msg.hdr.op, cmd->msg.hdr.op_flags);
-		}
-		smr_peer_data(ep->region)[pending->peer_id].sar = false;
-		if (ret) {
-			FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
-				"unable to process tx completion\n");
-			break;
-		}
-		smr_freestack_push(smr_cmd_pool(ep->region), cmd);
-		ofi_freestack_push(ep->tx_fs, pending);
-	}
-}
-
 static int smr_progress_inline(struct smr_ep *ep, struct smr_cmd *cmd,
 		struct ofi_mr **mr, struct iovec *iov, size_t iov_count,
 		size_t *total_len, void *context)
@@ -928,6 +891,35 @@ static void smr_progress_connreq(struct smr_ep *ep)
 	pthread_spin_unlock(&ep->region->conn_lock);
 }
 
+static void smr_handle_return(struct smr_ep *ep, struct smr_cmd *cmd)
+{
+	struct smr_tx_entry *pending;
+	int ret;
+	
+	pending = (struct smr_tx_entry *) cmd->msg.hdr.tx_ctx;
+	ret = smr_progress_return(ep, cmd, pending);
+	if (!(cmd->msg.hdr.op_flags & FI_DELIVERY_COMPLETE)) {
+		smr_freestack_push(smr_cmd_pool(ep->region), cmd);
+		return;
+	}
+
+	assert(pending);//do I even need pending anymore? context?
+	if (ret) {
+		ret = smr_write_err_comp(ep->util_ep.tx_cq, pending->context,
+				cmd->msg.hdr.op_flags, cmd->msg.hdr.tag, ret);
+	} else {
+		ret = smr_complete_tx(ep, pending->context,
+					cmd->msg.hdr.op, cmd->msg.hdr.op_flags);
+	}
+	smr_peer_data(ep->region)[pending->peer_id].sar = false;
+	if (ret) {
+		FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
+			"unable to process tx completion\n");
+	}
+	smr_freestack_push(smr_cmd_pool(ep->region), cmd);
+	ofi_freestack_push(ep->tx_fs, pending);
+}
+
 static void smr_progress_cmd(struct smr_ep *ep)
 {
 	struct smr_cmd *cmd;
@@ -949,6 +941,11 @@ static void smr_progress_cmd(struct smr_ep *ep)
 		cmd = smr_read_cmd(ep->region);
 		if (!cmd)
 			break;
+
+		if (cmd->msg.hdr.smr_flags & SMR_FLAG_RETURN) {
+			smr_handle_return(ep, cmd);
+			continue;
+		}
 
 		switch (cmd->msg.hdr.op) {
 		case ofi_op_msg:
@@ -1043,7 +1040,6 @@ void smr_ep_progress(struct util_ep *util_ep)
 	smr_progress_connreq(ep);
 
 	ofi_genlock_lock(&ep->util_ep.lock);
-	smr_progress_resp(ep);
 	smr_progress_cmd(ep);
 	ofi_genlock_unlock(&ep->util_ep.lock);
 	/* always drive forward the ipc list since the completion is

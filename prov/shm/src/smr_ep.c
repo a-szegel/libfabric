@@ -249,6 +249,7 @@ void smr_generic_format(struct smr_cmd *cmd, int64_t peer_id, uint32_t op,
 	cmd->msg.hdr.id = peer_id;
 	cmd->msg.hdr.data = data;
 	cmd->msg.hdr.op_flags = op_flags;
+	cmd->msg.hdr.smr_flags = 0;
 	cmd->msg.hdr.tx_ctx = 0;
 	cmd->msg.hdr.rx_ctx = 0;
 	cmd->msg.hdr.rma_cmd = rma_cmd;

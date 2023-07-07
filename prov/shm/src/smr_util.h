@@ -61,6 +61,7 @@ extern "C" {
 #define SMR_FLAG_DEBUG	(1 << 1)
 #define SMR_FLAG_IPC_SOCK (1 << 2)
 #define SMR_FLAG_HMEM_ENABLED (1 << 3)
+#define SMR_FLAG_RETURN (1 << 4)
 
 #define SMR_CMD_SIZE		256	/* align with 64-byte cache line */
 
@@ -107,6 +108,7 @@ struct smr_msg_hdr {
 	int64_t			id;
 	uint32_t		op;
 	uint16_t		op_src;//rename to proto
+	uint16_t		smr_flags;
 	uint64_t		op_flags;
 
 	uint64_t		size;
@@ -244,7 +246,6 @@ struct smr_region {
 
 	/* offsets from start of smr_region */
 	size_t		cmd_queue_offset;
-	size_t		resp_queue_offset;
 	size_t		conn_queue_offset;
 	size_t		cmd_pool_offset;
 	size_t		inject_pool_offset;
@@ -278,10 +279,6 @@ static inline struct smr_region *smr_peer_region(struct smr_region *smr, int i)
 static inline struct smr_fifo *smr_cmd_queue(struct smr_region *smr)
 {
 	return (struct smr_fifo *) ((char *) smr + smr->cmd_queue_offset);
-}
-static inline struct smr_fifo *smr_resp_queue(struct smr_region *smr)
-{
-	return (struct smr_fifo *) ((char *) smr + smr->resp_queue_offset);
 }
 static inline struct smr_conn_queue *smr_conn_queue(struct smr_region *smr)
 {
@@ -321,7 +318,7 @@ struct smr_attr {
 };
 
 size_t smr_calculate_size_offsets(size_t tx_count, size_t rx_count,
-		size_t *cq_offset, size_t *resp_offset, size_t *conn_offset,
+		size_t *cq_offset, size_t *conn_offset,
 		size_t *cp_offset, size_t *inject_offset, size_t *sar_offset,
 		size_t *peer_offset, size_t *name_offset, size_t *sock_offset);
 void	smr_cma_check(struct smr_region *region, struct smr_region *peer_region);
