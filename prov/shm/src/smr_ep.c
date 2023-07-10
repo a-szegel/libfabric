@@ -195,7 +195,6 @@ static void smr_send_name(struct smr_ep *ep, int64_t id)
 
 	ofi_cirque_commit(smr_conn_queue(peer_smr));
 	pthread_spin_unlock(&peer_smr->conn_lock);
-	smr_signal(peer_smr);
 }
 
 int64_t smr_verify_peer(struct smr_ep *ep, fi_addr_t fi_addr)

@@ -283,8 +283,6 @@ int smr_create(const struct fi_provider *prov, struct smr_map *map,
 	*smr = mapped_addr;
 	smr_lock_init(&(*smr)->conn_lock);
 
-	ofi_atomic_initialize32(&(*smr)->signal, 0);
-
 	(*smr)->map = map;
 	(*smr)->version = SMR_VERSION;
 
