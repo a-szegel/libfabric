@@ -854,12 +854,14 @@ static void smr_progress_connreq(struct smr_ep *ep)
 {
 	struct smr_conn_req *conn_req;
 	struct smr_region *peer_smr;
-	int64_t idx = -1;
+	int64_t idx = -1, pos;
 	int ret = 0;
 
-	pthread_spin_lock(&ep->region->conn_lock);
-	while (!ofi_cirque_isempty(smr_conn_queue(ep->region))) {
-		conn_req = ofi_cirque_head(smr_conn_queue(ep->region));
+	while (1) {
+		ret = smr_conn_queue_head(smr_conn_queue(ep->region), &conn_req,
+					  &pos);
+		if (ret == -FI_ENOENT)
+			break;
 
 		ret = smr_map_add(&smr_prov, ep->region->map,
 				(char *) conn_req->name, &idx);
@@ -885,10 +887,9 @@ static void smr_progress_connreq(struct smr_ep *ep)
 		ep->region->max_sar_buf_per_peer = SMR_MAX_PEERS /
 			ep->region->map->num_peers;
 
-		ofi_cirque_discard(smr_conn_queue(ep->region));
+		smr_conn_queue_release(smr_conn_queue(ep->region), conn_req,
+				       pos);
 	}
-
-	pthread_spin_unlock(&ep->region->conn_lock);
 }
 
 static void smr_handle_return(struct smr_ep *ep, struct smr_cmd *cmd)
@@ -1037,9 +1038,10 @@ void smr_ep_progress(struct util_ep *util_ep)
 
 	if (smr_env.use_dsa_sar)
 		smr_dsa_progress(ep);
-	smr_progress_connreq(ep);
 
 	ofi_genlock_lock(&ep->util_ep.lock);
+	smr_progress_connreq(ep);
+
 	smr_progress_cmd(ep);
 	ofi_genlock_unlock(&ep->util_ep.lock);
 	/* always drive forward the ipc list since the completion is

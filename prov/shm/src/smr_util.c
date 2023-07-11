@@ -190,11 +190,6 @@ err:
 	return -FI_EBUSY;
 }
 
-static void smr_lock_init(pthread_spinlock_t *lock)
-{
-	pthread_spin_init(lock, PTHREAD_PROCESS_SHARED);
-}
-
 /* TODO: Determine if aligning SMR data helps performance */
 int smr_create(const struct fi_provider *prov, struct smr_map *map,
 	       const struct smr_attr *attr, struct smr_region *volatile *smr)
@@ -275,7 +270,6 @@ int smr_create(const struct fi_provider *prov, struct smr_map *map,
 	pthread_mutex_unlock(&ep_list_lock);
 
 	*smr = mapped_addr;
-	smr_lock_init(&(*smr)->conn_lock);
 
 	(*smr)->map = map;
 	(*smr)->version = SMR_VERSION;

@@ -175,26 +175,24 @@ static struct fi_ops_ep smr_ep_ops = {
 static void smr_send_name(struct smr_ep *ep, int64_t id)
 {
 	struct smr_region *peer_smr;
-	struct smr_conn_req *conn_req;
+	struct smr_conn_req *conn_req = NULL;
+	int64_t pos;
 
 	peer_smr = smr_peer_region(ep->region, id);
 
 	if (smr_peer_data(ep->region)[id].name_sent)
 		return;
 
-	pthread_spin_lock(&peer_smr->conn_lock);
-	assert(!ofi_cirque_isfull(smr_conn_queue(peer_smr)));
+	(void) smr_conn_queue_next(smr_conn_queue(peer_smr), &conn_req, &pos);
 
-	conn_req = ofi_cirque_next(smr_conn_queue(peer_smr));
+	assert(conn_req);
 	conn_req->id = id;
 	conn_req->pid = ep->region->pid;
 	conn_req->name_len = strlen(ep->name) + 1;
 	memcpy(conn_req->name, ep->name, conn_req->name_len);
 
 	smr_peer_data(ep->region)[id].name_sent = 1;
-
-	ofi_cirque_commit(smr_conn_queue(peer_smr));
-	pthread_spin_unlock(&peer_smr->conn_lock);
+	smr_conn_queue_commit(conn_req, pos);
 }
 
 int64_t smr_verify_peer(struct smr_ep *ep, fi_addr_t fi_addr)

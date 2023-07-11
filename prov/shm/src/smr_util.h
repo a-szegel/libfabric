@@ -238,7 +238,6 @@ struct smr_region {
 	uint8_t		cma_cap_self;
 	uint32_t	max_sar_buf_per_peer;
 	void		*base_addr;
-	pthread_spinlock_t	conn_lock; //connections
 
 	struct smr_map	*map;
 
@@ -269,7 +268,7 @@ struct smr_sar_buf {
 	uint8_t		buf[SMR_SAR_SIZE];
 };
 
-OFI_DECLARE_CIRQUE(struct smr_conn_req, smr_conn_queue);
+OFI_DECLARE_ATOMIC_Q(struct smr_conn_req, smr_conn_queue);
 //TODO change smr freestack to ofi streestack + alignment
 
 static inline struct smr_region *smr_peer_region(struct smr_region *smr, int i)
