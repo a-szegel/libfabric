@@ -33,6 +33,7 @@
 
 #include <rdma/fi_errno.h>
 
+#include "sm2_atom.h"
 #include "sm2.h"
 #include "sm2_fifo.h"
 #include <ofi_hmem.h>
@@ -46,7 +47,7 @@ size_t sm2_calculate_size_offsets(ptrdiff_t *rq_offset, ptrdiff_t *fs_offset)
 
 	if (rq_offset)
 		*rq_offset = total_size;
-	total_size += sizeof(struct sm2_fifo);
+	total_size += sizeof(struct smr_fifo);
 
 	if (fs_offset)
 		*fs_offset = total_size;

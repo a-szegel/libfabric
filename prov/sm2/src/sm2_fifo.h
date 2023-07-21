@@ -133,103 +133,108 @@
 #ifndef _SM2_FIFO_H_
 #define _SM2_FIFO_H_
 
+#define SM2_FIFO_CIRCULAR_QUEUE_SIZE 1024
+
 #include "sm2.h"
-#include "sm2_atom.h"
-#include <stdint.h>
+#include <string.h>
+#include "ofi.h"
+#include "ofi_atom.h"
+#include <rdma/fi_errno.h>
 
-#define SM2_FIFO_FREE (-3)
+/* Multiple writer, single reader queue.
+ * Writes are protected with atomics.
+ * Reads are not protected and assumed to be protected with user locking
+ */
+struct smr_fifo {
+	int64_t		size;
+	int64_t		size_mask;
+        int64_t		read_pos;
+	ofi_atomic64_t	write_pos;
+	ofi_atomic64_t	free;
+	uintptr_t	entries[SM2_FIFO_CIRCULAR_QUEUE_SIZE];
+};
 
-static inline void *sm2_relptr_to_absptr(int64_t relptr, struct sm2_mmap *map)
+/* Initialize FIFO queue to empty state */
+static inline void smr_fifo_init(struct smr_fifo *queue, uint64_t size)
+{
+	assert(size == roundup_power_of_two(size));
+	queue->size = size;
+	queue->size_mask = size - 1;
+	queue->read_pos = 0;
+	ofi_atomic_initialize64(&queue->write_pos, 0);
+	ofi_atomic_initialize64(&queue->free, size);
+	memset(queue->entries, 0, sizeof(uintptr_t) * size);  // MODIFIED THIS LINE WHEN I ADDED THE SIZE TO ENTRIES
+}
+
+//TODO figure out memory barriers
+static inline int smr_fifo_commit(struct smr_fifo *queue, uintptr_t val)
+{
+	int64_t free, write;
+
+	for (;;) {
+		free = ofi_atomic_load_explicit64(&queue->free,
+						  memory_order_relaxed);
+		if (!free)
+			return -FI_ENOENT;
+		if (ofi_atomic_compare_exchange_weak64(
+			&queue->free, &free, free - 1))
+			break;
+	}
+	write = ofi_atomic_inc64(&queue->write_pos) - 1;//TODO add atomic to remove sub
+	queue->entries[write & queue->size_mask] = val;
+	return FI_SUCCESS;
+}
+
+/* All read calls within the same process must be protected by the same lock */
+static inline uintptr_t smr_fifo_read(struct smr_fifo *queue)
+{
+	uintptr_t val;
+
+	val = queue->entries[queue->read_pos & queue->size_mask];
+	if (!val)
+		return 0;
+
+	queue->entries[queue->read_pos++ & queue->size_mask] = 0;
+	ofi_atomic_inc64(&queue->free);
+	return val;
+}
+
+// OLD METHODS to allow us not to change API
+
+static inline void sm2_fifo_init(struct smr_fifo *queue)
+{
+	smr_fifo_init(queue, SM2_FIFO_CIRCULAR_QUEUE_SIZE);
+}
+
+static inline void *sm2_relptr_to_absptr(uintptr_t relptr, struct sm2_mmap *map)
 {
 	return (void *) (map->base + relptr);
 }
 
-static inline int64_t sm2_absptr_to_relptr(void *absptr, struct sm2_mmap *map)
+static inline uintptr_t sm2_absptr_to_relptr(void *absptr, struct sm2_mmap *map)
 {
-	return (int64_t) ((char *) absptr - map->base);
+	return (uintptr_t) ((char *) absptr - map->base);
 }
 
-struct sm2_fifo {
-	long int head;
-	long int tail;
-};
-
-/* Initialize FIFO queue to empty state */
-static inline void sm2_fifo_init(struct sm2_fifo *fifo)
-{
-	fifo->head = SM2_FIFO_FREE;
-	fifo->tail = SM2_FIFO_FREE;
-}
-
-/* Write, Enqueue */
 static inline void sm2_fifo_write(struct sm2_ep *ep, sm2_gid_t peer_gid,
 				  struct sm2_xfer_entry *xfer_entry)
 {
 	struct sm2_region *peer_region = sm2_mmap_ep_region(ep->mmap, peer_gid);
-	struct sm2_fifo *peer_fifo = sm2_recv_queue(peer_region);
-	long int offset = sm2_absptr_to_relptr(xfer_entry, ep->mmap);
-	struct sm2_xfer_entry *prev_xfer_entry;
-	long int prev;
-
-	assert(peer_fifo->head != 0);
-	assert(peer_fifo->tail != 0);
-	assert(offset != 0);
-
-	xfer_entry->hdr.next = SM2_FIFO_FREE;
-
-	atomic_wmb();
-	prev = atomic_swap_ptr(&peer_fifo->tail, offset);
-	atomic_rmb();
-
-	assert(prev != offset);
-
-	if (SM2_FIFO_FREE != prev) {
-		prev_xfer_entry = sm2_relptr_to_absptr(prev, ep->mmap);
-		prev_xfer_entry->hdr.next = offset;
-	} else {
-		peer_fifo->head = offset;
-	}
-
-	atomic_wmb();
+	struct smr_fifo *peer_fifo = sm2_recv_queue(peer_region);
+	uintptr_t offset = sm2_absptr_to_relptr(xfer_entry, ep->mmap);
+	smr_fifo_commit(peer_fifo, offset);
 }
 
 /* Read, Dequeue */
 static inline struct sm2_xfer_entry *sm2_fifo_read(struct sm2_ep *ep)
 {
-	struct sm2_fifo *self_fifo = sm2_recv_queue(ep->self_region);
-	struct sm2_xfer_entry *xfer_entry;
-	long int prev_head;
-
-	assert(self_fifo->head != 0);
-	assert(self_fifo->tail != 0);
-
-	if (SM2_FIFO_FREE == self_fifo->head)
+	struct smr_fifo *self_fifo = sm2_recv_queue(ep->self_region);
+	uintptr_t offset  = smr_fifo_read(self_fifo);
+	if (!offset) {
 		return NULL;
-
-	atomic_rmb();
-
-	prev_head = self_fifo->head;
-	xfer_entry = (struct sm2_xfer_entry *) sm2_relptr_to_absptr(prev_head,
-								    ep->mmap);
-	self_fifo->head = SM2_FIFO_FREE;
-
-	assert(xfer_entry->hdr.next != prev_head);
-	assert(xfer_entry != 0);
-	assert(xfer_entry->hdr.next != 0);
-
-	if (SM2_FIFO_FREE == xfer_entry->hdr.next) {
-		atomic_rmb();
-		if (!atomic_compare_exchange(&self_fifo->tail, &prev_head,
-					     SM2_FIFO_FREE)) {
-			while (SM2_FIFO_FREE == xfer_entry->hdr.next)
-				atomic_rmb();
-			self_fifo->head = xfer_entry->hdr.next;
-		}
-	} else {
-		self_fifo->head = xfer_entry->hdr.next;
 	}
 
-	atomic_wmb();
+	struct sm2_xfer_entry *xfer_entry = sm2_relptr_to_absptr(offset, ep->mmap);
 	return xfer_entry;
 }
 

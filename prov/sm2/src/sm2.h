@@ -159,9 +159,9 @@ struct sm2_ep_name {
 	struct dlist_entry entry;
 };
 
-static inline struct sm2_fifo *sm2_recv_queue(struct sm2_region *smr)
+static inline struct smr_fifo *sm2_recv_queue(struct sm2_region *smr)
 {
-	return (struct sm2_fifo *) ((char *) smr + smr->recv_queue_offset);
+	return (struct smr_fifo *) ((char *) smr + smr->recv_queue_offset);
 }
 
 static inline struct smr_freestack *sm2_freestack(struct sm2_region *smr)
