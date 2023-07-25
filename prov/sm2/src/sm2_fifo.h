@@ -138,15 +138,19 @@
 #include <stdint.h>
 
 #define SM2_FIFO_FREE (-3)
+#define SM2_OFFSET_MASK 0xffffffffll
+#define SM2_OFFSET_BITS 32
+#define SM2_BITNESS     64
 
-static inline void *sm2_relptr_to_absptr(int64_t relptr, struct sm2_mmap *map)
+static inline void *sm2_relptr_to_absptr(int64_t relptr, struct sm2_mmap *mapped_files)
 {
-	return (void *) (map->base + relptr);
+	return (void *) ((relptr & SM2_OFFSET_MASK)
+		+ (char *) mapped_files[relptr >> SM2_OFFSET_BITS].base);
 }
 
-static inline int64_t sm2_absptr_to_relptr(void *absptr, struct sm2_mmap *map)
+static inline int64_t sm2_absptr_to_relptr(struct sm2_region *region, void *absptr, int64_t gid)
 {
-	return (int64_t) ((char *) absptr - map->base);
+	return (int64_t) ((char *) absptr - (char *) region) | (gid << SM2_OFFSET_BITS);
 }
 
 struct sm2_fifo {
@@ -163,11 +167,12 @@ static inline void sm2_fifo_init(struct sm2_fifo *fifo)
 
 /* Write, Enqueue */
 static inline void sm2_fifo_write(struct sm2_ep *ep, sm2_gid_t peer_gid,
-				  struct sm2_xfer_entry *xfer_entry)
+				  struct sm2_xfer_entry *xfer_entry, sm2_gid_t owning_region_gid)
 {
-	struct sm2_region *peer_region = sm2_mmap_ep_region(ep->mmap, peer_gid);
+	struct sm2_region *peer_region = sm2_mmap_ep_region(ep, peer_gid);
+	struct sm2_region *owning_region = sm2_mmap_ep_region(ep, owning_region_gid);
 	struct sm2_fifo *peer_fifo = sm2_recv_queue(peer_region);
-	long int offset = sm2_absptr_to_relptr(xfer_entry, ep->mmap);
+	long int offset = sm2_absptr_to_relptr(owning_region, xfer_entry, owning_region_gid);
 	struct sm2_xfer_entry *prev_xfer_entry;
 	long int prev;
 
@@ -184,7 +189,7 @@ static inline void sm2_fifo_write(struct sm2_ep *ep, sm2_gid_t peer_gid,
 	assert(prev != offset);
 
 	if (SM2_FIFO_FREE != prev) {
-		prev_xfer_entry = sm2_relptr_to_absptr(prev, ep->mmap);
+		prev_xfer_entry = sm2_relptr_to_absptr(prev, ep->mapped_files);
 		prev_xfer_entry->hdr.next = offset;
 	} else {
 		peer_fifo->head = offset;
@@ -210,7 +215,7 @@ static inline struct sm2_xfer_entry *sm2_fifo_read(struct sm2_ep *ep)
 
 	prev_head = self_fifo->head;
 	xfer_entry = (struct sm2_xfer_entry *) sm2_relptr_to_absptr(prev_head,
-								    ep->mmap);
+								    ep->mapped_files);
 	self_fifo->head = SM2_FIFO_FREE;
 
 	assert(xfer_entry->hdr.next != prev_head);
@@ -238,7 +243,7 @@ static inline void sm2_fifo_write_back(struct sm2_ep *ep,
 {
 	xfer_entry->hdr.proto = sm2_proto_return;
 	assert(xfer_entry->hdr.sender_gid != ep->gid);
-	sm2_fifo_write(ep, xfer_entry->hdr.sender_gid, xfer_entry);
+	sm2_fifo_write(ep, xfer_entry->hdr.sender_gid, xfer_entry, xfer_entry->hdr.sender_gid);
 }
 
 #endif /* _SM2_FIFO_H_ */

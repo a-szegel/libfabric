@@ -223,6 +223,7 @@ struct sm2_ep {
 	sm2_gid_t gid;
 	struct fid_ep *srx;
 	struct ofi_bufpool *xfer_ctx_pool;
+	struct sm2_mmap mapped_files[96];
 	int ep_idx;
 };
 
@@ -276,11 +277,7 @@ void sm2_progress_recv(struct sm2_ep *ep);
 
 int sm2_unexp_start(struct fi_peer_rx_entry *rx_entry);
 
-static inline struct sm2_region *sm2_peer_region(struct sm2_ep *ep, int id)
-{
-	assert(id < SM2_MAX_UNIVERSE_SIZE);
-	return sm2_mmap_ep_region(ep->mmap, id);
-}
+
 
 static inline size_t sm2_pop_xfer_entry(struct sm2_ep *ep,
 					struct sm2_xfer_entry **xfer_entry)
@@ -295,5 +292,20 @@ static inline size_t sm2_pop_xfer_entry(struct sm2_ep *ep,
 int sm2_query_atomic(struct fid_domain *domain, enum fi_datatype datatype,
 		     enum fi_op op, struct fi_atomic_attr *attr,
 		     uint64_t flags);
+
+int sm2_create(struct sm2_ep *ep, const struct fi_provider *prov, const struct sm2_attr *attr,
+	       struct sm2_mmap *sm2_mmap, sm2_gid_t *gid);
+
+static inline struct sm2_region *sm2_mmap_ep_region(struct sm2_ep *ep,
+						    sm2_gid_t gid)
+{
+	return (struct sm2_region *) ep->mapped_files[gid].base;
+}
+
+static inline struct sm2_region *sm2_peer_region(struct sm2_ep *ep, int id)
+{
+	assert(id < SM2_MAX_UNIVERSE_SIZE);
+	return sm2_mmap_ep_region(ep, id);
+}
 
 #endif /* _SM2_H_ */

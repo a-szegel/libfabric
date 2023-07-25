@@ -210,7 +210,7 @@ static ssize_t sm2_do_inject(struct sm2_ep *ep, struct sm2_region *peer_smr,
 			   context);
 	sm2_format_inject(xfer_entry, mr, iov, iov_count);
 
-	sm2_fifo_write(ep, peer_gid, xfer_entry);
+	sm2_fifo_write(ep, peer_gid, xfer_entry, ep->gid);
 	return FI_SUCCESS;
 }
 
@@ -428,6 +428,8 @@ static int sm2_ep_ctrl(struct fid *fid, int command, void *arg)
 	struct fid_peer_srx *srx;
 	int ret;
 	sm2_gid_t self_gid;
+	static const int template_len = sizeof("/dev/shm/fi_sm2_allocation_XX") + 1;
+	char template[template_len];
 
 	ep = container_of(fid, struct sm2_ep, util_ep.ep_fid.fid);
 	av = container_of(ep->util_ep.av, struct sm2_av, util_av);
@@ -443,10 +445,31 @@ static int sm2_ep_ctrl(struct fid *fid, int command, void *arg)
 		attr.name = ep->name;
 		attr.flags = 0;
 
-		ret = sm2_create(&sm2_prov, &attr, &av->mmap, &self_gid);
+		ret = sm2_create(ep, &sm2_prov, &attr, &av->mmap, &self_gid);
 		ep->gid = self_gid;
 		ep->mmap = &av->mmap;
-		ep->self_region = sm2_mmap_ep_region(ep->mmap, ep->gid);
+		ep->self_region = sm2_mmap_ep_region(ep, ep->gid);
+
+		// ******************************************************************
+		// TODO MAKE THIS number the number of ranks that you are running
+		// ******************************************************************
+		for (int i = 0; i < 96; i++) {
+			if (ep->gid == i) {
+				continue;
+			}
+
+			while (true) {
+				if (sm2_mmap_entries(ep->mmap)[i].startup_ready == true) {
+					sprintf(template, "/dev/shm/fi_sm2_allocation_%02d", i);
+					int fd = open(template, O_RDWR);
+					sm2_mmap_map(fd, &ep->mapped_files[i]);
+					close(fd);
+					break;
+				} else {
+					sleep(1);
+				}
+			}
+		}
 
 		if (ret)
 			return ret;

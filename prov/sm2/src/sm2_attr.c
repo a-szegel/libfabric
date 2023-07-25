@@ -146,7 +146,7 @@ struct fi_fabric_attr sm2_fabric_attr = {
 
 struct fi_info sm2_hmem_info = {
 	.caps = SM2_HMEM_TX_CAPS | SM2_HMEM_RX_CAPS | FI_MULTI_RECV |
-		FI_LOCAL_COMM,
+		FI_LOCAL_COMM | FI_REMOTE_COMM,
 	.addr_format = FI_ADDR_STR,
 	.tx_attr = &sm2_hmem_tx_attr,
 	.rx_attr = &sm2_hmem_rx_attr,
@@ -156,7 +156,7 @@ struct fi_info sm2_hmem_info = {
 };
 
 struct fi_info sm2_info = {
-	.caps = SM2_TX_CAPS | SM2_RX_CAPS | FI_MULTI_RECV | FI_LOCAL_COMM,
+	.caps = SM2_TX_CAPS | SM2_RX_CAPS | FI_MULTI_RECV | FI_LOCAL_COMM | FI_REMOTE_COMM,
 	.addr_format = FI_ADDR_STR,
 	.tx_attr = &sm2_tx_attr,
 	.rx_attr = &sm2_rx_attr,

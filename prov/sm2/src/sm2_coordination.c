@@ -318,8 +318,7 @@ ssize_t sm2_file_open_or_create(struct sm2_mmap *map_shared)
 	 * sm2_fifo_send() or sm2_fifo_recv().
 	 */
 	header = (struct sm2_coord_file_header *) map_shared->base;
-	max_file_size = header->ep_regions_offset +
-			header->ep_region_size * SM2_MAX_UNIVERSE_SIZE;
+	max_file_size = header->ep_regions_offset;
 	err = sm2_mmap_remap(map_shared, max_file_size);
 
 	/* File we created either became the shared file, or got unlinked */
@@ -346,36 +345,14 @@ ssize_t sm2_entry_allocate(const char *name, struct sm2_mmap *map,
 			   sm2_gid_t *gid, bool self)
 {
 	struct sm2_ep_allocation_entry *entries;
-	struct sm2_region *peer_region = NULL;
 	int item, pid = getpid(), peer_pid;
 
 	entries = sm2_mmap_entries(map);
-
-retry_lookup:
 	item = sm2_entry_lookup(name, map);
 	if (item >= 0) {
 		entries = sm2_mmap_entries(map);
 
-		/* Check if it is dirty */
-		if (entries[item].pid && !pid_lives(abs(entries[item].pid))) {
-			peer_region = sm2_mmap_ep_region(map, item);
-			if (!smr_freestack_isfull(sm2_freestack(peer_region))) {
-				/* Region did not shut down properly, but other
-				 * processes might be using it, make it a zombie
-				 * region - never use this region for as long as
-				 * the file exists */
-				FI_WARN(&sm2_prov, FI_LOG_AV,
-					"Found region at allocation[%d] that "
-					"did not  shut down correctly, marking "
-					"it as a zombie never to be used again "
-					"(until all active processes die, and "
-					"file size is reset)!\n",
-					item);
-				strncpy(entries[item].ep_name,
-					ZOMBIE_ALLOCATION_NAME, FI_NAME_MAX);
-				goto retry_lookup;
-			}
-		}
+		// ASSUME YOU START FRESH, I WILL RM /dev/shm/* every time
 
 		if (!self) {
 			if (!pid_lives(abs(entries[item].pid))) {
@@ -433,19 +410,7 @@ retry_lookup:
 			 * clean up */
 			continue;
 
-		if (!pid_lives(peer_pid)) {
-			entries = sm2_mmap_entries(map);
-			struct sm2_region *peer_region =
-				sm2_mmap_ep_region(map, item);
-
-			if (entries[item].startup_ready &&
-			    smr_freestack_isfull(sm2_freestack(peer_region))) {
-				/* we found a slot with a dead PID and
-				 * the freestack is full */
-				entries[item].pid = 0;
-				goto found;
-			}
-		}
+		// ASSUME YOU START FRESH, I WILL RM /dev/shm/* every time
 	}
 
 	FI_WARN(&sm2_prov, FI_LOG_AV,

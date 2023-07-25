@@ -114,7 +114,7 @@ sm2_do_atomic_inject(struct sm2_ep *ep, int64_t peer_gid, uint32_t op,
 	sm2_atomic_format(xfer_entry, datatype, atomic_op, rma_ioc,
 			  rma_ioc_count, result_iov, result_count, iov,
 			  iov_count, compare_iov, compare_count);
-	sm2_fifo_write(ep, peer_gid, xfer_entry);
+	sm2_fifo_write(ep, peer_gid, xfer_entry, ep->gid);
 
 	return FI_SUCCESS;
 }

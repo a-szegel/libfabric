@@ -32,7 +32,7 @@
  */
 
 #include <rdma/fi_errno.h>
-
+#include <fcntl.h>
 #include "sm2.h"
 #include "sm2_fifo.h"
 #include <ofi_hmem.h>
@@ -56,7 +56,7 @@ size_t sm2_calculate_size_offsets(ptrdiff_t *rq_offset, ptrdiff_t *fs_offset)
 	return total_size;
 }
 
-int sm2_create(const struct fi_provider *prov, const struct sm2_attr *attr,
+int sm2_create(struct sm2_ep *ep, const struct fi_provider *prov, const struct sm2_attr *attr,
 	       struct sm2_mmap *sm2_mmap, sm2_gid_t *gid)
 {
 	struct sm2_ep_name *ep_name;
@@ -64,6 +64,12 @@ int sm2_create(const struct fi_provider *prov, const struct sm2_attr *attr,
 	int ret;
 	void *mapped_addr;
 	struct sm2_region *smr;
+	struct sm2_coord_file_header *header;
+	static const int template_len = sizeof("/dev/shm/fi_sm2_allocation_XX") + 1;
+	char template[template_len];
+	long max_file_size;
+	int fd;
+
 
 	sm2_calculate_size_offsets(&recv_queue_offset, &freestack_offset);
 
@@ -94,7 +100,15 @@ int sm2_create(const struct fi_provider *prov, const struct sm2_attr *attr,
 		goto remove;
 	}
 
-	mapped_addr = sm2_mmap_ep_region(sm2_mmap, *gid);
+	/* MAP OUR OWN FILE */
+	header = (struct sm2_coord_file_header *) sm2_mmap->base;
+	max_file_size = header->ep_region_size;
+	sprintf(template, "/dev/shm/fi_sm2_allocation_%02d", (int) *gid);
+	fd = open(template, O_RDWR | O_CREAT, 0600);
+	ftruncate(fd, max_file_size);
+	sm2_mmap_map(fd, &ep->mapped_files[*gid]);
+	mapped_addr = sm2_mmap_ep_region(ep, *gid);
+	close(fd);
 
 	if (mapped_addr == MAP_FAILED) {
 		FI_WARN(prov, FI_LOG_EP_CTRL, "mmap error\n");
@@ -111,7 +125,7 @@ int sm2_create(const struct fi_provider *prov, const struct sm2_attr *attr,
 
 	sm2_fifo_init(sm2_recv_queue(smr));
 	smr_freestack_init(sm2_freestack(smr), SM2_NUM_XFER_ENTRY_PER_PEER,
-			   sizeof(struct sm2_xfer_entry));
+                           sizeof(struct sm2_xfer_entry));
 
 	/*
 	 * Need to set PID in header here...

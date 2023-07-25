@@ -93,8 +93,7 @@ struct sm2_region {
 };
 
 size_t sm2_calculate_size_offsets(ptrdiff_t *rq_offset, ptrdiff_t *fs_offset);
-int sm2_create(const struct fi_provider *prov, const struct sm2_attr *attr,
-	       struct sm2_mmap *sm2_mmap, sm2_gid_t *gid);
+
 
 ssize_t sm2_mmap_cleanup(struct sm2_mmap *map);
 
@@ -114,12 +113,6 @@ sm2_mmap_entries(struct sm2_mmap *map)
 	return (struct sm2_ep_allocation_entry *) alloc_offset;
 }
 
-static inline struct sm2_region *sm2_mmap_ep_region(struct sm2_mmap *map,
-						    sm2_gid_t gid)
-{
-	struct sm2_coord_file_header *header = (void *) map->base;
-	return (struct sm2_region *) (map->base + header->ep_regions_offset +
-				      header->ep_region_size * gid);
-}
+void *sm2_mmap_map(int fd, struct sm2_mmap *map);
 
 #endif /* _SM2_COORDINATION_H_ */
