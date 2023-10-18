@@ -249,14 +249,6 @@ static int efa_mr_hmem_setup(struct efa_mr *efa_mr,
 	if (efa_mr->peer.iface == FI_HMEM_CUDA) {
 		efa_mr->peer.device.cuda = attr->device.cuda;
 
-		if (efa_env.set_cuda_sync_memops) {
-			err = cuda_set_sync_memops(attr->mr_iov->iov_base);
-			if (err) {
-				EFA_WARN(FI_LOG_MR, "unable to set memops for cuda ptr\n");
-				return err;
-			}
-		}
-
 		if (cuda_is_gdrcopy_enabled()) {
 			err = cuda_gdrcopy_dev_register((struct fi_mr_attr *)attr, (uint64_t *)&efa_mr->peer.hmem_data);
 			efa_mr->peer.flags |= OFI_HMEM_DATA_GDRCOPY_HANDLE;

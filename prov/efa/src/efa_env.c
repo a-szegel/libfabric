@@ -43,7 +43,6 @@ struct efa_env efa_env = {
 	.tx_queue_size = 0,
 	.enable_shm_transfer = 1,
 	.use_zcpy_rx = 1,
-	.set_cuda_sync_memops = 1,
 	.zcpy_rx_seed = 0,
 	.shm_av_size = 256,
 	.shm_max_medium_size = 4096,
@@ -129,7 +128,6 @@ void efa_env_param_get(void)
 	fi_param_get_int(&efa_prov, "tx_queue_size", &efa_env.tx_queue_size);
 	fi_param_get_int(&efa_prov, "enable_shm_transfer", &efa_env.enable_shm_transfer);
 	fi_param_get_int(&efa_prov, "use_zcpy_rx", &efa_env.use_zcpy_rx);
-	fi_param_get_int(&efa_prov, "set_cuda_sync_memops", &efa_env.set_cuda_sync_memops);
 	fi_param_get_int(&efa_prov, "zcpy_rx_seed", &efa_env.zcpy_rx_seed);
 	fi_param_get_int(&efa_prov, "shm_av_size", &efa_env.shm_av_size);
 	fi_param_get_int(&efa_prov, "recvwin_size", &efa_env.recvwin_size);
@@ -172,6 +170,13 @@ void efa_env_param_get(void)
 	}
 
 	efa_fork_support_request_initialize();
+
+	if(getenv("FI_EFA_SET_CUDA_SYNC_MEMOPS")) {
+		fprintf(stderr,
+			"FI_EFA_SET_CUDA_SYNC_MEMOPS is no longer supported, and no action will be taken."
+			"Users are now expected to set CUDA_SYNC_MEMOPS themselves,"
+			" if they require it\n");
+	}
 }
 
 void efa_env_define()
@@ -185,8 +190,6 @@ void efa_env_define()
 			"Enable using SHM provider to perform TX/RX operations between processes on the same system. (Default: 1)");
 	fi_param_define(&efa_prov, "use_zcpy_rx", FI_PARAM_INT,
 			"Enables the use of application's receive buffers in place of bounce-buffers when feasible. (Default: 1)");
-	fi_param_define(&efa_prov, "set_cuda_sync_memops", FI_PARAM_INT,
-			"Set CU_POINTER_ATTRIBUTE_SYNC_MEMOPS for cuda ptr. (Default: 1)");
 	fi_param_define(&efa_prov, "zcpy_rx_seed", FI_PARAM_INT,
 			"Defines the number of bounce-buffers the provider will prepost during EP initialization.  (Default: 0)");
 	fi_param_define(&efa_prov, "shm_av_size", FI_PARAM_INT,
