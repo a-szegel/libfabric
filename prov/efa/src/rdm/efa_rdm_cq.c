@@ -70,7 +70,7 @@ static ssize_t efa_rdm_cq_readfrom(struct fid_cq *cq_fid, void *buf, size_t coun
 	if (cq->shm_cq) {
 		fi_cq_read(cq->shm_cq, NULL, 0);
 
-		/* 
+		/*
 		 * fi_cq_read(cq->shm_cq, NULL, 0) will progress shm ep and write
 		 * completion to efa. Use ofi_cq_read_entries to get the number of
 		 * shm completions without progressing efa ep again.
@@ -143,6 +143,14 @@ int efa_rdm_cq_open(struct fid_domain *domain, struct fi_cq_attr *attr,
 	*cq_fid = &cq->util_cq.cq_fid;
 	(*cq_fid)->fid.ops = &efa_rdm_cq_fi_ops;
 	(*cq_fid)->ops = &efa_rdm_cq_ops;
+
+	(*cq_fid)->iterations = 2000000;
+	(*cq_fid)->warmup_iterations = 100;
+	(*cq_fid)->count_empty_progress = 0;
+	(*cq_fid)->count_fruitful_progress = 0;
+	(*cq_fid)->fruitful_progress = malloc(sizeof(long) * (*cq_fid)->iterations);
+	(*cq_fid)->fruitful_progress_num_events = malloc(sizeof(int) * (*cq_fid)->iterations);
+	(*cq_fid)->empty_progress = malloc(sizeof(long) * (*cq_fid)->iterations);
 
 	/* open shm cq as peer cq */
 	if (efa_domain->shm_domain) {
