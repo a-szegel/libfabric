@@ -168,7 +168,7 @@ int pingpong_rma(enum ft_rma_opcodes rma_op, struct fi_rma_iov *remote)
 	}
 
 	/* Init rx_buf for test */
-	*(rx_buf + opts.transfer_size - 1) = (char)-1;
+	// *(rx_buf + opts.transfer_size - 1) = (char)-1;
 
 	if (opts.dst_addr) {
 		for (i = 0; i < opts.iterations + opts.warmup_iterations; i++) {
@@ -177,7 +177,7 @@ int pingpong_rma(enum ft_rma_opcodes rma_op, struct fi_rma_iov *remote)
 				ft_start();
 
 			/* Init tx_buf for test */
-			*(tx_buf + opts.transfer_size - 1) = (char)i;
+			// *(tx_buf + opts.transfer_size - 1) = (char)i;
 
 			if (opts.transfer_size <= inject_size)
 				ret = ft_inject_rma(rma_op, remote, ep,
@@ -203,7 +203,7 @@ int pingpong_rma(enum ft_rma_opcodes rma_op, struct fi_rma_iov *remote)
 				return ret;
 
 			/* Init tx_buf for test */
-			*(tx_buf + opts.transfer_size - 1) = (char)i;
+			// *(tx_buf + opts.transfer_size - 1) = (char)i;
 
 			if (opts.transfer_size <= inject_size)
 				ret = ft_inject_rma(rma_op, remote, ep,
