@@ -558,6 +558,15 @@ int efa_rdm_ep_open(struct fid_domain *domain, struct fi_info *info,
 	(*ep)->fid.ops = &efa_rdm_ep_base_ops;
 	(*ep)->ops = &efa_rdm_ep_ep_ops;
 	(*ep)->cm = &efa_rdm_ep_cm_ops;
+	(*ep)->msg_count = 0;
+	(*ep)->rma_count = 0;
+	(*ep)->recv_count = 0;
+	(*ep)->warmup_iterations = 100;
+	(*ep)->iterations = 2000000;
+	(*ep)->post_recv_buf_time = malloc(sizeof(long) * (*ep)->iterations);
+	(*ep)->rdma_core_time = malloc(sizeof(long) * (*ep)->iterations);
+	(*ep)->libfabric_start_to_rdma_time = malloc(sizeof(long) * (*ep)->iterations);
+	(*ep)->libfabric_from_rdma_to_end_time = malloc(sizeof(long) * (*ep)->iterations);
 	return 0;
 
 err_close_core_cq:
