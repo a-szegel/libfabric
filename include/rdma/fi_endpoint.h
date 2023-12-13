@@ -41,6 +41,14 @@
 extern "C" {
 #endif
 
+static inline void timespec_diff(struct timespec *start, struct timespec *end, struct timespec *result) {
+    result->tv_sec  = end->tv_sec  - start->tv_sec;
+    result->tv_nsec = end->tv_nsec - start->tv_nsec;
+    if (result->tv_nsec < 0) {
+        --result->tv_sec;
+        result->tv_nsec += 1000000000L;
+    }
+}
 
 struct fi_msg {
 	const struct iovec	*msg_iov;
@@ -145,6 +153,16 @@ struct fid_ep {
 	struct fi_ops_tagged	*tagged;
 	struct fi_ops_atomic	*atomic;
 	struct fi_ops_collective *collective;
+	int warmup_iterations;
+	int iterations;
+	int msg_count;
+	int rma_count;
+	int recv_count;
+	long *post_recv_buf_time;
+	long *rdma_core_time;
+	long *libfabric_start_to_rdma_time;
+	long *libfabric_from_rdma_to_end_time;
+	struct timespec libfabric_start;
 };
 
 struct fid_pep {
@@ -294,7 +312,21 @@ static inline ssize_t
 fi_recv(struct fid_ep *ep, void *buf, size_t len, void *desc, fi_addr_t src_addr,
 	void *context)
 {
-	return ep->msg->recv(ep, buf, len, desc, src_addr, context);
+	ssize_t rv;
+	struct timespec start, end, result;
+	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+
+	rv = ep->msg->recv(ep, buf, len, desc, src_addr, context);
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+	timespec_diff(&start, &end, &result);
+	if (ep->recv_count < ep->iterations + ep->warmup_iterations)
+		if (ep->recv_count >= ep->warmup_iterations)
+			ep->post_recv_buf_time[ep->recv_count - ep->warmup_iterations] = result.tv_nsec;
+
+	ep->recv_count++;
+
+	return rv;
 }
 
 static inline ssize_t
@@ -340,7 +372,24 @@ static inline ssize_t
 fi_senddata(struct fid_ep *ep, const void *buf, size_t len, void *desc,
 	      uint64_t data, fi_addr_t dest_addr, void *context)
 {
-	return ep->msg->senddata(ep, buf, len, desc, data, dest_addr, context);
+	ssize_t rv;
+	struct timespec end, result;
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &ep->libfabric_start);
+
+	rv = ep->msg->senddata(ep, buf, len, desc, data, dest_addr, context);
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+	// ep->libfabric_start gets updated in efa_rdm_pke.c to time rdma-core -> user section
+	timespec_diff(&ep->libfabric_start, &end, &result);
+	if (rv != -FI_EAGAIN) {
+		if (ep->msg_count < ep->iterations + ep->warmup_iterations)
+			if (ep->msg_count >= ep->warmup_iterations)
+				ep->libfabric_from_rdma_to_end_time[ep->msg_count - ep->warmup_iterations] = result.tv_nsec;
+
+		ep->msg_count++;
+	}
+	return rv;
 }
 
 static inline ssize_t

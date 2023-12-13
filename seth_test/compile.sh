@@ -1,0 +1,1 @@
+gcc -Wall -Werror -Wextra -pedantic test.c -o test -O3
