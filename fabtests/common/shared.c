@@ -2137,9 +2137,9 @@ ssize_t ft_post_tx_buf(struct fid_ep *ep, fi_addr_t fi_addr, size_t size,
 				op_mr_desc, data, fi_addr, ctx);
 
 		} else {
-			FT_POST(fi_send, ft_progress, txcq, tx_seq,
+			FT_POST(fi_senddata, ft_progress, txcq, tx_seq,
 				&tx_cq_cntr, "transmit", ep, op_buf, size,
-				op_mr_desc, fi_addr, ctx);
+				op_mr_desc, data, fi_addr, ctx);
 		}
 	}
 	return 0;
