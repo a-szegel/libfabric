@@ -276,6 +276,13 @@ struct fi_ops_cq {
 struct fid_cq {
 	struct fid		fid;
 	struct fi_ops_cq	*ops;
+	int iterations;
+	int warmup_iterations;
+	int count_empty_progress;
+	int count_fruitful_progress;
+	int *fruitful_progress_num_events;
+	long *fruitful_progress;
+	long *empty_progress;
 };
 
 
@@ -389,10 +396,41 @@ fi_eq_strerror(struct fid_eq *eq, int prov_errno, const void *err_data,
 	return eq->ops->strerror(eq, prov_errno, err_data, buf, len);
 }
 
+static inline void timespec_diff_cq(struct timespec *start, struct timespec *end, struct timespec *result) {
+    result->tv_sec  = end->tv_sec  - start->tv_sec;
+    result->tv_nsec = end->tv_nsec - start->tv_nsec;
+    if (result->tv_nsec < 0) {
+        --result->tv_sec;
+        result->tv_nsec += 1000000000L;
+    }
+}
 
 static inline ssize_t fi_cq_read(struct fid_cq *cq, void *buf, size_t count)
 {
-	return cq->ops->read(cq, buf, count);
+	ssize_t rv;
+	struct timespec start, end, result;
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+
+	rv = cq->ops->read(cq, buf, count);
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+	timespec_diff_cq(&start, &end, &result);
+
+	if (rv == -FI_EAGAIN && cq->count_empty_progress < cq->iterations + cq->warmup_iterations) {
+		if (cq->count_empty_progress >= cq->warmup_iterations)
+			cq->empty_progress[cq->count_empty_progress - cq->warmup_iterations] = result.tv_nsec;
+		cq->count_empty_progress++;
+
+	} else if (rv > 0 && cq->count_fruitful_progress < cq->iterations + cq->warmup_iterations) {
+		if (cq->count_fruitful_progress >= cq->warmup_iterations) {
+			cq->fruitful_progress[cq->count_fruitful_progress - cq->warmup_iterations] = result.tv_nsec;
+			cq->fruitful_progress_num_events[cq->count_fruitful_progress - cq->warmup_iterations] = rv;
+		}
+		cq->count_fruitful_progress++;
+	}
+
+	return rv;
 }
 
 static inline ssize_t

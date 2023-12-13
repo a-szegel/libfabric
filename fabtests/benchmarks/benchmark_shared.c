@@ -134,11 +134,44 @@ int pingpong(void)
 	}
 	ft_stop();
 
-	if (opts.machr)
-		show_perf_mr(opts.transfer_size, opts.iterations, &start, &end, 2,
-				opts.argc, opts.argv);
-	else
-		show_perf(NULL, opts.transfer_size, opts.iterations, &start, &end, 2);
+	// if (opts.machr)
+	// 	show_perf_mr(opts.transfer_size, opts.iterations, &start, &end, 2,
+	// 			opts.argc, opts.argv);
+	// else
+	// 	show_perf(NULL, opts.transfer_size, opts.iterations, &start, &end, 2);
+
+    	FILE* fptr;
+
+	if (opts.dst_addr) {
+		fptr = fopen("/home/ec2-user/libfabric/client_fi_senddata_output.txt", "w");
+	} else {
+		fptr = fopen("/home/ec2-user/libfabric/server_fi_senddata_output.txt", "w");
+	}
+
+	for (int i = 0; i < ep->iterations; i++) {
+		fprintf(fptr, "<fi_senddata> libfabric to rdma_core (ns): %ld, rdma_core (ns): %ld, rdma-core to user (ns): %ld\n",
+			ep->libfabric_start_to_rdma_time[i],
+			ep->rdma_core_time[i],
+			ep->libfabric_from_rdma_to_end_time[i]);
+	}
+
+	for (int i = 0; i < ep->iterations; i++) {
+		fprintf(fptr, "<fi_senddata> post recv buff (ns): %ld\n", ep->post_recv_buf_time[i]);
+	}
+
+	for (int i = 0; i < rxcq->iterations; i++) {
+		fprintf(fptr, "<fi_senddata> empty cq progress (ns): %ld\n", rxcq->empty_progress[i]);
+	}
+
+	for (int i = 0; i < rxcq->iterations; i++) {
+		fprintf(fptr, "<fi_senddata> fruitful cq progress (ns): %ld\n", rxcq->fruitful_progress[i]);
+	}
+
+	for (int i = 0; i < rxcq->iterations; i++) {
+		fprintf(fptr, "<fi_senddata> num completion events in fruitful progress: %d\n", rxcq->fruitful_progress_num_events[i]);
+	}
+
+	fclose(fptr);
 
 	return 0;
 }
@@ -218,11 +251,41 @@ int pingpong_rma(enum ft_rma_opcodes rma_op, struct fi_rma_iov *remote)
 	}
 	ft_stop();
 
-	if (opts.machr)
-		show_perf_mr(opts.transfer_size, opts.iterations, &start, &end, 2,
-				opts.argc, opts.argv);
-	else
-		show_perf(NULL, opts.transfer_size, opts.iterations, &start, &end, 2);
+	// if (opts.machr)
+	// 	show_perf_mr(opts.transfer_size, opts.iterations, &start, &end, 2,
+	// 			opts.argc, opts.argv);
+	// else
+	// 	show_perf(NULL, opts.transfer_size, opts.iterations, &start, &end, 2);
+
+
+    	FILE* fptr;
+
+	if (opts.dst_addr) {
+		fptr = fopen("/home/ec2-user/libfabric/client_fi_writedata_output.txt", "w");
+	} else {
+		fptr = fopen("/home/ec2-user/libfabric/server_fi_writedata_output.txt", "w");
+	}
+
+	for (int i = 0; i < ep->iterations; i++) {
+		fprintf(fptr, "<fi_write> libfabric to rdma_core (ns): %ld, rdma_core (ns): %ld, rdma-core to user (ns): %ld\n",
+			ep->libfabric_start_to_rdma_time[i],
+			ep->rdma_core_time[i],
+			ep->libfabric_from_rdma_to_end_time[i]);
+	}
+
+	for (int i = 0; i < rxcq->iterations; i++) {
+		fprintf(fptr, "<fi_write> empty cq progress (ns): %ld\n", rxcq->empty_progress[i]);
+	}
+
+	for (int i = 0; i < rxcq->iterations; i++) {
+		fprintf(fptr, "<fi_write> fruitful cq progress (ns): %ld\n", rxcq->fruitful_progress[i]);
+	}
+
+	for (int i = 0; i < rxcq->iterations; i++) {
+		fprintf(fptr, "<fi_write> num completion events in fruitful progress: %d\n", rxcq->fruitful_progress_num_events[i]);
+	}
+
+	fclose(fptr);
 
 	return 0;
 }

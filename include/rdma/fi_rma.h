@@ -148,8 +148,24 @@ fi_writedata(struct fid_ep *ep, const void *buf, size_t len, void *desc,
 	       uint64_t data, fi_addr_t dest_addr, uint64_t addr, uint64_t key,
 	       void *context)
 {
-	return ep->rma->writedata(ep, buf, len, desc,data, dest_addr,
+	ssize_t rv;
+	struct timespec end, result;
+	ep->msg_count = ep->iterations + 1; // Make sure we don't get any senddata overriding our results
+	clock_gettime(CLOCK_MONOTONIC_RAW, &ep->libfabric_start);
+
+	rv = ep->rma->writedata(ep, buf, len, desc,data, dest_addr,
 				  addr, key, context);
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+	// ep->libfabric_start gets updated in efa_rdm_pke.c to time rdma-core -> user section
+	timespec_diff(&ep->libfabric_start, &end, &result);
+	if (ep->rma_count < ep->iterations + ep->warmup_iterations)
+		if (ep->rma_count >= ep->warmup_iterations)
+			ep->libfabric_from_rdma_to_end_time[ep->rma_count - ep->warmup_iterations] = result.tv_nsec;
+
+	ep->rma_count++;
+
+	return rv;
 }
 
 static inline ssize_t
