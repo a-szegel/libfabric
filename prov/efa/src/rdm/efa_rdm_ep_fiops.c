@@ -114,7 +114,7 @@ void efa_rdm_pke_pool_mr_dereg_handler(struct ofi_bufpool_region *region)
 
 /**
  * @brief creates a packet entry pool.
- * 
+ *
  * The pool is allowed to grow if
  * max_cnt is 0 and is fixed size otherwise.
  *
@@ -558,6 +558,15 @@ int efa_rdm_ep_open(struct fid_domain *domain, struct fi_info *info,
 	(*ep)->fid.ops = &efa_rdm_ep_base_ops;
 	(*ep)->ops = &efa_rdm_ep_ep_ops;
 	(*ep)->cm = &efa_rdm_ep_cm_ops;
+	(*ep)->msg_count = 0;
+	(*ep)->rma_count = 0;
+	(*ep)->recv_count = 0;
+	(*ep)->warmup_iterations = 100;
+	(*ep)->iterations = 2000000;
+	(*ep)->post_recv_buf_time = malloc(sizeof(long) * (*ep)->iterations);
+	(*ep)->rdma_core_time = malloc(sizeof(long) * (*ep)->iterations);
+	(*ep)->libfabric_start_to_rdma_time = malloc(sizeof(long) * (*ep)->iterations);
+	(*ep)->libfabric_from_rdma_to_end_time = malloc(sizeof(long) * (*ep)->iterations);
 	return 0;
 
 err_close_core_cq:
@@ -905,7 +914,7 @@ void efa_rdm_ep_set_extra_info(struct efa_rdm_ep *ep)
  * This function will do this cleanup as best effort. When there is failure
  * to clean up shm resource, it will still move forward by setting the resource
  * pointer to NULL so it won't be used later.
- * 
+ *
  * @param efa_rdm_ep pointer to efa_rdm_ep.
  */
 static void efa_rdm_ep_close_shm_resources(struct efa_rdm_ep *efa_rdm_ep)
