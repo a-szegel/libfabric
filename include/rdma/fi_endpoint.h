@@ -379,8 +379,12 @@ fi_senddata(struct fid_ep *ep, const void *buf, size_t len, void *desc,
 
 	rv = ep->msg->senddata(ep, buf, len, desc, data, dest_addr, context);
 
+
+	int i = 0;
+	long a = 0;
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &ep->libfabric_start);
 	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
-	// ep->libfabric_start gets updated in efa_rdm_pke.c to time rdma-core -> user section
 	timespec_diff(&ep->libfabric_start, &end, &result);
 	if (rv != -FI_EAGAIN) {
 		if (ep->msg_count < ep->iterations + ep->warmup_iterations)

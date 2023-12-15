@@ -104,9 +104,9 @@ int pingpong(void)
 			if (i == opts.warmup_iterations)
 				ft_start();
 
-			if (opts.transfer_size < inject_size)
-				ret = ft_inject(ep, remote_fi_addr, opts.transfer_size);
-			else
+			// if (opts.transfer_size < inject_size)
+			// 	ret = ft_inject(ep, remote_fi_addr, opts.transfer_size);
+			// else
 				ret = ft_tx(ep, remote_fi_addr, opts.transfer_size, &tx_ctx);
 			if (ret)
 				return ret;
@@ -124,9 +124,9 @@ int pingpong(void)
 			if (ret)
 				return ret;
 
-			if (opts.transfer_size < inject_size)
-				ret = ft_inject(ep, remote_fi_addr, opts.transfer_size);
-			else
+			// if (opts.transfer_size < inject_size)
+			// 	ret = ft_inject(ep, remote_fi_addr, opts.transfer_size);
+			// else
 				ret = ft_tx(ep, remote_fi_addr, opts.transfer_size, &tx_ctx);
 			if (ret)
 				return ret;
@@ -155,21 +155,21 @@ int pingpong(void)
 			ep->libfabric_from_rdma_to_end_time[i]);
 	}
 
-	for (int i = 0; i < ep->iterations; i++) {
-		fprintf(fptr, "<fi_senddata> post recv buff (ns): %ld\n", ep->post_recv_buf_time[i]);
-	}
+	// for (int i = 0; i < ep->iterations; i++) {
+	// 	fprintf(fptr, "<fi_senddata> post recv buff (ns): %ld\n", ep->post_recv_buf_time[i]);
+	// }
 
-	for (int i = 0; i < rxcq->iterations; i++) {
-		fprintf(fptr, "<fi_senddata> empty cq progress (ns): %ld\n", rxcq->empty_progress[i]);
-	}
+	// for (int i = 0; i < rxcq->iterations; i++) {
+	// 	fprintf(fptr, "<fi_senddata> empty cq progress (ns): %ld\n", rxcq->empty_progress[i]);
+	// }
 
-	for (int i = 0; i < rxcq->iterations; i++) {
-		fprintf(fptr, "<fi_senddata> fruitful cq progress (ns): %ld\n", rxcq->fruitful_progress[i]);
-	}
+	// for (int i = 0; i < rxcq->iterations; i++) {
+	// 	fprintf(fptr, "<fi_senddata> fruitful cq progress (ns): %ld\n", rxcq->fruitful_progress[i]);
+	// }
 
-	for (int i = 0; i < rxcq->iterations; i++) {
-		fprintf(fptr, "<fi_senddata> num completion events in fruitful progress: %d\n", rxcq->fruitful_progress_num_events[i]);
-	}
+	// for (int i = 0; i < rxcq->iterations; i++) {
+	// 	fprintf(fptr, "<fi_senddata> num completion events in fruitful progress: %d\n", rxcq->fruitful_progress_num_events[i]);
+	// }
 
 	fclose(fptr);
 

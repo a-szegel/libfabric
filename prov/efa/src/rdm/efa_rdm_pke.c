@@ -415,7 +415,7 @@ ssize_t efa_rdm_pke_sendv(struct efa_rdm_pke **pkt_entry_vec,
 	timespec_diff(&fid_ep->libfabric_start, &end, &result);
 	if (fid_ep->msg_count < fid_ep->iterations + fid_ep->warmup_iterations)
 		if (fid_ep->msg_count >= fid_ep->warmup_iterations)
-			fid_ep->libfabric_start_to_rdma_time[fid_ep->msg_count - fid_ep->warmup_iterations] = result.tv_nsec;
+			fid_ep->libfabric_start_to_rdma_time[fid_ep->msg_count - fid_ep->warmup_iterations] = -1;
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
 
@@ -475,7 +475,7 @@ ssize_t efa_rdm_pke_sendv(struct efa_rdm_pke **pkt_entry_vec,
 	timespec_diff(&start, &end, &result);
 	if (fid_ep->msg_count < fid_ep->iterations + fid_ep->warmup_iterations)
 		if (fid_ep->msg_count >= fid_ep->warmup_iterations)
-			fid_ep->rdma_core_time[fid_ep->msg_count - fid_ep->warmup_iterations] = result.tv_nsec;
+			fid_ep->rdma_core_time[fid_ep->msg_count - fid_ep->warmup_iterations] = -1;
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &fid_ep->libfabric_start);
 
