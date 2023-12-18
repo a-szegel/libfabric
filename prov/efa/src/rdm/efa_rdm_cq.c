@@ -203,9 +203,11 @@ int efa_rdm_cq_open(struct fid_domain *domain, struct fi_cq_attr *attr,
 	(*cq_fid)->warmup_iterations = 100;
 	(*cq_fid)->count_empty_progress = 0;
 	(*cq_fid)->count_fruitful_progress = 0;
-	(*cq_fid)->fruitful_progress = malloc(sizeof(long) * (*cq_fid)->iterations);
 	(*cq_fid)->fruitful_progress_num_events = malloc(sizeof(int) * (*cq_fid)->iterations);
-	(*cq_fid)->empty_progress = malloc(sizeof(long) * (*cq_fid)->iterations);
+	(*cq_fid)->empty_progress_p1 = malloc(sizeof(long) * (*cq_fid)->iterations);
+	(*cq_fid)->empty_progress_p2 = malloc(sizeof(long) * (*cq_fid)->iterations);
+	(*cq_fid)->fruitful_progress_p1 = malloc(sizeof(long) * (*cq_fid)->iterations);
+	(*cq_fid)->fruitful_progress_p2 = malloc(sizeof(long) * (*cq_fid)->iterations);
 
 	/* open shm cq as peer cq */
 	if (efa_domain->shm_domain) {
