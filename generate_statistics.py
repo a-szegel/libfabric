@@ -61,8 +61,10 @@ def parse_rdm_pingpong_output(filename):
     rdma_core = []
     rdma_core_to_libfabric = []
     post_recv_buff = []
-    empty_cq_progress = []
-    fruitful_cq_progress = []
+    empty_cq_progress_p1 = []
+    fruitful_cq_progress_p1 = []
+    empty_cq_progress_p2 = []
+    fruitful_cq_progress_p2 = []
     fruitful_cq_progress_num_completions = []
 
     with open(filename, "r") as f:
@@ -78,22 +80,28 @@ def parse_rdm_pingpong_output(filename):
         elif line.startswith("<fi_senddata> post recv buff"):
             post_recv_buff.append(int(line.strip().split(" ")[-1]))
 
-        elif line.startswith("<fi_senddata> empty cq progress"):
-            empty_cq_progress.append(int(line.strip().split(" ")[-1]))
+        elif line.startswith("<fi_senddata> empty cq progress p1"):
+            empty_cq_progress_p1.append(int(line.strip().split(" ")[-1]))
 
-        elif line.startswith("<fi_senddata> fruitful cq progress"):
-            fruitful_cq_progress.append(int(line.strip().split(" ")[-1]))
+        elif line.startswith("<fi_senddata> empty cq progress p2"):
+            empty_cq_progress_p2.append(int(line.strip().split(" ")[-1]))
+
+        elif line.startswith("<fi_senddata> fruitful cq progress p1"):
+            fruitful_cq_progress_p1.append(int(line.strip().split(" ")[-1]))
+
+        elif line.startswith("<fi_senddata> fruitful cq progress p2"):
+            fruitful_cq_progress_p2.append(int(line.strip().split(" ")[-1]))
 
         elif line.startswith("<fi_senddata> num completion events in fruitful progress"):
             fruitful_cq_progress_num_completions.append(int(line.strip().split(" ")[-1]))
 
-    return libfabric_to_rdma_core, rdma_core, rdma_core_to_libfabric, post_recv_buff, empty_cq_progress, fruitful_cq_progress, fruitful_cq_progress_num_completions
+    return libfabric_to_rdma_core, rdma_core, rdma_core_to_libfabric, post_recv_buff, empty_cq_progress_p1, empty_cq_progress_p2, fruitful_cq_progress_p1,fruitful_cq_progress_p2, fruitful_cq_progress_num_completions
 
 (server_libfabric_to_rdma_core, server_rdma_core, server_rdma_core_to_libfabric,
- server_post_recv_buff, server_empty_cq_progress, server_fruitful_cq_progress,
+ server_post_recv_buff, server_empty_cq_progress_p1, server_empty_cq_progress_p2, server_fruitful_cq_progress_p1, server_fruitful_cq_progress_p2,
  server_fruitful_cq_progress_num_completions) = parse_rdm_pingpong_output("/home/ec2-user/libfabric/server_fi_senddata_output.txt")
 (client_libfabric_to_rdma_core, client_rdma_core, client_rdma_core_to_libfabric,
- client_post_recv_buff, client_empty_cq_progress, client_fruitful_cq_progress,
+ client_post_recv_buff, client_empty_cq_progress_p1, client_empty_cq_progress_p2, client_fruitful_cq_progress_p1, client_fruitful_cq_progress_p2,
  client_fruitful_cq_progress_num_completions) = parse_rdm_pingpong_output("/home/ec2-user/libfabric/client_fi_senddata_output.txt")
 
 print("\n")
@@ -141,8 +149,10 @@ get_and_print_statistics(server_libfabric_to_rdma_core, "Server fi_senddata libf
 get_and_print_statistics(server_rdma_core, "Server fi_senddata rdma_core")
 get_and_print_statistics(server_rdma_core_to_libfabric, "Server fi_senddata rdma_core to libfabric")
 get_and_print_statistics(server_post_recv_buff, "Server fi_senddata post recv buff")
-get_and_print_statistics(server_empty_cq_progress, "Server fi_senddata empty cq progress")
-get_and_print_statistics(server_fruitful_cq_progress, "Server fi_senddata fruitful cq progress")
+get_and_print_statistics(server_empty_cq_progress_p1, "Server fi_senddata empty cq progress p1")
+get_and_print_statistics(server_empty_cq_progress_p2, "Server fi_senddata empty cq progress p2")
+get_and_print_statistics(server_fruitful_cq_progress_p1, "Server fi_senddata fruitful cq progress p1")
+get_and_print_statistics(server_fruitful_cq_progress_p2, "Server fi_senddata fruitful cq progress p2")
 get_and_print_statistics(server_fruitful_cq_progress_num_completions, "Server fi_senddata fruitful cq progress num completion")
 
 print("\n")
@@ -152,8 +162,10 @@ get_and_print_statistics(client_libfabric_to_rdma_core, "Client fi_senddata libf
 get_and_print_statistics(client_rdma_core, "Client fi_senddata rdma_core")
 get_and_print_statistics(client_rdma_core_to_libfabric, "Client fi_senddata rdma_core to libfabric")
 get_and_print_statistics(client_post_recv_buff, "Client fi_senddata post recv buff")
-get_and_print_statistics(client_empty_cq_progress, "Client fi_senddata empty cq progress")
-get_and_print_statistics(client_fruitful_cq_progress, "Client fi_senddata fruitful cq progress")
+get_and_print_statistics(client_empty_cq_progress_p1, "Client fi_senddata empty cq progress p1")
+get_and_print_statistics(client_empty_cq_progress_p2, "Client fi_senddata empty cq progress p2")
+get_and_print_statistics(client_fruitful_cq_progress_p1, "Client fi_senddata fruitful cq progress p1")
+get_and_print_statistics(client_fruitful_cq_progress_p2, "Client fi_senddata fruitful cq progress p2")
 get_and_print_statistics(client_fruitful_cq_progress_num_completions, "Client fi_senddata fruitful cq progress num completion")
 
 
@@ -189,8 +201,10 @@ def parse_rma_pingpong_output(filename):
     libfabric_to_rdma_core = []
     rdma_core = []
     rdma_core_to_libfabric = []
-    empty_cq_progress = []
-    fruitful_cq_progress = []
+    empty_cq_progress_p1 = []
+    empty_cq_progress_p2 = []
+    fruitful_cq_progress_p1 = []
+    fruitful_cq_progress_p2 = []
     fruitful_cq_progress_num_completions = []
 
     with open(filename, "r") as f:
@@ -203,22 +217,28 @@ def parse_rma_pingpong_output(filename):
             rdma_core.append(int(data[8].strip(",")))
             rdma_core_to_libfabric.append(int(data[-1]))
 
-        elif line.startswith("<fi_write> empty cq progress"):
-            empty_cq_progress.append(int(line.strip().split(" ")[-1]))
+        elif line.startswith("<fi_write> empty cq progress p1"):
+            empty_cq_progress_p1.append(int(line.strip().split(" ")[-1]))
 
-        elif line.startswith("<fi_write> fruitful cq progress"):
-            fruitful_cq_progress.append(int(line.strip().split(" ")[-1]))
+        elif line.startswith("<fi_write> empty cq progress p2"):
+            empty_cq_progress_p2.append(int(line.strip().split(" ")[-1]))
+
+        elif line.startswith("<fi_write> fruitful cq progress p1"):
+            fruitful_cq_progress_p1.append(int(line.strip().split(" ")[-1]))
+
+        elif line.startswith("<fi_write> fruitful cq progress p2"):
+            fruitful_cq_progress_p2.append(int(line.strip().split(" ")[-1]))
 
         elif line.startswith("<fi_write> num completion events in fruitful progress"):
             fruitful_cq_progress_num_completions.append(int(line.strip().split(" ")[-1]))
 
-    return libfabric_to_rdma_core, rdma_core, rdma_core_to_libfabric, empty_cq_progress, fruitful_cq_progress, fruitful_cq_progress_num_completions
+    return libfabric_to_rdma_core, rdma_core, rdma_core_to_libfabric, empty_cq_progress_p1, empty_cq_progress_p2, fruitful_cq_progress_p1, fruitful_cq_progress_p2, fruitful_cq_progress_num_completions
 
 (server_libfabric_to_rdma_core, server_rdma_core, server_rdma_core_to_libfabric,
- server_empty_cq_progress, server_fruitful_cq_progress,
+ server_empty_cq_progress_p1, server_empty_cq_progress_p2, server_fruitful_cq_progress_p1, server_fruitful_cq_progress_p2,
  server_fruitful_cq_progress_num_completions) = parse_rma_pingpong_output("/home/ec2-user/libfabric/server_fi_writedata_output.txt")
 (client_libfabric_to_rdma_core, client_rdma_core, client_rdma_core_to_libfabric,
- client_empty_cq_progress, client_fruitful_cq_progress,
+ client_empty_cq_progress_p1, client_empty_cq_progress_p2, client_fruitful_cq_progress_p1, client_fruitful_cq_progress_p2,
  client_fruitful_cq_progress_num_completions) = parse_rma_pingpong_output("/home/ec2-user/libfabric/client_fi_writedata_output.txt")
 
 
@@ -229,8 +249,10 @@ print("Server's fi_writedata stats:")
 get_and_print_statistics(server_libfabric_to_rdma_core, "Server fi_writedata libfabric to rdma_core")
 get_and_print_statistics(server_rdma_core, "Server fi_writedata rdma_core")
 get_and_print_statistics(server_rdma_core_to_libfabric, "Server fi_writedata rdma_core to libfabric")
-get_and_print_statistics(server_empty_cq_progress, "Server fi_writedata empty cq progress")
-get_and_print_statistics(server_fruitful_cq_progress, "Server fi_writedata fruitful cq progress")
+get_and_print_statistics(server_empty_cq_progress_p1, "Server fi_writedata empty cq progress p1")
+get_and_print_statistics(server_empty_cq_progress_p2, "Server fi_writedata empty cq progress p2")
+get_and_print_statistics(server_fruitful_cq_progress_p1, "Server fi_writedata fruitful cq progress p1")
+get_and_print_statistics(server_fruitful_cq_progress_p2, "Server fi_writedata fruitful cq progress p2")
 get_and_print_statistics(server_fruitful_cq_progress_num_completions, "Server fi_writedata fruitful cq progress num completion")
 
 print("\n")
@@ -238,6 +260,8 @@ print("Client's fi_writedata stats:")
 get_and_print_statistics(client_libfabric_to_rdma_core, "Client fi_writedata libfabric to rdma_core")
 get_and_print_statistics(client_rdma_core, "Client fi_writedata rdma_core")
 get_and_print_statistics(client_rdma_core_to_libfabric, "Client fi_writedata rdma_core to libfabric")
-get_and_print_statistics(client_empty_cq_progress, "Client fi_writedata empty cq progress")
-get_and_print_statistics(client_fruitful_cq_progress, "Client fi_writedata fruitful cq progress")
+get_and_print_statistics(client_empty_cq_progress_p1, "Client fi_writedata empty cq progress p1")
+get_and_print_statistics(client_empty_cq_progress_p2, "Client fi_writedata empty cq progress p2")
+get_and_print_statistics(client_fruitful_cq_progress_p1, "Client fi_writedata fruitful cq progress p1")
+get_and_print_statistics(client_fruitful_cq_progress_p2, "Client fi_writedata fruitful cq progress p2")
 get_and_print_statistics(client_fruitful_cq_progress_num_completions, "Client fi_writedata fruitful cq progress num completion")

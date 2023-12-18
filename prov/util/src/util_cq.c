@@ -251,7 +251,6 @@ ssize_t ofi_cq_readfrom(struct fid_cq *cq_fid, void *buf, size_t count,
 			fi_addr_t *src_addr)
 {
 	struct util_cq *cq;
-
 	cq = container_of(cq_fid, struct util_cq, cq_fid);
 
 	cq->progress(cq);

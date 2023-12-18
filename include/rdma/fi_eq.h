@@ -280,8 +280,10 @@ struct fid_cq {
 	int count_empty_progress;
 	int count_fruitful_progress;
 	int *fruitful_progress_num_events;
-	long *fruitful_progress;
-	long *empty_progress;
+	long *fruitful_progress_p1;
+	long *empty_progress_p1;
+	long *fruitful_progress_p2;
+	long *empty_progress_p2;
 };
 
 
@@ -406,30 +408,7 @@ static inline void timespec_diff_cq(struct timespec *start, struct timespec *end
 
 static inline ssize_t fi_cq_read(struct fid_cq *cq, void *buf, size_t count)
 {
-	ssize_t rv;
-	struct timespec start, end, result;
-
-	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
-
-	rv = cq->ops->read(cq, buf, count);
-
-	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
-	timespec_diff_cq(&start, &end, &result);
-
-	if (rv == -FI_EAGAIN && cq->count_empty_progress < cq->iterations + cq->warmup_iterations) {
-		if (cq->count_empty_progress >= cq->warmup_iterations)
-			cq->empty_progress[cq->count_empty_progress - cq->warmup_iterations] = result.tv_nsec;
-		cq->count_empty_progress++;
-
-	} else if (rv > 0 && cq->count_fruitful_progress < cq->iterations + cq->warmup_iterations) {
-		if (cq->count_fruitful_progress >= cq->warmup_iterations) {
-			cq->fruitful_progress[cq->count_fruitful_progress - cq->warmup_iterations] = result.tv_nsec;
-			cq->fruitful_progress_num_events[cq->count_fruitful_progress - cq->warmup_iterations] = rv;
-		}
-		cq->count_fruitful_progress++;
-	}
-
-	return rv;
+	return cq->ops->read(cq, buf, count);
 }
 
 static inline ssize_t

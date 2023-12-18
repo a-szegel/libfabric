@@ -160,11 +160,13 @@ int pingpong(void)
 	}
 
 	for (int i = 0; i < rxcq->iterations; i++) {
-		fprintf(fptr, "<fi_senddata> empty cq progress (ns): %ld\n", rxcq->empty_progress[i]);
+		fprintf(fptr, "<fi_senddata> empty cq progress p1 (ns): %ld\n", rxcq->empty_progress_p1[i]);
+		fprintf(fptr, "<fi_senddata> empty cq progress p2 (ns): %ld\n", rxcq->empty_progress_p2[i]);
 	}
 
 	for (int i = 0; i < rxcq->iterations; i++) {
-		fprintf(fptr, "<fi_senddata> fruitful cq progress (ns): %ld\n", rxcq->fruitful_progress[i]);
+		fprintf(fptr, "<fi_senddata> fruitful cq progress p1 (ns): %ld\n", rxcq->fruitful_progress_p1[i]);
+		fprintf(fptr, "<fi_senddata> fruitful cq progress p2 (ns): %ld\n", rxcq->fruitful_progress_p2[i]);
 	}
 
 	for (int i = 0; i < rxcq->iterations; i++) {
@@ -274,11 +276,13 @@ int pingpong_rma(enum ft_rma_opcodes rma_op, struct fi_rma_iov *remote)
 	}
 
 	for (int i = 0; i < rxcq->iterations; i++) {
-		fprintf(fptr, "<fi_write> empty cq progress (ns): %ld\n", rxcq->empty_progress[i]);
+		fprintf(fptr, "<fi_write> empty cq progress p1 (ns): %ld\n", rxcq->empty_progress_p1[i]);
+		fprintf(fptr, "<fi_write> empty cq progress p2 (ns): %ld\n", rxcq->empty_progress_p2[i]);
 	}
 
 	for (int i = 0; i < rxcq->iterations; i++) {
-		fprintf(fptr, "<fi_write> fruitful cq progress (ns): %ld\n", rxcq->fruitful_progress[i]);
+		fprintf(fptr, "<fi_write> fruitful cq progress p1 (ns): %ld\n", rxcq->fruitful_progress_p1[i]);
+		fprintf(fptr, "<fi_write> fruitful cq progress p2 (ns): %ld\n", rxcq->fruitful_progress_p2[i]);
 	}
 
 	for (int i = 0; i < rxcq->iterations; i++) {
