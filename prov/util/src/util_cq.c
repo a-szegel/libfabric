@@ -247,16 +247,73 @@ static void util_cq_read_tagged(void **dst, void *src)
 	*(char **)dst += sizeof(struct fi_cq_tagged_entry);
 }
 
+
+	// struct util_cq *cq;
+	// struct util_ep *ep;
+	// struct fid_list_entry *fid_entry;
+	// struct dlist_entry *item;
+
+	// cq = container_of(cq_fid, struct util_cq, cq_fid);
+
+	// cq->progress(cq);
+
+
+	// fid_entry = container_of((&cq->ep_list)->next, struct fid_list_entry, entry);
+	// ep = container_of(fid_entry->fid, struct util_ep, ep_fid.fid);
+
 ssize_t ofi_cq_readfrom(struct fid_cq *cq_fid, void *buf, size_t count,
 			fi_addr_t *src_addr)
 {
 	struct util_cq *cq;
+	ssize_t rv;
+	struct timespec start, end, result1, result2;
+
 	cq = container_of(cq_fid, struct util_cq, cq_fid);
 
-	cq->progress(cq);
 
-	return ofi_cq_read_entries(cq, buf, count, src_addr);
+	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+	cq->progress(cq);
+	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+	timespec_diff_cq(&start, &end, &result1);
+
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+	rv = ofi_cq_read_entries(cq, buf, count, src_addr);
+	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+	timespec_diff_cq(&start, &end, &result2);
+
+	if (rv == -FI_EAGAIN && cq_fid->count_empty_progress < cq_fid->iterations + cq_fid->warmup_iterations) {
+		if (cq_fid->count_empty_progress >= cq_fid->warmup_iterations) {
+			cq_fid->empty_progress_p1[cq_fid->count_empty_progress - cq_fid->warmup_iterations] = result1.tv_nsec;
+			cq_fid->empty_progress_p2[cq_fid->count_empty_progress - cq_fid->warmup_iterations] = result2.tv_nsec;
+		}
+		cq_fid->count_empty_progress++;
+
+	} else if (rv > 0 && cq_fid->count_fruitful_progress < cq_fid->iterations + cq_fid->warmup_iterations) {
+		if (cq_fid->count_fruitful_progress >= cq_fid->warmup_iterations) {
+			cq_fid->fruitful_progress_p1[cq_fid->count_fruitful_progress - cq_fid->warmup_iterations] = result1.tv_nsec;
+			cq_fid->fruitful_progress_p2[cq_fid->count_fruitful_progress - cq_fid->warmup_iterations] = result2.tv_nsec;
+			cq_fid->fruitful_progress_num_events[cq_fid->count_fruitful_progress - cq_fid->warmup_iterations] = rv;
+		}
+		cq_fid->count_fruitful_progress++;
+	}
+
+
+	return rv;
 }
+
+
+// ssize_t ofi_cq_readfrom(struct fid_cq *cq_fid, void *buf, size_t count,
+// 			fi_addr_t *src_addr)
+// {
+// 	struct util_cq *cq;
+// 	cq = container_of(cq_fid, struct util_cq, cq_fid);
+
+// 	cq->progress(cq);
+
+// 	return ofi_cq_read_entries(cq, buf, count, src_addr);
+// }
+
 
 ssize_t ofi_cq_read(struct fid_cq *cq_fid, void *buf, size_t count)
 {
