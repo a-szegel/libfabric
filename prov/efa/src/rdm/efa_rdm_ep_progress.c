@@ -443,6 +443,8 @@ fi_addr_t efa_rdm_ep_determine_addr_from_ibv_cq(struct efa_rdm_ep *ep, struct ib
  */
 static inline void efa_rdm_ep_poll_ibv_cq(struct efa_rdm_ep *ep, size_t cqe_to_process)
 {
+	// struct timespec start, end, result1, result2;
+	// struct fid_cq *cq_fid = &ep->base_ep.util_ep.rx_cq->cq_fid;
 	bool should_end_poll = false;
 	/* Initialize an empty ibv_poll_cq_attr struct for ibv_start_poll.
 	 * EFA expects .comp_mask = 0, or otherwise returns EINVAL.
@@ -491,6 +493,7 @@ static inline void efa_rdm_ep_poll_ibv_cq(struct efa_rdm_ep *ep, size_t cqe_to_p
 			efa_rdm_pke_handle_send_completion(pkt_entry);
 			break;
 		case IBV_WC_RECV:
+			// clock_gettime(CLOCK_MONOTONIC_RAW, &start);
 			pkt_entry->addr = efa_av_reverse_lookup_rdm(efa_av, ibv_wc_read_slid(ep->ibv_cq_ex),
 								ibv_wc_read_src_qp(ep->ibv_cq_ex), pkt_entry);
 
@@ -501,6 +504,15 @@ static inline void efa_rdm_ep_poll_ibv_cq(struct efa_rdm_ep *ep, size_t cqe_to_p
 			pkt_entry->pkt_size = ibv_wc_read_byte_len(ep->ibv_cq_ex);
 			assert(pkt_entry->pkt_size > 0);
 			efa_rdm_pke_handle_recv_completion(pkt_entry);
+			// clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+			// timespec_diff_cq(&start, &end, &result1);
+			// if (cq_fid->count_empty_progress < cq_fid->iterations + cq_fid->warmup_iterations) {
+			// 	if (cq_fid->count_empty_progress >= cq_fid->warmup_iterations) {
+			// 		cq_fid->empty_progress_p1[cq_fid->count_empty_progress - cq_fid->warmup_iterations] = result1.tv_nsec;
+			// 	}
+			// 	cq_fid->count_empty_progress++;
+			// }
+
 #if ENABLE_DEBUG
 			ep->recv_comps++;
 #endif
@@ -547,7 +559,7 @@ static inline void efa_rdm_ep_poll_ibv_cq(struct efa_rdm_ep *ep, size_t cqe_to_p
 
 /**
  * @brief post a linked list of packets
- * 
+ *
  * @param[in]	ep	RDM endpoint
  * @param[in]	pkts	Linked list of packets to post
  * @return		0 on success, negative error code on failure
@@ -618,7 +630,7 @@ void efa_rdm_ep_progress_internal(struct efa_rdm_ep *ep)
 
 	efa_rdm_ep_progress_post_internal_rx_pkts(ep);
 
-	efa_rdm_ep_check_peer_backoff_timer(ep);
+	// efa_rdm_ep_check_peer_backoff_timer(ep);
 	/*
 	 * Resend handshake packet for any peers where the first
 	 * handshake send failed.
@@ -798,9 +810,9 @@ void efa_rdm_ep_progress_internal(struct efa_rdm_ep *ep)
 
 /**
  * @brief progress engine for the EFA RDM endpoint
- * 
+ *
  * This function is thread safe.
- * 
+ *
  * @param[in] util_ep The endpoint FID to progress
  */
 void efa_rdm_ep_progress(struct util_ep *util_ep)

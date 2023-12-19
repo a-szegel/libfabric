@@ -248,18 +248,6 @@ static void util_cq_read_tagged(void **dst, void *src)
 }
 
 
-	// struct util_cq *cq;
-	// struct util_ep *ep;
-	// struct fid_list_entry *fid_entry;
-	// struct dlist_entry *item;
-
-	// cq = container_of(cq_fid, struct util_cq, cq_fid);
-
-	// cq->progress(cq);
-
-
-	// fid_entry = container_of((&cq->ep_list)->next, struct fid_list_entry, entry);
-	// ep = container_of(fid_entry->fid, struct util_ep, ep_fid.fid);
 
 ssize_t ofi_cq_readfrom(struct fid_cq *cq_fid, void *buf, size_t count,
 			fi_addr_t *src_addr)
