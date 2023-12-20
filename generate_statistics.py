@@ -152,7 +152,7 @@ print("Server's fi_senddata stats:")
 # get_and_print_statistics(server_empty_cq_progress_p1, "Server fi_senddata empty cq progress p1")
 # get_and_print_statistics(server_empty_cq_progress_p2, "Server fi_senddata empty cq progress p2")
 get_and_print_statistics(server_fruitful_cq_progress_p1, "Server fi_senddata fruitful cq progress p1")
-# get_and_print_statistics(server_fruitful_cq_progress_p2, "Server fi_senddata fruitful cq progress p2")
+#get_and_print_statistics(server_fruitful_cq_progress_p2, "Server fi_senddata fruitful cq progress p2")
 # get_and_print_statistics(server_fruitful_cq_progress_num_completions, "Server fi_senddata fruitful cq progress num completion")
 
 print("\n")
