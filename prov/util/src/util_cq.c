@@ -535,14 +535,14 @@ void ofi_cq_progress(struct util_cq *cq)
 	struct fid_list_entry *fid_entry;
 	struct dlist_entry *item;
 
-	ofi_mutex_lock(&cq->ep_list_lock);
+	// ofi_mutex_lock(&cq->ep_list_lock);
 	dlist_foreach(&cq->ep_list, item) {
 		fid_entry = container_of(item, struct fid_list_entry, entry);
 		ep = container_of(fid_entry->fid, struct util_ep, ep_fid.fid);
 		ep->progress(ep);
 
 	}
-	ofi_mutex_unlock(&cq->ep_list_lock);
+	// ofi_mutex_unlock(&cq->ep_list_lock);
 }
 
 static ssize_t util_peer_cq_write(struct fid_peer_cq *cq, void *context,
