@@ -185,12 +185,8 @@ int efa_rdm_cq_open(struct fid_domain *domain, struct fi_cq_attr *attr,
 	/* Override user cq size if it's less than recommended cq size */
 	attr->size = MAX(efa_domain->rdm_cq_size, attr->size);
 
-	if (efa_domain->info->domain_attr->threading == FI_THREAD_DOMAIN)
-		ret = ofi_cq_init(&efa_prov, domain, attr, &cq->util_cq,
-				  &efa_thread_domain_cq_progress, context);
-	else
-		ret = ofi_cq_init(&efa_prov, domain, attr, &cq->util_cq,
-				  &ofi_cq_progress, context);
+	ret = ofi_cq_init(&efa_prov, domain, attr, &cq->util_cq,
+			  &efa_thread_domain_cq_progress, context);
 
 	if (ret)
 		goto free;
