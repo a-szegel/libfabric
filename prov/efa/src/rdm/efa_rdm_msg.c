@@ -653,7 +653,7 @@ struct efa_rdm_ope *efa_rdm_msg_alloc_rxe(struct efa_rdm_ep *ep,
 	else
 		addr = FI_ADDR_UNSPEC;
 
-	rxe = efa_rdm_ep_alloc_rxe(ep, addr, op);
+	rxe = efa_rdm_ep_alloc_rxe(ep, addr, op, NULL);
 	if (!rxe)
 		return NULL;
 
@@ -712,7 +712,7 @@ struct efa_rdm_ope *efa_rdm_msg_alloc_unexp_rxe_for_rtm(struct efa_rdm_ep *ep,
 		return NULL;
 	}
 
-	rxe = efa_rdm_ep_alloc_rxe(ep, unexp_pkt_entry->addr, op);
+	rxe = efa_rdm_ep_alloc_rxe(ep, unexp_pkt_entry->addr, op, NULL);
 	if (OFI_UNLIKELY(!rxe))
 		return NULL;
 
@@ -740,11 +740,11 @@ struct efa_rdm_ope *efa_rdm_msg_alloc_unexp_rxe_for_rtm(struct efa_rdm_ep *ep,
 struct efa_rdm_ope *efa_rdm_msg_alloc_matched_rxe_for_rtm(struct efa_rdm_ep *ep,
 							  struct efa_rdm_pke *pkt_entry,
 							  struct fi_peer_rx_entry *peer_rxe,
-							  uint32_t op)
+							  uint32_t op, struct fid_cq *cq_fid)
 {
 	struct efa_rdm_ope *rxe;
 
-	rxe = efa_rdm_ep_alloc_rxe(ep, pkt_entry->addr, op);
+	rxe = efa_rdm_ep_alloc_rxe(ep, pkt_entry->addr, op, cq_fid);
 	if (OFI_UNLIKELY(!rxe))
 		return NULL;
 
@@ -771,7 +771,7 @@ struct efa_rdm_ope *efa_rdm_msg_alloc_matched_rxe_for_rtm(struct efa_rdm_ep *ep,
  * return NULL
  */
 struct efa_rdm_ope *efa_rdm_msg_alloc_rxe_for_msgrtm(struct efa_rdm_ep *ep,
-						     struct efa_rdm_pke **pkt_entry_ptr)
+						     struct efa_rdm_pke **pkt_entry_ptr, struct fid_cq *cq_fid)
 {
 	struct fid_peer_srx *peer_srx;
 	struct fi_peer_rx_entry *peer_rxe;
@@ -799,8 +799,9 @@ struct efa_rdm_ope *efa_rdm_msg_alloc_rxe_for_msgrtm(struct efa_rdm_ep *ep,
 
 	ret = peer_srx->owner_ops->get_msg(peer_srx, (*pkt_entry_ptr)->addr, data_size, &peer_rxe);
 
+
 	if (ret == FI_SUCCESS) { /* A matched rxe is found */
-		rxe = efa_rdm_msg_alloc_matched_rxe_for_rtm(ep, *pkt_entry_ptr, peer_rxe, ofi_op_msg);
+		rxe = efa_rdm_msg_alloc_matched_rxe_for_rtm(ep, *pkt_entry_ptr, peer_rxe, ofi_op_msg, cq_fid);
 		if (OFI_UNLIKELY(!rxe)) {
 			efa_base_ep_write_eq_error(&ep->base_ep, FI_ENOBUFS, FI_EFA_ERR_RXE_POOL_EXHAUSTED);
 			return NULL;
@@ -867,7 +868,7 @@ struct efa_rdm_ope *efa_rdm_msg_alloc_rxe_for_tagrtm(struct efa_rdm_ep *ep,
 					   &peer_rxe);
 
 	if (ret == FI_SUCCESS) { /* A matched rxe is found */
-		rxe = efa_rdm_msg_alloc_matched_rxe_for_rtm(ep, *pkt_entry_ptr, peer_rxe, ofi_op_tagged);
+		rxe = efa_rdm_msg_alloc_matched_rxe_for_rtm(ep, *pkt_entry_ptr, peer_rxe, ofi_op_tagged, NULL);
 		if (OFI_UNLIKELY(!rxe)) {
 			efa_base_ep_write_eq_error(&ep->base_ep, FI_ENOBUFS, FI_EFA_ERR_RXE_POOL_EXHAUSTED);
 			return NULL;

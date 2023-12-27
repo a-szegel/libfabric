@@ -209,10 +209,10 @@ int efa_rdm_pke_init_ctsdata(struct efa_rdm_pke *pkt_entry,
 	data_hdr->version = EFA_RDM_PROTOCOL_VERSION;
 	data_hdr->flags = 0;
 
-	/* Data is sent using rxe in the emulated longcts read 
-	 * protocol. The emulated longcts write and the longcts 
+	/* Data is sent using rxe in the emulated longcts read
+	 * protocol. The emulated longcts write and the longcts
 	 * message protocols sends data using txe.
-	 * This check ensures appropriate recv_id is 
+	 * This check ensures appropriate recv_id is
 	 * assigned for the respective protocols */
 	if (ope->type == EFA_RDM_RXE) {
 		data_hdr->recv_id = ope->tx_id;
@@ -312,7 +312,7 @@ void efa_rdm_pke_proc_ctsdata(struct efa_rdm_pke *pkt_entry,
 		ope->ep->pending_recv_counter--;
 	}
 #endif
-	err = efa_rdm_pke_copy_payload_to_ope(pkt_entry, ope);
+	err = efa_rdm_pke_copy_payload_to_ope(pkt_entry, ope, NULL);
 	if (err) {
 		efa_rdm_pke_release_rx(pkt_entry);
 		efa_rdm_rxe_handle_error(ope, -err, FI_EFA_ERR_RXE_COPY);
@@ -497,7 +497,7 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 			if (txe->addr == FI_ADDR_NOTAVAIL) {
 				data_pkt_entry = txe->local_read_pkt_entry;
 				assert(data_pkt_entry->payload_size > 0);
-				efa_rdm_pke_handle_data_copied(data_pkt_entry);
+				efa_rdm_pke_handle_data_copied(data_pkt_entry, NULL);
 			} else {
 				assert(txe && txe->cq_entry.flags & FI_READ);
 				efa_rdm_txe_report_completion(txe);
@@ -527,7 +527,7 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 			rxe->bytes_received += rxe->bytes_read_completed;
 			rxe->bytes_copied += rxe->bytes_read_completed;
 			if (rxe->bytes_copied == rxe->total_len) {
-				efa_rdm_ope_handle_recv_completed(rxe);
+				efa_rdm_ope_handle_recv_completed(rxe, NULL);
 			} else if(rxe->bytes_copied + rxe->bytes_queued_blocking_copy == rxe->total_len) {
 				efa_rdm_ep_flush_queued_blocking_copy_to_hmem(context_pkt_entry->ep);
 			}

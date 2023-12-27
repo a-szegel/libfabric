@@ -768,7 +768,7 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
  *
  * @param[in]		rxe	information of the completed RX operation
  */
-void efa_rdm_rxe_report_completion(struct efa_rdm_ope *rxe)
+void efa_rdm_rxe_report_completion(struct efa_rdm_ope *rxe, struct fid_cq *cq_fid)
 {
 	struct efa_rdm_ep *ep = rxe->ep;
 	struct util_cq *rx_cq = ep->base_ep.util_ep.rx_cq;
@@ -1038,7 +1038,7 @@ void efa_rdm_ope_handle_send_completed(struct efa_rdm_ope *ope)
  *
  * @param[in,out]	ope	ope that contains information of a data receive operation
  */
-void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope)
+void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope, struct fid_cq *cq_fid)
 {
 	struct efa_rdm_ope *txe = NULL;
 	struct efa_rdm_ope *rxe = NULL;
@@ -1053,11 +1053,12 @@ void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope)
 		 * For write, only write RX completion when REMOTE_CQ_DATA is on
 		 */
 		if (ope->cq_entry.flags & FI_REMOTE_CQ_DATA)
-			efa_rdm_rxe_report_completion(ope);
+			efa_rdm_rxe_report_completion(ope, NULL);
 	} else if (ope->cq_entry.flags & FI_READ) {
 		/* This ope is part of the for emulated read protocol,
 		 * created on the read requester side.
 		 * The following shows the sequence of events in an emulated
+
 		 * read protocol.
 		 *
 		 * Requester                      Responder
@@ -1089,7 +1090,7 @@ void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope)
 
 		assert(rxe->op == ofi_op_msg || rxe->op == ofi_op_tagged);
 
-		efa_rdm_rxe_report_completion(rxe);
+		efa_rdm_rxe_report_completion(rxe, cq_fid);
 	}
 
 	/* As can be seen, this function does not release rxe when

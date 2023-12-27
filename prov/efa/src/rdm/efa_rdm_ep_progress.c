@@ -443,7 +443,7 @@ fi_addr_t efa_rdm_ep_determine_addr_from_ibv_cq(struct efa_rdm_ep *ep, struct ib
  */
 static inline void efa_rdm_ep_poll_ibv_cq(struct efa_rdm_ep *ep, size_t cqe_to_process)
 {
-	struct timespec start, end, result1, result2;
+	uint16_t ahn, qpn;
 	struct fid_cq *cq_fid = &ep->base_ep.util_ep.rx_cq->cq_fid;
 	bool should_end_poll = false;
 	/* Initialize an empty ibv_poll_cq_attr struct for ibv_start_poll.
@@ -464,7 +464,6 @@ static inline void efa_rdm_ep_poll_ibv_cq(struct efa_rdm_ep *ep, size_t cqe_to_p
 	/* Call ibv_start_poll only once */
 	err = ibv_start_poll(ep->ibv_cq_ex, &poll_cq_attr);
 	should_end_poll = !err;
-
 	while (!err) {
 		pkt_entry = (void *)(uintptr_t)ep->ibv_cq_ex->wr_id;
 		efa_rdm_tracepoint(poll_cq, (size_t) ep->ibv_cq_ex->wr_id);
@@ -495,35 +494,18 @@ static inline void efa_rdm_ep_poll_ibv_cq(struct efa_rdm_ep *ep, size_t cqe_to_p
 			efa_rdm_pke_handle_send_completion(pkt_entry);
 			break;
 		case IBV_WC_RECV:
-			clock_gettime(CLOCK_MONOTONIC_RAW, &start);
-			pkt_entry->addr = efa_av_reverse_lookup_rdm(efa_av, ibv_wc_read_slid(ep->ibv_cq_ex),
-								ibv_wc_read_src_qp(ep->ibv_cq_ex), pkt_entry);
+			ahn = ibv_wc_read_slid(ep->ibv_cq_ex);
+			qpn = ibv_wc_read_src_qp(ep->ibv_cq_ex);
+			pkt_entry->addr = efa_av_reverse_lookup_rdm(efa_av, ahn, qpn, pkt_entry);
 
 			if (pkt_entry->addr == FI_ADDR_NOTAVAIL) {
 				pkt_entry->addr = efa_rdm_ep_determine_addr_from_ibv_cq(ep, ep->ibv_cq_ex);
 			}
-
 			pkt_entry->pkt_size = ibv_wc_read_byte_len(ep->ibv_cq_ex);
-
 			assert(pkt_entry->pkt_size > 0);
+			efa_rdm_pke_handle_recv_completion(pkt_entry, cq_fid);
+			// 32 NS from here to end
 
-			clock_gettime(CLOCK_MONOTONIC_RAW, &end);
-			timespec_diff_cq(&start, &end, &result1);
-
-			clock_gettime(CLOCK_MONOTONIC_RAW, &start);
-
-			efa_rdm_pke_handle_recv_completion(pkt_entry);
-			clock_gettime(CLOCK_MONOTONIC_RAW, &end);
-			timespec_diff_cq(&start, &end, &result2);
-
-			if (cq_fid->count_fruitful_progress < cq_fid->iterations + cq_fid->warmup_iterations) {
-				if (cq_fid->count_fruitful_progress >= cq_fid->warmup_iterations) {
-					cq_fid->fruitful_progress_p1[cq_fid->count_fruitful_progress - cq_fid->warmup_iterations] = result1.tv_nsec;
-					cq_fid->fruitful_progress_p2[cq_fid->count_fruitful_progress - cq_fid->warmup_iterations] = result2.tv_nsec;
-					cq_fid->fruitful_progress_num_events[cq_fid->count_fruitful_progress - cq_fid->warmup_iterations] = 1;
-				}
-				cq_fid->count_fruitful_progress++;
-			}
 #if ENABLE_DEBUG
 			ep->recv_comps++;
 #endif

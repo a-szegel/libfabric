@@ -242,7 +242,7 @@ void efa_rdm_peer_proc_pending_items_in_robuf(struct efa_rdm_peer *peer, struct 
 		EFA_DBG(FI_LOG_EP_CTRL,
 		       "Processing msg_id %d from robuf\n", msg_id);
 		/* efa_rdm_pke_proc_rtm_rta will write error cq entry if needed */
-		ret = efa_rdm_pke_proc_rtm_rta(pending_pkt);
+		ret = efa_rdm_pke_proc_rtm_rta(pending_pkt, NULL);
 		*ofi_recvwin_get_next_msg((&peer->robuf)) = NULL;
 		if (OFI_UNLIKELY(ret)) {
 			EFA_WARN(FI_LOG_CQ,

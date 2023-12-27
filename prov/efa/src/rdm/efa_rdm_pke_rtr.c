@@ -71,9 +71,9 @@ void efa_rdm_pke_init_rtr_common(struct efa_rdm_pke *pkt_entry,
 
 /**
  * @brief initialize a EFA_RDM_SHORT_RTR_PKT
- * 
+ *
  * @param[in]		pkt_entry	packet entry to be initialized
- * 
+ *
 */
 ssize_t efa_rdm_pke_init_short_rtr(struct efa_rdm_pke *pkt_entry,
 				   struct efa_rdm_ope *txe)
@@ -97,7 +97,7 @@ ssize_t efa_rdm_pke_init_longcts_rtr(struct efa_rdm_pke *pkt_entry,
 
 /**
  * @brief process an incoming RTR packet
- * 
+ *
  * This functions works for both EFA_RDM_SHORT_RTR_PKT and EFA_RDM_LONGCTS_RTR_PKT
  * @param[in]		pkt_entry	packet entry
  */
@@ -110,7 +110,7 @@ void efa_rdm_pke_handle_rtr_recv(struct efa_rdm_pke *pkt_entry)
 
 	ep = pkt_entry->ep;
 
-	rxe = efa_rdm_ep_alloc_rxe(ep, pkt_entry->addr, ofi_op_read_rsp);
+	rxe = efa_rdm_ep_alloc_rxe(ep, pkt_entry->addr, ofi_op_read_rsp, NULL);
 	if (OFI_UNLIKELY(!rxe)) {
 		EFA_WARN(FI_LOG_CQ,
 			"RX entries exhausted.\n");

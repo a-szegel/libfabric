@@ -92,7 +92,7 @@ static int efa_rdm_srx_start(struct fi_peer_rx_entry *peer_rxe)
 
 	rxe->state = EFA_RDM_RXE_MATCHED;
 
-	ret = efa_rdm_pke_proc_matched_rtm(pkt_entry);
+	ret = efa_rdm_pke_proc_matched_rtm(pkt_entry, NULL);
 	if (OFI_UNLIKELY(ret)) {
 		/* If we run out of memory registrations, we fall back to
 		 * emulated protocols */

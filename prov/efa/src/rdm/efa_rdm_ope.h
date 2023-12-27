@@ -321,9 +321,9 @@ void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno);
 
 void efa_rdm_txe_report_completion(struct efa_rdm_ope *txe);
 
-void efa_rdm_rxe_report_completion(struct efa_rdm_ope *rxe);
+void efa_rdm_rxe_report_completion(struct efa_rdm_ope *rxe, struct fid_cq *cq_fid);
 
-void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope);
+void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope, struct fid_cq *cq_fid);
 
 void efa_rdm_ope_handle_send_completed(struct efa_rdm_ope *ope);
 
