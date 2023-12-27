@@ -48,7 +48,7 @@ void efa_rdm_pke_handle_sent(struct efa_rdm_pke *pke);
 
 fi_addr_t efa_rdm_pke_determine_addr(struct efa_rdm_pke *pkt_entry);
 
-void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry);
+void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry, struct fid_cq *cq_fid);
 
 void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry,
 				   int err, int prov_errno);
@@ -58,7 +58,7 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry);
 void efa_rdm_pke_handle_rx_error(struct efa_rdm_pke *pkt_entry,
 				   int err, int prov_errno);
 
-void efa_rdm_pke_handle_recv_completion(struct efa_rdm_pke *pkt_entry);
+void efa_rdm_pke_handle_recv_completion(struct efa_rdm_pke *pkt_entry, struct fid_cq *cq_fid);
 
 #if ENABLE_DEBUG
 void efa_rdm_pke_print(struct efa_rdm_pke *pkt_entry, char *prefix);

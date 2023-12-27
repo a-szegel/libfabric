@@ -40,7 +40,7 @@
 
 /**
  * @brief get the base header of an pke
- * 
+ *
  * @param[in]	pke	packet entry
  * @returns	base header
  */
@@ -96,7 +96,7 @@ ssize_t efa_rdm_pke_init_payload_from_ope(struct efa_rdm_pke *pke,
 					  size_t data_size);
 
 ssize_t efa_rdm_pke_copy_payload_to_ope(struct efa_rdm_pke *pke,
-					struct efa_rdm_ope *ope);
+					struct efa_rdm_ope *ope, struct fid_cq *cq_fid);
 
 uint32_t *efa_rdm_pke_connid_ptr(struct efa_rdm_pke *pkt_entry);
 

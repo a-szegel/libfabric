@@ -184,6 +184,9 @@
 #include "config.h"
 #include <stdbool.h>
 
+#ifndef _OFI_MB_H_
+#define _OFI_MB_H_
+
 #ifdef HAVE_ATOMICS
 #include <stdatomic.h>
 
@@ -202,3 +205,5 @@ static inline void ofi_wmb(void)
 #else
 #error "Neither built-in atomics nor C11 atomics is supported by compiler."
 #endif
+
+#endif /* _OFI_MB_H_ */

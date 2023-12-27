@@ -208,7 +208,7 @@ int efa_rdm_ep_flush_queued_blocking_copy_to_hmem(struct efa_rdm_ep *ep)
 		}
 
 		rxe->bytes_queued_blocking_copy -= pkt_entry->payload_size;
-		efa_rdm_pke_handle_data_copied(pkt_entry);
+		efa_rdm_pke_handle_data_copied(pkt_entry, NULL);
 	}
 
 	ep->queued_copy_num = 0;
@@ -283,7 +283,7 @@ int efa_rdm_pke_queued_copy_payload_to_hmem(struct efa_rdm_pke *pke,
  */
 static inline
 int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
-				     struct efa_rdm_ope *rxe)
+				     struct efa_rdm_ope *rxe, struct fid_cq *cq_fid)
 {
 	static const int max_blocking_copy_rxe_num = 4;
 	struct efa_mr *desc;
@@ -357,7 +357,9 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 			                        rxe->iov, rxe->iov_count,
 			                        segment_offset + ep->msg_prefix_size,
 			                        pke->payload, pke->payload_size);
-			efa_rdm_pke_handle_data_copied(pke);
+
+			efa_rdm_pke_handle_data_copied(pke, cq_fid);
+
 			return 0;
 		}
 
@@ -386,6 +388,7 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 	 * when the completion of the local read request is received
 	 * (by progress engine).
 	 */
+
 	return err;
 }
 
@@ -419,7 +422,7 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
  * 			On failure, return libfabric error code
  */
 ssize_t efa_rdm_pke_copy_payload_to_ope(struct efa_rdm_pke *pke,
-					struct efa_rdm_ope *ope)
+					struct efa_rdm_ope *ope, struct fid_cq *cq_fid)
 {
 	struct efa_mr *desc;
 	struct efa_rdm_ep *ep;
@@ -451,14 +454,14 @@ ssize_t efa_rdm_pke_copy_payload_to_ope(struct efa_rdm_pke *pke,
 	if (OFI_UNLIKELY((ope->internal_flags & EFA_RDM_RXE_RECV_CANCEL)) ||
 	    OFI_UNLIKELY(segment_offset >= ope->cq_entry.len) ||
 	    OFI_UNLIKELY(pke->payload_size == 0)) {
-		efa_rdm_pke_handle_data_copied(pke);
+		efa_rdm_pke_handle_data_copied(pke, NULL);
 		return 0;
 	}
 
 	desc = ope->desc[0];
 
 	if (efa_mr_is_cuda(desc))
-		return efa_rdm_pke_copy_payload_to_cuda(pke, ope);
+		return efa_rdm_pke_copy_payload_to_cuda(pke, ope, cq_fid);
 
 	if (efa_mr_is_hmem(desc))
 		return efa_rdm_pke_queued_copy_payload_to_hmem(pke, ope);
@@ -474,7 +477,8 @@ ssize_t efa_rdm_pke_copy_payload_to_ope(struct efa_rdm_pke *pke,
 		return -FI_EIO;
 	}
 
-	efa_rdm_pke_handle_data_copied(pke);
+	efa_rdm_pke_handle_data_copied(pke, NULL);
+
 	return 0;
 }
 

@@ -42,6 +42,8 @@
 #include <pthread.h>
 #include <stdio.h>
 
+#include <ofi_mb.h>
+
 #include <rdma/fabric.h>
 #include <rdma/fi_atomic.h>
 #include <rdma/fi_cm.h>

@@ -347,8 +347,14 @@ void efa_rdm_pke_handle_sent(struct efa_rdm_pke *pkt_entry)
  *
  * @param[in,out]	pkt_entry	packet entry
  */
-void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry)
+void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry, struct fid_cq *cq_fid)
 {
+	struct timespec start, end, result1, result2;
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+
 	struct efa_rdm_ope *ope;
 	struct efa_rdm_ep *ep;
 
@@ -367,7 +373,23 @@ void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry)
 			ep->blocking_copy_rxe_num -= 1;
 		}
 
-		efa_rdm_ope_handle_recv_completed(ope);
+		efa_rdm_ope_handle_recv_completed(ope, cq_fid);
+	}
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+	timespec_diff_cq(&start, &end, &result1);
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+	timespec_diff_cq(&start, &end, &result2);
+
+	if (cq_fid && cq_fid->count_fruitful_progress < cq_fid->iterations + cq_fid->warmup_iterations) {
+		if (cq_fid->count_fruitful_progress >= cq_fid->warmup_iterations) {
+			cq_fid->fruitful_progress_p1[cq_fid->count_fruitful_progress - cq_fid->warmup_iterations] = result1.tv_nsec;
+			cq_fid->fruitful_progress_p2[cq_fid->count_fruitful_progress - cq_fid->warmup_iterations] = result2.tv_nsec;
+			cq_fid->fruitful_progress_num_events[cq_fid->count_fruitful_progress - cq_fid->warmup_iterations] = 1;
+		}
+		cq_fid->count_fruitful_progress++;
 	}
 }
 
@@ -777,7 +799,7 @@ fi_addr_t efa_rdm_pke_insert_addr(struct efa_rdm_pke *pkt_entry, void *raw_addr)
  * @param[in]	ep		endpoint
  * @param[in]	pkt_entry	received packet entry
  */
-void efa_rdm_pke_proc_received(struct efa_rdm_pke *pkt_entry)
+void efa_rdm_pke_proc_received(struct efa_rdm_pke *pkt_entry, struct fid_cq *cq_fid)
 {
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_base_hdr *base_hdr;
@@ -848,7 +870,7 @@ void efa_rdm_pke_proc_received(struct efa_rdm_pke *pkt_entry)
 	case EFA_RDM_DC_WRITE_RTA_PKT:
 	case EFA_RDM_FETCH_RTA_PKT:
 	case EFA_RDM_COMPARE_RTA_PKT:
-		efa_rdm_pke_handle_rtm_rta_recv(pkt_entry);
+		efa_rdm_pke_handle_rtm_rta_recv(pkt_entry, cq_fid);
 		return;
 	case EFA_RDM_EAGER_RTW_PKT:
 		efa_rdm_pke_handle_eager_rtw_recv(pkt_entry);
@@ -908,7 +930,7 @@ fi_addr_t efa_rdm_pke_determine_addr(struct efa_rdm_pke *pkt_entry)
  * @param	ep[in,out]		endpoint
  * @param	pkt_entry[in,out]	received packet, will be released by this function
  */
-void efa_rdm_pke_handle_recv_completion(struct efa_rdm_pke *pkt_entry)
+void efa_rdm_pke_handle_recv_completion(struct efa_rdm_pke *pkt_entry, struct fid_cq *cq_fid)
 {
 	int pkt_type;
 	struct efa_rdm_ep *ep;
@@ -980,7 +1002,7 @@ void efa_rdm_pke_handle_recv_completion(struct efa_rdm_pke *pkt_entry)
 		zcpy_rxe = pkt_entry->ope;
 	}
 
-	efa_rdm_pke_proc_received(pkt_entry);
+	efa_rdm_pke_proc_received(pkt_entry, cq_fid);
 
 	if (zcpy_rxe && pkt_type != EFA_RDM_EAGER_MSGRTM_PKT) {
 		/* user buffer was not matched with a message,

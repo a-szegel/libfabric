@@ -47,7 +47,7 @@
 
 /**
  * @brief initialize the common elements of WRITE_RTA, FETCH_RTA and COMPARE_RTA
- * 
+ *
  * @param[in,out]	pkt_entry	packet entry
  * @param[in]		pkt_type	packet type. possible values are:
  * 					EFA_RDM_WRITE_RTA_PKT, EFA_RDM_FETCH_RTA_PKT and
@@ -55,7 +55,7 @@
  * @param[in]		txe		TX entry that has information of the
  * 					atomic operation
  * @retunrns
- * 
+ *
  * 0 on success.
  * negative libfabric error code on error. Possible error include:
  * 	-FI_ETRUNC	user buffer is larger than maxium atomic message size
@@ -107,20 +107,20 @@ ssize_t efa_rdm_pke_init_rta_common(struct efa_rdm_pke *pkt_entry,
 
 /**
  * @brief allocate a RX entry to process an incoming RTA packet
- * 
+ *
  * @param[in]	pkt_entry	received RTA packet
  * @param[in]	op		libfabric operation type. Possible values are:
  * 				ofi_op_atomic, ofi_op_atomic_fetch, ofi_op_atomic_compare
  * @return
  * pointer to efa_rdm_ope on success.
- * NULL when rx entry pool is exhausted. 
+ * NULL when rx entry pool is exhausted.
  */
 struct efa_rdm_ope *efa_rdm_pke_alloc_rta_rxe(struct efa_rdm_pke *pkt_entry, int op)
 {
 	struct efa_rdm_ope *rxe;
 	struct efa_rdm_rta_hdr *rta_hdr;
 
-	rxe = efa_rdm_ep_alloc_rxe(pkt_entry->ep, pkt_entry->addr, op);
+	rxe = efa_rdm_ep_alloc_rxe(pkt_entry->ep, pkt_entry->addr, op, NULL);
 	if (OFI_UNLIKELY(!rxe)) {
 		EFA_WARN(FI_LOG_CQ,
 			"RX entries exhausted.\n");
@@ -165,12 +165,12 @@ struct efa_rdm_ope *efa_rdm_pke_alloc_rta_rxe(struct efa_rdm_pke *pkt_entry, int
 
 /**
  * @brief initialize a WRITE_RTA packet
- * 
+ *
  * @param[in,out]	pkt_entry	packet entry
  * @param[in]		txe		TX entry that has information of the
  * 					atomic operation
  * @returns
- * 
+ *
  * 0 on success.
  * negative libfabric error code on error. Possible error include:
  * 	-FI_ETRUNC	user buffer is larger than maxium atomic message size
@@ -184,7 +184,7 @@ ssize_t efa_rdm_pke_init_write_rta(struct efa_rdm_pke *pkt_entry,
 
 /**
  * @brief handle the send completion event of a WRITE RTA packet
- * 
+ *
  * @param[in,out]	pkt_entry	packet entry
  */
 void efa_rdm_pke_handle_write_rta_send_completion(struct efa_rdm_pke *pkt_entry)
@@ -219,7 +219,7 @@ int efa_rdm_write_atomic_hmem(struct efa_mr *efa_mr, struct iovec *dst, char *da
 
 /**
  * @brief process a received WRITE RTA packet
- * 
+ *
  * @param[in]	pkt_entry	received WRITE RTA packet
  */
 int efa_rdm_pke_proc_write_rta(struct efa_rdm_pke *pkt_entry)
@@ -278,7 +278,7 @@ int efa_rdm_pke_proc_write_rta(struct efa_rdm_pke *pkt_entry)
  * @param[in]		txe		TX entry that has information of the
  * 					atomic operation
  * @returns
- * 
+ *
  * 0 on success.
  * negative libfabric error code on error. Possible error include:
  * 	-FI_ETRUNC	user buffer is larger than maxium atomic message size
@@ -298,7 +298,7 @@ ssize_t efa_rdm_pke_init_dc_write_rta(struct efa_rdm_pke *pkt_entry,
 
 /**
  * @brief process a received DC WRITE RTA packet
- * 
+ *
  * @param[in]	pkt_entry	received DC WRITE RTA packet
  */
 int efa_rdm_pke_proc_dc_write_rta(struct efa_rdm_pke *pkt_entry)
@@ -345,7 +345,7 @@ int efa_rdm_pke_proc_dc_write_rta(struct efa_rdm_pke *pkt_entry)
  * @param[in]		txe		TX entry that has information of the
  * 					atomic operation
  * @returns
- * 
+ *
  * 0 on success.
  * negative libfabric error code on error. Possible error include:
  * 	-FI_ETRUNC	user buffer is larger than maxium atomic message size
@@ -390,7 +390,7 @@ int efa_rdm_fetch_atomic_hmem(struct efa_mr *efa_mr, struct iovec *dst, char *da
 
 /**
  * @brief process a received FETCH RTA packet
- * 
+ *
  * @param[in]	pkt_entry	received FETCH RTA packet
  */
 int efa_rdm_pke_proc_fetch_rta(struct efa_rdm_pke *pkt_entry)
@@ -459,7 +459,7 @@ int efa_rdm_pke_proc_fetch_rta(struct efa_rdm_pke *pkt_entry)
  * @param[in]		txe		TX entry that has information of the
  * 					atomic operation
  * @returns
- * 
+ *
  * 0 on success.
  * negative libfabric error code on error. Possible error include:
  * 	-FI_ETRUNC	user buffer is larger than maxium atomic message size
@@ -521,7 +521,7 @@ int efa_rdm_compare_atomic_hmem(struct efa_mr *efa_mr, struct iovec *dst, char *
 
 /**
  * @brief process a received COMPARE RTA packet
- * 
+ *
  * @param[in]		pkt_entry	packet entry
  */
 int efa_rdm_pke_proc_compare_rta(struct efa_rdm_pke *pkt_entry)
