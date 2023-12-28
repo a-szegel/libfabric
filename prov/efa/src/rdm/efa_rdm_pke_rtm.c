@@ -270,7 +270,11 @@ ssize_t efa_rdm_pke_proc_matched_rtm(struct efa_rdm_pke *pkt_entry, struct fid_c
 	    pkt_type == EFA_RDM_EAGER_TAGRTM_PKT ||
 	    pkt_type == EFA_RDM_DC_EAGER_MSGRTM_PKT ||
 	    pkt_type == EFA_RDM_DC_EAGER_TAGRTM_PKT) {
-		return efa_rdm_pke_proc_matched_eager_rtm(pkt_entry, cq_fid);
+
+		ret = efa_rdm_pke_proc_matched_eager_rtm(pkt_entry, cq_fid);
+
+		return ret;
+
 	}
 
 	assert(pkt_type == EFA_RDM_LONGCTS_MSGRTM_PKT ||
@@ -326,8 +330,6 @@ ssize_t efa_rdm_pke_proc_msgrtm(struct efa_rdm_pke *pkt_entry, struct fid_cq *cq
 			return -FI_ENOBUFS;
 		}
 	}
-
-
 
 	pkt_entry->ope = rxe;
 
@@ -465,7 +467,6 @@ ssize_t efa_rdm_pke_proc_rtm_rta(struct efa_rdm_pke *pkt_entry, struct fid_cq *c
  */
 void efa_rdm_pke_handle_rtm_rta_recv(struct efa_rdm_pke *pkt_entry, struct fid_cq *cq_fid)
 {
-
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_base_hdr *base_hdr;
 	struct efa_rdm_peer *peer;
@@ -548,12 +549,15 @@ void efa_rdm_pke_handle_rtm_rta_recv(struct efa_rdm_pke *pkt_entry, struct fid_c
 	if (OFI_UNLIKELY(ret))
 		return;
 
-
-
 	if (slide_recvwin) {
 		ofi_recvwin_slide((&peer->robuf));
 	}
 	efa_rdm_peer_proc_pending_items_in_robuf(peer, ep);
+
+
+
+
+
 }
 
 /**

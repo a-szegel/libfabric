@@ -504,7 +504,6 @@ static inline void efa_rdm_ep_poll_ibv_cq(struct efa_rdm_ep *ep, size_t cqe_to_p
 			pkt_entry->pkt_size = ibv_wc_read_byte_len(ep->ibv_cq_ex);
 			assert(pkt_entry->pkt_size > 0);
 			efa_rdm_pke_handle_recv_completion(pkt_entry, cq_fid);
-			// 32 NS from here to end
 
 #if ENABLE_DEBUG
 			ep->recv_comps++;

@@ -285,6 +285,10 @@ static inline
 int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 				     struct efa_rdm_ope *rxe, struct fid_cq *cq_fid)
 {
+	struct timespec start, end, result1, result2;
+
+
+
 	static const int max_blocking_copy_rxe_num = 4;
 	struct efa_mr *desc;
 	struct efa_rdm_ep *ep;
@@ -345,6 +349,7 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 
 	/* when both local read and gdrcopy are available, we use a mixed approach */
 
+
 	if (rxe->cuda_copy_method != EFA_RDM_CUDA_COPY_LOCALREAD) {
 		assert(rxe->bytes_copied + pke->payload_size <= rxe->total_len);
 
@@ -353,12 +358,47 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 		 */
 		if (rxe->bytes_copied + pke->payload_size == rxe->total_len) {
 			assert(desc->peer.hmem_data);
+
+			// Refresh timer in cache
+			clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+			clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+
+			// Start time
+			clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+
 			ofi_gdrcopy_to_cuda_iov((uint64_t)desc->peer.hmem_data,
 			                        rxe->iov, rxe->iov_count,
 			                        segment_offset + ep->msg_prefix_size,
 			                        pke->payload, pke->payload_size);
 
+			// End time
+			clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+			timespec_diff_cq(&start, &end, &result1);
+
+			// Refresh timer in cache
+			clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+			clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+
+			// Start time
+			clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+
 			efa_rdm_pke_handle_data_copied(pke, cq_fid);
+
+			// End time
+			clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+			timespec_diff_cq(&start, &end, &result2);
+
+
+
+			if (pke->payload_size == 1024 && cq_fid && cq_fid->count_fruitful_progress < cq_fid->iterations + cq_fid->warmup_iterations) {
+				if (cq_fid->count_fruitful_progress >= cq_fid->warmup_iterations) {
+					cq_fid->fruitful_progress_p1[cq_fid->count_fruitful_progress - cq_fid->warmup_iterations] = result1.tv_nsec;
+					cq_fid->fruitful_progress_p2[cq_fid->count_fruitful_progress - cq_fid->warmup_iterations] = result2.tv_nsec;
+					cq_fid->fruitful_progress_num_events[cq_fid->count_fruitful_progress - cq_fid->warmup_iterations] = 1;
+				}
+				cq_fid->count_fruitful_progress++;
+			}
+
 
 			return 0;
 		}
