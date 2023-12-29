@@ -84,7 +84,7 @@ void test_efa_rdm_ep_ignore_non_hex_host_id(struct efa_resource **state)
  *	the packet header and set the peer host id if HOST_ID_HDR is turned on.
  *	Then the endpoint should respond with a handshake packet, and include the local host id
  *	if and only if it is non-zero.
- * 
+ *
  * @param[in]	state		cmocka state variable
  * @param[in]	local_host_id	The local host id
  * @param[in]	peer_host_id	The remote peer host id
@@ -116,9 +116,12 @@ void test_efa_rdm_ep_handshake_exchange_host_id(struct efa_resource **state, uin
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 	efa_rdm_ep->host_id = g_efa_unit_test_mocks.local_host_id;
 	/* close shm_ep to force efa_rdm_ep to use efa device to send */
-	ret = fi_close(&efa_rdm_ep->shm_ep->fid);
-	assert_int_equal(ret, 0);
-	efa_rdm_ep->shm_ep = NULL;
+	if (efa_rdm_ep->shm_ep) {
+		ret = fi_close(&efa_rdm_ep->shm_ep->fid);
+		assert_int_equal(ret, 0);
+		efa_rdm_ep->shm_ep = NULL;
+	}
+
 
 	/* Create and register a fake peer */
 	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
