@@ -238,10 +238,10 @@ The name of the access domain.
 
 The threading model specifies the level of serialization required of
 an application when using the libfabric data transfer interfaces.
-Control interfaces are always considered thread safe, and may be
-accessed by multiple threads.  Applications which can guarantee
-serialization in their access of provider allocated resources and
-interfaces enables a provider to eliminate lower-level locks.
+Unless otherwise noted, control interfaces are always considered
+thread safe, and may be accessed by multiple threads.  Applications
+which can guarantee serialization in their access of provider allocated
+resources and interfaces enables a provider to eliminate lower-level locks.
 
 *FI_THREAD_COMPLETION*
 : The completion threading model is intended for providers that make use
@@ -260,6 +260,12 @@ interfaces enables a provider to eliminate lower-level locks.
 *FI_THREAD_DOMAIN*
 : A domain serialization model requires applications to serialize
   access to all objects belonging to a domain.
+
+*FI_THREAD_DOMAIN_UNSAFE*
+: A domain serialization model requires applications to serialize
+  access to all objects belonging to a domain. Control interfaces
+  are not thread safe. This will only remove additional locks if
+  both progress and control models are set to manual.
 
 *FI_THREAD_ENDPOINT*
 : The endpoint threading model is similar to FI_THREAD_FID, but with

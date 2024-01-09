@@ -1,4 +1,4 @@
-/*
+ /*
  * Copyright (c) 2014-2017 Intel Corp., Inc.  All rights reserved.
  * Copyright (c) 2016 Cisco Systems, Inc.  All rights reserved.
  * Copyright (c) 2022 DataDirect Networks, Inc. All rights reserved.
@@ -156,6 +156,7 @@ ofi_tostr_threading(char *buf, size_t len, enum fi_threading threading)
 	CASEENUMSTRN(FI_THREAD_DOMAIN, len);
 	CASEENUMSTRN(FI_THREAD_COMPLETION, len);
 	CASEENUMSTRN(FI_THREAD_ENDPOINT, len);
+	CASEENUMSTRN(FI_THREAD_DOMAIN_UNSAFE, len);
 	default:
 		ofi_strncatf(buf, len, "Unknown");
 		break;
