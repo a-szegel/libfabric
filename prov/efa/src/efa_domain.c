@@ -207,6 +207,7 @@ int efa_domain_open(struct fid_fabric *fabric_fid, struct fi_info *info,
 {
 	struct efa_domain *efa_domain;
 	int ret = 0, err;
+	enum ofi_lock_type domain_lock_type;
 
 	efa_domain = calloc(1, sizeof(struct efa_domain));
 	if (!efa_domain)
@@ -216,15 +217,16 @@ int efa_domain_open(struct fid_fabric *fabric_fid, struct fi_info *info,
 	efa_domain->fabric = container_of(fabric_fid, struct efa_fabric,
 					  util_fabric.fabric_fid);
 
-	err = ofi_domain_init(fabric_fid, info, &efa_domain->util_domain,
-			      context, OFI_LOCK_MUTEX);
+	domain_lock_type = info->domain_attr->threading != FI_THREAD_DOMAIN_RELAXED ?
+				OFI_LOCK_MUTEX : OFI_LOCK_NOOP;
+	err = ofi_domain_init(fabric_fid, info, &efa_domain->util_domain, context, domain_lock_type);
 	if (err) {
 		ret = err;
 		goto err_free;
 	}
 
 	err = ofi_genlock_init(&efa_domain->srx_lock, efa_domain->util_domain.threading != FI_THREAD_SAFE ?
-			       OFI_LOCK_NOOP : OFI_LOCK_MUTEX);
+					OFI_LOCK_NOOP : OFI_LOCK_MUTEX);
 	if (err) {
 		EFA_WARN(FI_LOG_DOMAIN, "srx lock init failed! err: %d\n", err);
 		ret = err;
