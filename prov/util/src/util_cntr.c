@@ -390,7 +390,11 @@ int ofi_cntr_init(const struct fi_provider *prov, struct fid_domain *domain,
 			goto errout_close_wait;
 	}
 
-	ret = ofi_genlock_init(&cntr->ep_list_lock, OFI_LOCK_MUTEX);
+	ret = ofi_genlock_init(&cntr->ep_list_lock,
+			       cntr->domain->threading == FI_THREAD_DOMAIN_UNSAFE &&
+			       cntr->domain->data_progress == FI_PROGRESS_MANUAL &&
+			       cntr->domain->control_progress == FI_PROGRESS_MANUAL ?
+					OFI_LOCK_NOOP : OFI_LOCK_MUTEX);
 	if (ret)
 		goto errout_close_wait;
 

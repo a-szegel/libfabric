@@ -553,7 +553,11 @@ int ofi_av_init_lightweight(struct util_domain *domain, const struct fi_av_attr 
 	av->context = context;
 	av->domain = domain;
 
-	ret = ofi_genlock_init(&av->ep_list_lock, OFI_LOCK_MUTEX);
+	ret = ofi_genlock_init(&av->ep_list_lock,
+			       av->domain->threading == FI_THREAD_DOMAIN_UNSAFE &&
+			       av->domain->data_progress == FI_PROGRESS_MANUAL &&
+			       av->domain->control_progress == FI_PROGRESS_MANUAL ?
+					OFI_LOCK_NOOP : OFI_LOCK_MUTEX);
 	if (ret)
 		return ret;
 
