@@ -156,6 +156,7 @@ ofi_tostr_threading(char *buf, size_t len, enum fi_threading threading)
 	CASEENUMSTRN(FI_THREAD_DOMAIN, len);
 	CASEENUMSTRN(FI_THREAD_COMPLETION, len);
 	CASEENUMSTRN(FI_THREAD_ENDPOINT, len);
+	CASEENUMSTRN(FI_THREAD_DOMAIN_RELAXED, len);
 	default:
 		ofi_strncatf(buf, len, "Unknown");
 		break;

@@ -266,6 +266,7 @@ enum fi_threading {
 	FI_THREAD_DOMAIN,
 	FI_THREAD_COMPLETION,
 	FI_THREAD_ENDPOINT,
+	FI_THREAD_DOMAIN_RELAXED,
 };
 
 enum fi_resource_mgmt {

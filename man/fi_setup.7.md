@@ -408,8 +408,11 @@ by the application.  (This is usually a result of keeping the provider
 implementation simpler).
 
 It is recommended that applications target either FI_THREAD_SAFE (full thread
-safety implemented by the provider) or FI_THREAD_DOMAIN (objects associated
-with a single domain will only be accessed by a single thread).
+safety implemented by the provider), FI_THREAD_DOMAIN (objects associated
+with a single domain will only be accessed by a single thread with a thread
+safe control interface), or FI_THREAD_DOMAIN_RELAXED (objects associated with
+a single domain will only be accessed by a single thread without a thread safe
+control interface).
 
 ## Progress (fi_progress)
 
