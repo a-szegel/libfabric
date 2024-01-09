@@ -553,7 +553,9 @@ int ofi_av_init_lightweight(struct util_domain *domain, const struct fi_av_attr 
 	av->context = context;
 	av->domain = domain;
 
-	ret = ofi_genlock_init(&av->ep_list_lock, OFI_LOCK_MUTEX);
+	ret = ofi_genlock_init(&av->ep_list_lock,
+			       av->domain->threading != FI_THREAD_DOMAIN_RELAXED ?
+					OFI_LOCK_MUTEX : OFI_LOCK_NOOP);
 	if (ret)
 		return ret;
 

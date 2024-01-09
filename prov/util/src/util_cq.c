@@ -727,7 +727,8 @@ int ofi_cq_init(const struct fi_provider *prov, struct fid_domain *domain,
 	dlist_init(&cq->ep_list);
 
 	if (cq->domain->threading == FI_THREAD_COMPLETION ||
-	    cq->domain->threading == FI_THREAD_DOMAIN)
+	    cq->domain->threading == FI_THREAD_DOMAIN ||
+	    cq->domain->threading == FI_THREAD_DOMAIN_RELAXED)
 		lock_type = OFI_LOCK_NOOP;
 	else
 		lock_type = cq->domain->lock.lock_type;
@@ -736,8 +737,9 @@ int ofi_cq_init(const struct fi_provider *prov, struct fid_domain *domain,
 	if (ret)
 		return ret;
 
-	/* TODO Figure out how to optimize this lock for rdm and msg endpoints */
-	ret = ofi_genlock_init(&cq->ep_list_lock, OFI_LOCK_MUTEX);
+	ret = ofi_genlock_init(&cq->ep_list_lock,
+			       cq->domain->threading != FI_THREAD_DOMAIN_RELAXED ?
+					OFI_LOCK_MUTEX : OFI_LOCK_NOOP);
 	if (ret)
 		goto destroy1;
 
