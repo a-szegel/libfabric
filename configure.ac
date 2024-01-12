@@ -227,6 +227,10 @@ AC_CHECK_FUNC([pthread_spin_init],
 	[have_spinlock=1],
 	[have_spinlock=0])
 
+# AC_CHECK_LIB(urcu, pthread_mutex_init, [],
+#     AC_MSG_ERROR([pthread_mutex_init() not found.  libfabric requires libpthread.]))
+
+
 dnl shm_open not used in the common code on os-x
 
 if test "$macos" -eq 0; then
@@ -444,6 +448,9 @@ AC_DEFINE_UNQUOTED([HAVE_XPMEM], [$xpmem_happy],
 LIBS="$LIBS $xpmem_LIBS"
 CPPFLAGS="$CPPFLAGS $xpmem_CPPFLAGS"
 LDFLAGS="$LDFLAGS $xpmem_LDFLAGS"
+
+LDFLAGS="$LDFLAGS -lurcu-bp"
+LIBS="$LIBS -lurcu-bp"
 
 dnl Disable symbol versioning when -ipo is in CFLAGS or ipo is disabled by icc.
 dnl The gcc equivalent ipo (-fwhole-program) seems to work fine.

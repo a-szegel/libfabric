@@ -30,11 +30,17 @@
  * SOFTWARE.
  */
 
+#define URCU_INLINE_SMALL_FUNCTIONS
+
 #include <stdlib.h>
 #include <string.h>
 
 #include <ofi_enosys.h>
 #include <ofi_util.h>
+
+#include <urcu-bp.h>	/* Bulletproof RCU flavor */
+#include <urcu/rculist.h>	/* List example */
+#include <urcu/compiler.h>	/* For CAA_ARRAY_SIZE */
 
 #define UTIL_DEF_CQ_SIZE (1024)
 
@@ -449,7 +455,6 @@ int ofi_cq_cleanup(struct util_cq *cq)
 	}
 
 	ofi_genlock_destroy(&cq->cq_lock);
-	ofi_genlock_destroy(&cq->ep_list_lock);
 	ofi_atomic_dec32(&cq->domain->ref);
 	return 0;
 }
@@ -516,17 +521,18 @@ int ofi_check_bind_cq_flags(struct util_ep *ep, struct util_cq *cq,
 void ofi_cq_progress(struct util_cq *cq)
 {
 	struct util_ep *ep;
-	struct fid_list_entry *fid_entry;
-	struct dlist_entry *item;
 
-	ofi_genlock_lock(&cq->ep_list_lock);
-	dlist_foreach(&cq->ep_list, item) {
-		fid_entry = container_of(item, struct fid_list_entry, entry);
-		ep = container_of(fid_entry->fid, struct util_ep, ep_fid.fid);
-		ep->progress(ep);
-
+	urcu_bp_read_lock();
+	if (cq->flags & FI_TRANSMIT) {
+		cds_list_for_each_entry_rcu(ep, &cq->ep_list, tx_rcu_node) {
+			ep->progress(ep);
+		}
+	} else {
+		cds_list_for_each_entry_rcu(ep, &cq->ep_list, rx_rcu_node) {
+			ep->progress(ep);
+		}
 	}
-	ofi_genlock_unlock(&cq->ep_list_lock);
+	urcu_bp_read_unlock();
 }
 
 static ssize_t util_peer_cq_write(struct fid_peer_cq *cq, void *context,
@@ -736,11 +742,6 @@ int ofi_cq_init(const struct fi_provider *prov, struct fid_domain *domain,
 	if (ret)
 		return ret;
 
-	/* TODO Figure out how to optimize this lock for rdm and msg endpoints */
-	ret = ofi_genlock_init(&cq->ep_list_lock, OFI_LOCK_MUTEX);
-	if (ret)
-		goto destroy1;
-
 	cq->flags = attr->flags;
 	cq->cq_fid.fid.fclass = FI_CLASS_CQ;
 	cq->cq_fid.fid.context = context;
@@ -798,8 +799,6 @@ int ofi_cq_init(const struct fi_provider *prov, struct fid_domain *domain,
 cleanup:
 	util_peer_cq_cleanup(cq);
 destroy2:
-	ofi_genlock_destroy(&cq->ep_list_lock);
-destroy1:
 	ofi_genlock_destroy(&cq->cq_lock);
 	return ret;
 }

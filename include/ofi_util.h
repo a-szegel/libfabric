@@ -42,6 +42,10 @@
 #include <pthread.h>
 #include <stdio.h>
 
+
+#define URCU_INLINE_SMALL_FUNCTIONS
+#include <urcu/rculist.h>
+
 #include <rdma/fabric.h>
 #include <rdma/fi_atomic.h>
 #include <rdma/fi_cm.h>
@@ -306,6 +310,8 @@ struct util_ep {
 
 	struct ofi_bitmask	*coll_cid_mask;
 	struct slist		coll_ready_queue;
+	struct cds_list_head 	tx_rcu_node;
+	struct cds_list_head 	rx_rcu_node;
 };
 
 int ofi_ep_bind_av(struct util_ep *util_ep, struct util_av *av);
@@ -503,8 +509,7 @@ struct util_cq {
 	struct util_domain	*domain;
 	struct util_wait	*wait;
 	ofi_atomic32_t		ref;
-	struct dlist_entry	ep_list;
-	struct ofi_genlock	ep_list_lock;
+	struct cds_list_head ep_list;
 	struct ofi_genlock	cq_lock;
 	uint64_t		flags;
 

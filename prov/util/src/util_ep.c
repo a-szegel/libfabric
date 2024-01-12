@@ -52,6 +52,10 @@ int ofi_ep_bind_cq(struct util_ep *ep, struct util_cq *cq, uint64_t flags)
 			ep->tx_msg_flags = FI_COMPLETION;
 		}
 		ofi_atomic_inc32(&cq->ref);
+		// losing functionality of checking for duplicates in list
+		// I don't think this is in API, so I am not convinced it matters
+		cds_list_add_tail_rcu(&ep->tx_rcu_node, cq->ep_list);
+		cq->flags |= FI_TRANSMIT;
 	}
 
 	if (flags & FI_RECV) {
@@ -61,12 +65,10 @@ int ofi_ep_bind_cq(struct util_ep *ep, struct util_cq *cq, uint64_t flags)
 			ep->rx_msg_flags = FI_COMPLETION;
 		}
 		ofi_atomic_inc32(&cq->ref);
-	}
-
-	if (flags & (FI_TRANSMIT | FI_RECV)) {
-		return fid_list_insert2(&cq->ep_list,
-				       &cq->ep_list_lock,
-				       &ep->ep_fid.fid);
+		// losing functionality of checking for duplicates in list
+		// I don't think this is in API, so I am not convinced it matters
+		cds_list_add_tail_rcu(&ep->rx_rcu_node, cq->ep_list);
+		cq->flags |= FI_RECV;
 	}
 
 	return FI_SUCCESS;
@@ -272,16 +274,14 @@ int ofi_endpoint_close(struct util_ep *util_ep)
 	int i;
 
 	if (util_ep->tx_cq) {
-		fid_list_remove2(&util_ep->tx_cq->ep_list,
-				&util_ep->tx_cq->ep_list_lock,
-				&util_ep->ep_fid.fid);
+		cds_list_del_rcu(&util_ep->tx_rcu_node);
+		urcu_bp_synchronize_rcu();
 		ofi_atomic_dec32(&util_ep->tx_cq->ref);
 	}
 
 	if (util_ep->rx_cq) {
-		fid_list_remove2(&util_ep->rx_cq->ep_list,
-				&util_ep->rx_cq->ep_list_lock,
-				&util_ep->ep_fid.fid);
+		cds_list_del_rcu(&util_ep->rx_rcu_node);
+		urcu_bp_synchronize_rcu();
 		ofi_atomic_dec32(&util_ep->rx_cq->ref);
 	}
 

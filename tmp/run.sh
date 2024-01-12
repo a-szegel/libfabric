@@ -1,0 +1,1 @@
+LD_LIBRARY_PATH=$HOME/userspace-rcu/install/lib ./test_rcu_link
