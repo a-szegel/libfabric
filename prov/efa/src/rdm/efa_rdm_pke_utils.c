@@ -371,6 +371,11 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 			                        segment_offset + ep->msg_prefix_size,
 			                        pke->payload, pke->payload_size);
 
+			// Time both ofi_gdrcopy_to_cuda_iov(), and efa_rdm_pke_handle_data_copied() together
+			// Time separate 220-226ns
+			// Time together 404-410ns
+			efa_rdm_pke_handle_data_copied(pke, cq_fid);
+
 			// End time
 			clock_gettime(CLOCK_MONOTONIC_RAW, &end);
 			timespec_diff_cq(&start, &end, &result1);
@@ -382,7 +387,6 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 			// Start time
 			clock_gettime(CLOCK_MONOTONIC_RAW, &start);
 
-			efa_rdm_pke_handle_data_copied(pke, cq_fid);
 
 			// End time
 			clock_gettime(CLOCK_MONOTONIC_RAW, &end);
