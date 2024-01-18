@@ -503,8 +503,8 @@ struct util_cq {
 	struct util_domain	*domain;
 	struct util_wait	*wait;
 	ofi_atomic32_t		ref;
-	struct dlist_entry	ep_list;
 	struct ofi_genlock	ep_list_lock;
+	struct dlist_entry	ep_list;
 	struct ofi_genlock	cq_lock;
 	uint64_t		flags;
 
