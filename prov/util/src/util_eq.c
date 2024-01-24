@@ -228,10 +228,17 @@ int ofi_eq_cleanup(struct fid *fid)
 	struct util_eq *eq;
 	struct slist_entry *entry;
 	struct util_event *event;
+	struct util_ep *ep;
+	struct dlist_entry *item;
 
 	eq = container_of(fid, struct util_eq, eq_fid.fid);
 	if (ofi_atomic_get32(&eq->ref))
 		return -FI_EBUSY;
+
+	dlist_foreach(&eq->ep_list, item) {
+		ep = container_of(item, struct util_ep, eq_entry);
+		ep->eq = NULL;
+	}
 
 	while (!slist_empty(&eq->list)) {
 		entry = slist_remove_head(&eq->list);

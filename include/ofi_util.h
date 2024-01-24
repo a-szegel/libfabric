@@ -67,6 +67,7 @@
 #include <ofi_epoll.h>
 #include <ofi_proto.h>
 #include <ofi_bitmask.h>
+#include <ofi_rcu.h>
 
 #include "rbtree.h"
 #include "uthash.h"
@@ -274,6 +275,7 @@ struct util_cntr;
 struct util_ep;
 typedef void (*ofi_ep_progress_func)(struct util_ep *util_ep);
 typedef void (*ofi_cntr_inc_func)(struct util_cntr *util_cntr);
+typedef void (*ofi_ep_provider_cleanup_func)(struct util_ep *util_ep);
 
 struct util_ep {
 	struct fid_ep		ep_fid;
@@ -307,6 +309,8 @@ struct util_ep {
 
 	struct ofi_bitmask	*coll_cid_mask;
 	struct slist		coll_ready_queue;
+	ofi_atomic32_t		cq_ref;
+	ofi_ep_provider_cleanup_func prov_cleanup;
 };
 
 int ofi_ep_bind_av(struct util_ep *util_ep, struct util_av *av);
@@ -316,9 +320,11 @@ int ofi_ep_bind_cntr(struct util_ep *ep, struct util_cntr *cntr, uint64_t flags)
 int ofi_ep_bind(struct util_ep *util_ep, struct fid *fid, uint64_t flags);
 int ofi_endpoint_init(struct fid_domain *domain, const struct util_prov *util_prov,
 		      struct fi_info *info, struct util_ep *ep, void *context,
-		      ofi_ep_progress_func progress);
+		      ofi_ep_progress_func progress, ofi_ep_provider_cleanup_func cleanup);
 
+void ofi_endpoint_clean_resources(struct util_ep *util_ep);
 int ofi_endpoint_close(struct util_ep *util_ep);
+int ofi_endpoint_close_imm(struct util_ep *util_ep);
 
 static inline int
 ofi_ep_fid_bind(struct fid *ep_fid, struct fid *bfid, uint64_t flags)
@@ -504,8 +510,11 @@ struct util_cq {
 	struct util_domain	*domain;
 	struct util_wait	*wait;
 	ofi_atomic32_t		ref;
-	struct dlist_entry	ep_list;
-	struct ofi_genlock	ep_list_lock;
+
+	ofi_mutex_t		cntrl_iface_lock;
+	struct ofi_rcu_list	*ep_list;
+	struct dlist_entry	ep_list_to_delete;
+
 	struct ofi_genlock	cq_lock;
 	uint64_t		flags;
 

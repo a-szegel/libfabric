@@ -546,15 +546,15 @@ static struct fi_ops_msg udpx_msg_mcast_ops = {
 	.injectdata = fi_no_msg_injectdata,
 };
 
-static int udpx_ep_close(struct fid *fid)
+void udpx_ep_close_resources(struct util_ep *util_ep)
 {
 	struct udpx_ep *ep;
 	struct util_wait_fd *wait;
+	ep = container_of(util_ep, struct udpx_ep, util_ep);
 
-	ep = container_of(fid, struct udpx_ep, util_ep.ep_fid.fid);
 	if (ofi_atomic_get32(&ep->ref)) {
 		FI_WARN(&udpx_prov, FI_LOG_EP_CTRL, "EP busy\n");
-		return -FI_EBUSY;
+		return;
 	}
 
 	if (ep->util_ep.rx_cq) {
@@ -563,22 +563,28 @@ static int udpx_ep_close(struct fid *fid)
 					    struct util_wait_fd, util_wait);
 			ofi_epoll_del(wait->epoll_fd, (int)ep->sock);
 		}
-		fid_list_remove2(&ep->util_ep.rx_cq->ep_list,
-				&ep->util_ep.rx_cq->ep_list_lock,
-				&ep->util_ep.ep_fid.fid);
+
 	}
 
 	udpx_rx_cirq_free(ep->rxq);
 	ofi_close_socket(ep->sock);
-	ofi_endpoint_close(&ep->util_ep);
 	free(ep);
-	return 0;
+	return;
+}
+
+static int udpx_ep_close(struct fid *fid)
+{
+	struct udpx_ep *ep;
+
+	ep = container_of(fid, struct udpx_ep, util_ep.ep_fid.fid);
+	return ofi_endpoint_close(&ep->util_ep);
 }
 
 static int udpx_ep_bind_cq(struct udpx_ep *ep, struct util_cq *cq,
 			   uint64_t flags)
 {
 	struct util_wait_fd *wait;
+	struct ofi_rcu_list *tmp_ep_list = NULL;
 	int ret;
 
 	ret = ofi_check_bind_cq_flags(&ep->util_ep, cq, flags);
@@ -590,6 +596,24 @@ static int udpx_ep_bind_cq(struct udpx_ep *ep, struct util_cq *cq,
 		ofi_atomic_inc32(&cq->ref);
 		ep->tx_comp = cq->wait ? udpx_tx_comp_signal :
 					 udpx_tx_comp;
+
+		ofi_mutex_lock(&cq->cntrl_iface_lock);
+
+		if (ofi_rcu_is_item_in_list(cq->ep_list, ep)) {
+			ofi_mutex_unlock(&cq->cntrl_iface_lock);
+			return 0;
+		}
+
+		tmp_ep_list = ofi_rcu_list_create(cq->ep_list->num_items + 1);
+		ofi_rcu_list_copy(tmp_ep_list, cq->ep_list, cq->ep_list->num_items);
+
+		tmp_ep_list->items[tmp_ep_list->num_items - 1] = ep;
+		ofi_atomic_inc32(&ep->util_ep.cq_ref);
+
+		tmp_ep_list = ofi_rcu_list_swap(&cq->ep_list, tmp_ep_list);
+		ret = ofi_rcu_list_to_delete_insert(&cq->ep_list_to_delete, tmp_ep_list, NULL);
+
+		ofi_mutex_unlock(&cq->cntrl_iface_lock);
 	}
 
 	if (flags & FI_RECV) {
@@ -614,14 +638,26 @@ static int udpx_ep_bind_cq(struct udpx_ep *ep, struct util_cq *cq,
 				udpx_rx_src_comp : udpx_rx_comp;
 		}
 
-		ret = fid_list_insert2(&cq->ep_list,
-				      &cq->ep_list_lock,
-				      &ep->util_ep.ep_fid.fid);
-		if (ret)
-			return ret;
+		ofi_mutex_lock(&cq->cntrl_iface_lock);
+
+		if (ofi_rcu_is_item_in_list(cq->ep_list, ep)) {
+			ofi_mutex_unlock(&cq->cntrl_iface_lock);
+			return 0;
+		}
+
+		tmp_ep_list = ofi_rcu_list_create(cq->ep_list->num_items + 1);
+		ofi_rcu_list_copy(tmp_ep_list, cq->ep_list, cq->ep_list->num_items);
+
+		tmp_ep_list->items[tmp_ep_list->num_items - 1] = ep;
+		ofi_atomic_inc32(&ep->util_ep.cq_ref);
+
+		tmp_ep_list = ofi_rcu_list_swap(&cq->ep_list, tmp_ep_list);
+		ret = ofi_rcu_list_to_delete_insert(&cq->ep_list_to_delete, tmp_ep_list, NULL);
+
+		ofi_mutex_unlock(&cq->cntrl_iface_lock);
 	}
 
-	return 0;
+	return ret;
 }
 
 static int udpx_ep_bind(struct fid *ep_fid, struct fid *bfid, uint64_t flags)
@@ -771,7 +807,7 @@ int udpx_endpoint(struct fid_domain *domain, struct fi_info *info,
 		return -FI_ENOMEM;
 
 	ret = ofi_endpoint_init(domain, &udpx_util_prov, info, &ep->util_ep,
-				context, udpx_ep_progress);
+				context, udpx_ep_progress, udpx_ep_close_resources);
 	if (ret)
 		goto err1;
 
@@ -788,6 +824,7 @@ int udpx_endpoint(struct fid_domain *domain, struct fi_info *info,
 
 	return 0;
 err2:
+	ep->util_ep.prov_cleanup = NULL;
 	ofi_endpoint_close(&ep->util_ep);
 err1:
 	free(ep);

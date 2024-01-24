@@ -39,11 +39,14 @@
 
 int ofi_ep_bind_cq(struct util_ep *ep, struct util_cq *cq, uint64_t flags)
 {
-	int ret;
+	int ret = FI_SUCCESS;
+	struct ofi_rcu_list *tmp_ep_list = NULL;
+
+	ofi_mutex_lock(&cq->cntrl_iface_lock);
 
 	ret = ofi_check_bind_cq_flags(ep, cq, flags);
 	if (ret)
-		return ret;
+		goto out;
 
 	if (flags & FI_TRANSMIT) {
 		ep->tx_cq = cq;
@@ -64,12 +67,22 @@ int ofi_ep_bind_cq(struct util_ep *ep, struct util_cq *cq, uint64_t flags)
 	}
 
 	if (flags & (FI_TRANSMIT | FI_RECV)) {
-		return fid_list_insert2(&cq->ep_list,
-				       &cq->ep_list_lock,
-				       &ep->ep_fid.fid);
+		if (ofi_rcu_is_item_in_list(cq->ep_list, ep))
+			goto out;
+
+		tmp_ep_list = ofi_rcu_list_create(cq->ep_list->num_items + 1);
+		ofi_rcu_list_copy(tmp_ep_list, cq->ep_list, cq->ep_list->num_items);
+
+		tmp_ep_list->items[tmp_ep_list->num_items - 1] = ep;
+		ofi_atomic_inc32(&ep->cq_ref);
+
+		tmp_ep_list = ofi_rcu_list_swap(&cq->ep_list, tmp_ep_list);
+		ret = ofi_rcu_list_to_delete_insert(&cq->ep_list_to_delete, tmp_ep_list, NULL);
 	}
 
-	return FI_SUCCESS;
+out:
+	ofi_mutex_unlock(&cq->cntrl_iface_lock);
+	return ret;
 }
 
 int ofi_ep_bind_eq(struct util_ep *ep, struct util_eq *eq)
@@ -212,7 +225,7 @@ static inline int util_coll_init_cid_mask(struct ofi_bitmask *mask)
 
 int ofi_endpoint_init(struct fid_domain *domain, const struct util_prov *util_prov,
 		      struct fi_info *info, struct util_ep *ep, void *context,
-		      ofi_ep_progress_func progress)
+		      ofi_ep_progress_func progress, ofi_ep_provider_cleanup_func cleanup)
 {
 	struct util_domain *util_domain;
 	int ret;
@@ -235,6 +248,7 @@ int ofi_endpoint_init(struct fid_domain *domain, const struct util_prov *util_pr
 	ep->caps = info->caps;
 	ep->flags = 0;
 	ep->progress = progress;
+	ep->prov_cleanup = cleanup;
 	ep->tx_op_flags = info->tx_attr->op_flags;
 	ep->rx_op_flags = info->rx_attr->op_flags;
 	ep->tx_msg_flags = 0;
@@ -269,33 +283,31 @@ int ofi_endpoint_init(struct fid_domain *domain, const struct util_prov *util_pr
 		ep->coll_cid_mask = NULL;
 	}
 	slist_init(&ep->coll_ready_queue);
+	ofi_atomic_initialize32(&ep->cq_ref, 0);
 	return 0;
 }
 
-int ofi_endpoint_close(struct util_ep *util_ep)
+void ofi_endpoint_clean_resources(struct util_ep *util_ep)
 {
 	int i;
 
-	if (util_ep->tx_cq) {
-		fid_list_remove2(&util_ep->tx_cq->ep_list,
-				&util_ep->tx_cq->ep_list_lock,
-				&util_ep->ep_fid.fid);
-		ofi_atomic_dec32(&util_ep->tx_cq->ref);
-	}
+	if (!util_ep)
+		return;
 
-	if (util_ep->rx_cq) {
-		fid_list_remove2(&util_ep->rx_cq->ep_list,
-				&util_ep->rx_cq->ep_list_lock,
-				&util_ep->ep_fid.fid);
-		ofi_atomic_dec32(&util_ep->rx_cq->ref);
-	}
+	/* Do not clean EP resources until all CQ's have unbound */
+	if (ofi_atomic_get32(&util_ep->cq_ref))
+		return;
+
+	/* Delete provider specific resources in EP. This allows
+	 * providers to use util_ep resources during their deletion */
+	if (util_ep->prov_cleanup)
+		util_ep->prov_cleanup(util_ep);
 
 	for (i = 0; i < CNTR_CNT; i++) {
 		if (util_ep->cntrs[i]) {
 			fid_list_remove2(&util_ep->cntrs[i]->ep_list,
 					&util_ep->cntrs[i]->ep_list_lock,
 					&util_ep->ep_fid.fid);
-			ofi_atomic_dec32(&util_ep->cntrs[i]->ref);
 		}
 	}
 
@@ -303,8 +315,6 @@ int ofi_endpoint_close(struct util_ep *util_ep)
 		ofi_genlock_lock(&util_ep->av->ep_list_lock);
 		dlist_remove(&util_ep->av_entry);
 		ofi_genlock_unlock(&util_ep->av->ep_list_lock);
-
-		ofi_atomic_dec32(&util_ep->av->ref);
 	}
 
 	if (util_ep->coll_cid_mask) {
@@ -319,9 +329,107 @@ int ofi_endpoint_close(struct util_ep *util_ep)
 		ofi_genlock_lock(&util_ep->eq->ep_list_lock);
 		dlist_remove(&util_ep->eq_entry);
 		ofi_genlock_unlock(&util_ep->eq->ep_list_lock);
-		ofi_atomic_dec32(&util_ep->eq->ref);
 	}
 	ofi_atomic_dec32(&util_ep->domain->ref);
 	ofi_genlock_destroy(&util_ep->lock);
-	return 0;
+	ofi_atomic_dec32(&util_ep->cq_ref);
+}
+
+int ofi_endpoint_close(struct util_ep *util_ep)
+{
+	struct ofi_rcu_list *tmp_ep_list;
+	int i;
+
+	if (util_ep->tx_cq || util_ep->rx_cq) {
+		if (util_ep->tx_cq) {
+			if (util_ep->tx_cq->ep_list) {
+				ofi_mutex_lock(&util_ep->tx_cq->cntrl_iface_lock);
+				tmp_ep_list = ofi_rcu_list_clone_list_without_item(util_ep->tx_cq->ep_list, util_ep);
+				tmp_ep_list = ofi_rcu_list_swap(&util_ep->tx_cq->ep_list, tmp_ep_list);
+				ofi_rcu_list_to_delete_insert(&util_ep->tx_cq->ep_list_to_delete, tmp_ep_list, util_ep);
+				ofi_atomic_dec32(&util_ep->cq_ref);
+				ofi_mutex_unlock(&util_ep->tx_cq->cntrl_iface_lock);
+			}
+			ofi_atomic_dec32(&util_ep->tx_cq->ref);
+		}
+
+		if (util_ep->rx_cq) {
+			if (util_ep->rx_cq->ep_list && util_ep->rx_cq != util_ep->tx_cq) {
+				ofi_mutex_lock(&util_ep->rx_cq->cntrl_iface_lock);
+
+				tmp_ep_list = ofi_rcu_list_clone_list_without_item(util_ep->rx_cq->ep_list, util_ep);
+				tmp_ep_list = ofi_rcu_list_swap(&util_ep->rx_cq->ep_list, tmp_ep_list);
+				ofi_rcu_list_to_delete_insert(&util_ep->rx_cq->ep_list_to_delete, tmp_ep_list, util_ep);
+
+				ofi_atomic_dec32(&util_ep->cq_ref);
+
+				ofi_mutex_unlock(&util_ep->rx_cq->cntrl_iface_lock);
+			}
+			ofi_atomic_dec32(&util_ep->rx_cq->ref);
+		}
+	} else {
+		ofi_endpoint_clean_resources(util_ep);
+	}
+
+	/* Decrement bound resource ref counters so they can be deleted */
+	for (i = 0; i < CNTR_CNT; i++) {
+		if (util_ep->cntrs[i])
+			ofi_atomic_dec32(&util_ep->cntrs[i]->ref);
+	}
+
+	if (util_ep->av)
+		ofi_atomic_dec32(&util_ep->av->ref);
+
+	if (util_ep->eq)
+		ofi_atomic_dec32(&util_ep->eq->ref);
+
+	return FI_SUCCESS;
+}
+
+int ofi_endpoint_close_imm(struct util_ep *util_ep)
+{
+	struct ofi_rcu_list *tmp_ep_list;
+	int i;
+
+	if (util_ep->tx_cq || util_ep->rx_cq) {
+		if (util_ep->tx_cq) {
+			if (util_ep->tx_cq->ep_list) {
+				ofi_mutex_lock(&util_ep->tx_cq->cntrl_iface_lock);
+				tmp_ep_list = ofi_rcu_list_clone_list_without_item(util_ep->tx_cq->ep_list, util_ep);
+				tmp_ep_list = ofi_rcu_list_swap(&util_ep->tx_cq->ep_list, tmp_ep_list);
+				ofi_atomic_dec32(&util_ep->cq_ref);
+				ofi_mutex_unlock(&util_ep->tx_cq->cntrl_iface_lock);
+			}
+			ofi_atomic_dec32(&util_ep->tx_cq->ref);
+		}
+
+		if (util_ep->rx_cq) {
+			if (util_ep->rx_cq->ep_list && util_ep->rx_cq != util_ep->tx_cq) {
+				ofi_mutex_lock(&util_ep->rx_cq->cntrl_iface_lock);
+				tmp_ep_list = ofi_rcu_list_clone_list_without_item(util_ep->rx_cq->ep_list, util_ep);
+				tmp_ep_list = ofi_rcu_list_swap(&util_ep->rx_cq->ep_list, tmp_ep_list);
+				ofi_atomic_dec32(&util_ep->cq_ref);
+				ofi_mutex_unlock(&util_ep->rx_cq->cntrl_iface_lock);
+			}
+			ofi_atomic_dec32(&util_ep->rx_cq->ref);
+		}
+	} else {
+		ofi_endpoint_clean_resources(util_ep);
+	}
+
+	/* Decrement bound resource ref counters so they can be deleted */
+	for (i = 0; i < CNTR_CNT; i++) {
+		if (util_ep->cntrs[i])
+			ofi_atomic_dec32(&util_ep->cntrs[i]->ref);
+	}
+
+	if (util_ep->av)
+		ofi_atomic_dec32(&util_ep->av->ref);
+
+	if (util_ep->eq)
+		ofi_atomic_dec32(&util_ep->eq->ref);
+
+	ofi_endpoint_clean_resources(util_ep);
+
+	return FI_SUCCESS;
 }

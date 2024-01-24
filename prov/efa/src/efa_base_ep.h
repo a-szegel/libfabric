@@ -86,7 +86,8 @@ struct efa_base_ep {
 
 int efa_base_ep_bind_av(struct efa_base_ep *base_ep, struct efa_av *av);
 
-int efa_base_ep_destruct(struct efa_base_ep *base_ep);
+int efa_base_ep_close_util_ep(struct efa_base_ep *base_ep);
+int efa_base_ep_close_resources(struct efa_base_ep *base_ep);
 
 int efa_base_ep_enable(struct efa_base_ep *base_ep);
 
@@ -94,6 +95,7 @@ int efa_base_ep_construct(struct efa_base_ep *base_ep,
 			  struct fid_domain* domain_fid,
 			  struct fi_info *info,
 			  ofi_ep_progress_func progress,
+			  ofi_ep_provider_cleanup_func cleanup,
 			  void *context);
 
 int efa_base_ep_getname(fid_t fid, void *addr, size_t *addrlen);

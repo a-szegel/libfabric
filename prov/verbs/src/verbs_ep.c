@@ -396,6 +396,8 @@ static void vrb_util_ep_progress_noop(struct util_ep *util_ep)
 	assert(0);
 }
 
+void vrb_ep_close_resources(struct util_ep *util_ep);
+
 static struct vrb_ep *
 vrb_alloc_init_ep(struct fi_info *info, struct vrb_domain *domain,
 		     void *context)
@@ -429,7 +431,7 @@ vrb_alloc_init_ep(struct fi_info *info, struct vrb_domain *domain,
 
 	ret = ofi_endpoint_init(&domain->util_domain.domain_fid,
 				&vrb_util_prov, info, &ep->util_ep, context,
-				vrb_util_ep_progress_noop);
+				vrb_util_ep_progress_noop, vrb_ep_close_resources);
 	if (ret) {
 		VRB_WARN_ERR(FI_LOG_EP_CTRL, "ofi_endpoint_init", ret);
 		goto err2;
@@ -443,6 +445,7 @@ vrb_alloc_init_ep(struct fi_info *info, struct vrb_domain *domain,
 
 	return ep;
 err3:
+	ep->util_ep.prov_cleanup = NULL;
 	(void) ofi_endpoint_close(&ep->util_ep);
 err2:
 	vrb_free_wrs(ep);
@@ -513,16 +516,9 @@ static void vrb_flush_rq(struct vrb_ep *ep)
 
 static int vrb_close_free_ep(struct vrb_ep *ep)
 {
-	int ret;
-
 	free(ep->util_ep.ep_fid.msg);
 	ep->util_ep.ep_fid.msg = NULL;
 	free(ep->cm_priv_data);
-
-	ret = ofi_endpoint_close(&ep->util_ep);
-	if (ret)
-		return ret;
-
 	vrb_free_wrs(ep);
 	free(ep->info_attr.src_addr);
 	free(ep->info_attr.dest_addr);
@@ -546,18 +542,18 @@ static void vrb_ep_xrc_close(struct vrb_ep *ep)
 	xrc_ep->magic = 0;
 }
 
-static int vrb_ep_close(fid_t fid)
+void vrb_ep_close_resources(struct util_ep *util_ep)
 {
+	struct vrb_ep *ep;
 	int ret;
 	struct vrb_fabric *fab;
-	struct vrb_ep *ep =
-		container_of(fid, struct vrb_ep, util_ep.ep_fid.fid);
+	ep = container_of(util_ep, struct vrb_ep, util_ep);
 
 	switch (ep->util_ep.type) {
 	case FI_EP_MSG:
 		if (ep->eq) {
 			ofi_mutex_lock(&ep->eq->event_lock);
-			if (ep->eq->err.err && ep->eq->err.fid == fid) {
+			if (ep->eq->err.err && ep->eq->err.fid == &util_ep->ep_fid.fid) {
 				if (ep->eq->err.err_data) {
 					free(ep->eq->err.err_data);
 					ep->eq->err.err_data = NULL;
@@ -566,7 +562,7 @@ static int vrb_ep_close(fid_t fid)
 				ep->eq->err.err = 0;
 				ep->eq->err.prov_errno = 0;
 			}
-			vrb_eq_remove_events(ep->eq, fid);
+			vrb_eq_remove_events(ep->eq, &util_ep->ep_fid.fid);
 		}
 
 		if (vrb_is_xrc_ep(ep))
@@ -592,7 +588,6 @@ static int vrb_ep_close(fid_t fid)
 			ret = ibv_destroy_qp(ep->ibv_qp);
 			if (ret) {
 				VRB_WARN_ERRNO(FI_LOG_EP_CTRL, "ibv_destroy_qp");
-				return -errno;
 			}
 		}
 
@@ -605,7 +600,7 @@ static int vrb_ep_close(fid_t fid)
 	default:
 		VRB_WARN(FI_LOG_DOMAIN, "Unknown EP type\n");
 		assert(0);
-		return -FI_EINVAL;
+		return;
 	}
 
 	VRB_INFO(FI_LOG_DOMAIN, "EP %p is being closed\n", ep);
@@ -613,10 +608,15 @@ static int vrb_ep_close(fid_t fid)
 	ret = vrb_close_free_ep(ep);
 	if (ret) {
 		VRB_WARN_ERR(FI_LOG_DOMAIN, "vrb_close_free_ep", ret);
-		return ret;
 	}
+}
 
-	return 0;
+static int vrb_ep_close(fid_t fid)
+{
+	struct vrb_ep *ep =
+		container_of(fid, struct vrb_ep, util_ep.ep_fid.fid);
+
+	return ofi_endpoint_close(&ep->util_ep);
 }
 
 static inline int vrb_ep_xrc_set_tgt_chan(struct vrb_ep *ep)

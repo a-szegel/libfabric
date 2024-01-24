@@ -53,18 +53,9 @@ static int efa_base_ep_destruct_qp(struct efa_base_ep *base_ep)
 	return 0;
 }
 
-int efa_base_ep_destruct(struct efa_base_ep *base_ep)
+int efa_base_ep_close_resources(struct efa_base_ep *base_ep)
 {
 	int err;
-
-	/* We need to free the util_ep first to avoid race conditions
-	 * with other threads progressing the cq. */
-	if (base_ep->util_ep_initialized) {
-		err = ofi_endpoint_close(&base_ep->util_ep);
-		if (err)
-			EFA_WARN(FI_LOG_EP_CTRL, "Unable to close util EP\n");
-		base_ep->util_ep_initialized = false;
-	}
 
 	fi_freeinfo(base_ep->info);
 
@@ -77,6 +68,20 @@ int efa_base_ep_destruct(struct efa_base_ep *base_ep)
 		free(base_ep->efa_recv_wr_vec);
 
 	return err;
+}
+
+int efa_base_ep_close_util_ep(struct efa_base_ep *base_ep)
+{
+	int ret = FI_SUCCESS;
+
+	if (base_ep->util_ep_initialized) {
+		ret = ofi_endpoint_close(&base_ep->util_ep);
+		if (ret)
+			EFA_WARN(FI_LOG_EP_CTRL, "Unable to close util EP\n");
+		base_ep->util_ep_initialized = false;
+	}
+
+	return ret;
 }
 
 static int efa_generate_rdm_connid(void)
@@ -250,12 +255,13 @@ int efa_base_ep_construct(struct efa_base_ep *base_ep,
 			  struct fid_domain *domain_fid,
 			  struct fi_info *info,
 			  ofi_ep_progress_func progress,
+			  ofi_ep_provider_cleanup_func cleanup,
 			  void *context)
 {
 	int err;
 
 	err = ofi_endpoint_init(domain_fid, &efa_util_prov, info, &base_ep->util_ep,
-				context, progress);
+				context, progress, cleanup);
 	if (err)
 		return err;
 

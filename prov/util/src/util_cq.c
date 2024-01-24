@@ -430,6 +430,23 @@ static void util_peer_cq_cleanup(struct util_cq *cq)
 
 int ofi_cq_cleanup(struct util_cq *cq)
 {
+	struct dlist_entry *itr;
+	struct ofi_rcu_list_to_delete *list_entry;
+
+	dlist_foreach(&cq->ep_list_to_delete, itr) {
+		list_entry = container_of(itr, struct ofi_rcu_list_to_delete, entry);
+		ofi_rcu_list_destroy(&list_entry->rcu_list);
+		ofi_endpoint_clean_resources(list_entry->rcu_item);
+	}
+
+	while (!dlist_empty(&cq->ep_list_to_delete)) {
+		dlist_pop_front(&cq->ep_list_to_delete,
+				struct ofi_rcu_list_to_delete,
+				list_entry, entry);
+		free(list_entry);
+	}
+	ofi_rcu_list_destroy(&cq->ep_list);
+
 	if (ofi_atomic_get32(&cq->ref))
 		return -FI_EBUSY;
 
@@ -449,7 +466,7 @@ int ofi_cq_cleanup(struct util_cq *cq)
 	}
 
 	ofi_genlock_destroy(&cq->cq_lock);
-	ofi_genlock_destroy(&cq->ep_list_lock);
+	ofi_mutex_destroy(&cq->cntrl_iface_lock);
 	ofi_atomic_dec32(&cq->domain->ref);
 	return 0;
 }
@@ -516,17 +533,48 @@ int ofi_check_bind_cq_flags(struct util_ep *ep, struct util_cq *cq,
 void ofi_cq_progress(struct util_cq *cq)
 {
 	struct util_ep *ep;
-	struct fid_list_entry *fid_entry;
-	struct dlist_entry *item;
+	struct dlist_entry *itr;
+	struct ofi_rcu_list *ep_list_to_itr;
+	struct ofi_rcu_list_to_delete *list_entry;
+	bool need_lock = cq->domain->threading == FI_THREAD_DOMAIN ||
+			 	cq->domain->threading == FI_THREAD_COMPLETION ?
+			 	false : true;
 
-	ofi_genlock_lock(&cq->ep_list_lock);
-	dlist_foreach(&cq->ep_list, item) {
-		fid_entry = container_of(item, struct fid_list_entry, entry);
-		ep = container_of(fid_entry->fid, struct util_ep, ep_fid.fid);
-		ep->progress(ep);
+	if (need_lock)
+		ofi_mutex_lock(&cq->cntrl_iface_lock);
 
+	if (OFI_UNLIKELY(!dlist_empty(&cq->ep_list_to_delete))) {
+		if (!need_lock)
+			ofi_mutex_lock(&cq->cntrl_iface_lock);
+
+		dlist_foreach(&cq->ep_list_to_delete, itr) {
+			list_entry = container_of(itr, struct ofi_rcu_list_to_delete, entry);
+			ofi_rcu_list_destroy(&list_entry->rcu_list);
+			ofi_endpoint_clean_resources(list_entry->rcu_item);
+		}
+
+		while (!dlist_empty(&cq->ep_list_to_delete)) {
+			dlist_pop_front(&cq->ep_list_to_delete,
+					struct ofi_rcu_list_to_delete,
+					list_entry, entry);
+			free(list_entry);
+		}
+		dlist_init(&cq->ep_list_to_delete);
+
+		if (!need_lock)
+			ofi_mutex_unlock(&cq->cntrl_iface_lock);
 	}
-	ofi_genlock_unlock(&cq->ep_list_lock);
+
+	/* Grab a list pointer so it doesn't change while we iterate through it */
+	ep_list_to_itr = cq->ep_list;
+	for (int i = 0; i < ep_list_to_itr->num_items; i++) {
+		ep = ep_list_to_itr->items[i];
+		ep->progress(ep);
+	}
+
+
+	if (need_lock)
+		ofi_mutex_unlock(&cq->cntrl_iface_lock);
 }
 
 static ssize_t util_peer_cq_write(struct fid_peer_cq *cq, void *context,
@@ -721,10 +769,14 @@ int ofi_cq_init(const struct fi_provider *prov, struct fid_domain *domain,
 	cq->progress = progress;
 	cq->err_data = NULL;
 
+	cq->ep_list = calloc(1, sizeof(struct ofi_rcu_list));
+	cq->ep_list->num_items = 0;
+	cq->ep_list->items = NULL;
+
 	cq->domain = container_of(domain, struct util_domain, domain_fid);
 	ofi_atomic_initialize32(&cq->ref, 0);
 	ofi_atomic_initialize32(&cq->wakeup, 0);
-	dlist_init(&cq->ep_list);
+	dlist_init(&cq->ep_list_to_delete);
 
 	if (cq->domain->threading == FI_THREAD_COMPLETION ||
 	    cq->domain->threading == FI_THREAD_DOMAIN)
@@ -736,8 +788,7 @@ int ofi_cq_init(const struct fi_provider *prov, struct fid_domain *domain,
 	if (ret)
 		return ret;
 
-	/* TODO Figure out how to optimize this lock for rdm and msg endpoints */
-	ret = ofi_genlock_init(&cq->ep_list_lock, OFI_LOCK_MUTEX);
+	ret = ofi_mutex_init(&cq->cntrl_iface_lock);
 	if (ret)
 		goto destroy1;
 
@@ -798,7 +849,7 @@ int ofi_cq_init(const struct fi_provider *prov, struct fid_domain *domain,
 cleanup:
 	util_peer_cq_cleanup(cq);
 destroy2:
-	ofi_genlock_destroy(&cq->ep_list_lock);
+	ofi_mutex_destroy(&cq->cntrl_iface_lock);
 destroy1:
 	ofi_genlock_destroy(&cq->cq_lock);
 	return ret;

@@ -1,5 +1,6 @@
 #include "efa_unit_tests.h"
 #include "efa_rdm_pke_cmd.h"
+#include "efa_rdm_cq.h"
 
 /**
  * @brief this test validate that during RNR queuing and resending,
@@ -14,6 +15,7 @@ void test_efa_rnr_queue_and_resend(struct efa_resource **state)
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_ope *txe;
 	struct efa_rdm_pke *pkt_entry;
+	struct efa_rdm_cq *cq;
 	size_t raw_addr_len = sizeof(raw_addr);
 	fi_addr_t peer_addr;
 	int ret;
@@ -42,6 +44,10 @@ void test_efa_rnr_queue_and_resend(struct efa_resource **state)
 		ret = fi_close(&efa_rdm_ep->shm_ep->fid);
 		assert_int_equal(ret, 0);
 		efa_rdm_ep->shm_ep = NULL;
+		cq = container_of(resource->cq, struct efa_rdm_cq, util_cq.cq_fid.fid);
+		ret = fi_close(&cq->shm_cq->fid);
+		assert_int_equal(ret, 0);
+		cq->shm_cq = NULL;
 	}
 
 	ret = fi_send(resource->ep, send_buff.buff, send_buff.size, fi_mr_desc(send_buff.mr), peer_addr, NULL /* context */);

@@ -112,15 +112,16 @@ static int ucx_ep_setopt(fid_t fid, int level, int optname,
 	return -FI_EINVAL;
 }
 
-static int ucx_ep_close(fid_t fid)
+static int ucx_ep_close_resources(struct util_ep *util_ep)
 {
-	struct ucx_ep *ep;
 	struct ucx_mrecv_ctx *mrecv_ctx;
 	ucs_status_t status = UCS_OK;
 	void *addr_local = NULL;
 	size_t addr_len_local;
+	struct ucx_ep *ep;
 
-	ep = container_of(fid, struct ucx_ep, ep.ep_fid.fid);
+	ep = container_of(util_ep, struct ucx_ep, ep);
+
 	if (ucx_descriptor.use_ns) {
 		status = ucp_worker_get_address(ep->worker,
 						(ucp_address_t **)&addr_local,
@@ -150,9 +151,16 @@ static int ucx_ep_close(fid_t fid)
 		free(mrecv_ctx);
 	}
 
-	ofi_endpoint_close(&ep->ep);
 	free(ep);
 	return FI_SUCCESS;
+}
+
+static int ucx_ep_close(fid_t fid)
+{
+	struct ucx_ep *ep;
+	ep = container_of(fid, struct ucx_ep, ep.ep_fid.fid);
+
+	return ofi_endpoint_close(&ep->ep);
 }
 
 static int ucx_ep_bind(struct fid *fid, struct fid *bfid, uint64_t flags)
@@ -252,7 +260,7 @@ int ucx_ep_open(struct fid_domain *domain, struct fi_info *info,
 		return -ENOMEM;
 
 	ofi_status = ofi_endpoint_init(domain, &ucx_util_prov, info, &ep->ep,
-				       context, ucx_ep_progress);
+				       context, ucx_ep_progress, ucx_ep_close_resources);
 	if (ofi_status)
 		goto free_ep;
 

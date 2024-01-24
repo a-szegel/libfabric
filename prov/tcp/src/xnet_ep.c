@@ -607,7 +607,7 @@ static int xnet_ep_close(struct fid *fid)
 	free(ep->cm_msg);
 	free(ep->addr);
 
-	ofi_endpoint_close(&ep->util_ep);
+	ofi_endpoint_close_imm(&ep->util_ep);
 	free(ep);
 	return 0;
 }
@@ -731,7 +731,7 @@ int xnet_endpoint(struct fid_domain *domain, struct fi_info *info,
 		return -FI_ENOMEM;
 
 	ret = ofi_endpoint_init(domain, &xnet_util_prov, info, &ep->util_ep,
-				context, NULL);
+				context, NULL, NULL);
 	if (ret)
 		goto err1;
 

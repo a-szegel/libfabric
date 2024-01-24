@@ -4,6 +4,7 @@
 #include "efa_unit_tests.h"
 #include "dgram/efa_dgram_ep.h"
 #include "dgram/efa_dgram_cq.h"
+#include "efa_rdm_cq.h"
 
 /**
  * @brief implementation of test cases for fi_cq_read() works with empty device CQ for given endpoint type
@@ -97,6 +98,7 @@ static void test_rdm_cq_read_bad_send_status(struct efa_resource *resource,
 	struct ibv_cq_ex *ibv_cqx;
 	struct ibv_qp_ex *ibv_qpx;
 	struct efa_rdm_ep *efa_rdm_ep;
+	struct efa_rdm_cq *cq;
 	struct efa_rdm_peer *peer;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM);
@@ -111,6 +113,10 @@ static void test_rdm_cq_read_bad_send_status(struct efa_resource *resource,
 		err = fi_close(&efa_rdm_ep->shm_ep->fid);
 		assert_int_equal(err, 0);
 		efa_rdm_ep->shm_ep = NULL;
+		cq = container_of(resource->cq, struct efa_rdm_cq, util_cq.cq_fid.fid);
+		ret = fi_close(&cq->shm_cq->fid);
+		assert_int_equal(ret, 0);
+		cq->shm_cq = NULL;
 	}
 
 	ret = fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len);

@@ -874,7 +874,7 @@ int xnet_rdm_ep(struct fid_domain *domain, struct fi_info *info,
 		return -FI_ENOMEM;
 
 	ret = ofi_endpoint_init(domain, &xnet_util_prov, info, &rdm->util_ep,
-				context, NULL);
+				context, NULL, NULL);
 	if (ret)
 		goto err1;
 
@@ -896,6 +896,7 @@ int xnet_rdm_ep(struct fid_domain *domain, struct fi_info *info,
 	return 0;
 
 err2:
+	rdm->util_ep.prov_cleanup = NULL;
 	ofi_endpoint_close(&rdm->util_ep);
 err1:
 	free(rdm);

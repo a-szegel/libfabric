@@ -219,13 +219,15 @@ static int efa_dgram_cq_close(fid_t fid)
 
 	ofi_spin_destroy(&cq->lock);
 
+	ret = ofi_cq_cleanup(&cq->util_cq);
+	if (ret)
+		return ret;
+
 	ret = -ibv_destroy_cq(ibv_cq_ex_to_cq(cq->ibv_cq_ex));
 	if (ret)
 		return ret;
 
-	ret = ofi_cq_cleanup(&cq->util_cq);
-	if (ret)
-		return ret;
+
 
 	free(cq);
 

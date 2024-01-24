@@ -772,27 +772,35 @@ err:
 	return ret;
 }
 
-static int mrail_ep_close(fid_t fid)
+void mrail_ep_close_resources(struct util_ep *util_ep)
 {
 	struct mrail_ep *mrail_ep =
-		container_of(fid, struct mrail_ep, util_ep.ep_fid.fid);
-	int ret, retv = 0;
+		container_of(util_ep, struct mrail_ep, util_ep);
+	int ret;
 	size_t i;
+
+	ret = ofi_endpoint_close(&mrail_ep->util_ep);
+	if (ret)
+		FI_WARN(&mrail_prov, FI_LOG_EP_CTRL, "Failed to close util_ep\n");
 
 	mrail_ep_free_bufs(mrail_ep);
 
 	for (i = 0; i < mrail_ep->num_eps; i++) {
 		ret = fi_close(&mrail_ep->rails[i].ep->fid);
 		if (ret)
-			retv = ret;
+			FI_WARN(&mrail_prov, FI_LOG_EP_CTRL, "Failed to close rail[%zu]\n", i);
 	}
-	free(mrail_ep->rails);
 
-	ret = ofi_endpoint_close(&mrail_ep->util_ep);
-	if (ret)
-		retv = ret;
+	free(mrail_ep->rails);
 	free(mrail_ep);
-	return retv;
+}
+
+static int mrail_ep_close(fid_t fid)
+{
+	struct mrail_ep *mrail_ep =
+		container_of(fid, struct mrail_ep, util_ep.ep_fid.fid);
+
+	return ofi_endpoint_close(&mrail_ep->util_ep);
 }
 
 static int mrail_ep_bind(struct fid *ep_fid, struct fid *bfid, uint64_t flags)
@@ -998,10 +1006,9 @@ int mrail_ep_open(struct fid_domain *domain_fid, struct fi_info *info,
 	mrail_ep->num_eps = mrail_domain->num_domains;
 
 	ret = ofi_endpoint_init(domain_fid, &mrail_util_prov, info, &mrail_ep->util_ep,
-				context, &mrail_ep_progress);
-	if (ret) {
+				context, &mrail_ep_progress, mrail_ep_close_resources);
+	if (ret)
 		goto free_ep;
-	}
 
 	mrail_ep->rails = calloc(mrail_ep->num_eps, sizeof(*mrail_ep->rails));
 	if (!mrail_ep->rails) {
@@ -1061,6 +1068,7 @@ int mrail_ep_open(struct fid_domain *domain_fid, struct fi_info *info,
 
 	return 0;
 err:
+	mrail_ep->util_ep.prov_cleanup = NULL;
 	mrail_ep_close(&mrail_ep->util_ep.ep_fid.fid);
 free_ep:
 	free(mrail_ep);

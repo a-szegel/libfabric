@@ -1,4 +1,5 @@
 #include "efa_unit_tests.h"
+#include "efa_rdm_cq.h"
 
 /**
  * @brief Verify the EFA RDM endpoint correctly parses the host id string
@@ -102,6 +103,7 @@ void test_efa_rdm_ep_handshake_exchange_host_id(struct efa_resource **state, uin
 	struct fi_cq_data_entry cq_entry;
 	struct ibv_qp_ex *ibv_qp;
 	struct efa_rdm_ep *efa_rdm_ep;
+	struct efa_rdm_cq *cq;
 	struct efa_rdm_pke *pkt_entry;
 	uint64_t actual_peer_host_id = UINT64_MAX;
 	int ret;
@@ -120,6 +122,10 @@ void test_efa_rdm_ep_handshake_exchange_host_id(struct efa_resource **state, uin
 		ret = fi_close(&efa_rdm_ep->shm_ep->fid);
 		assert_int_equal(ret, 0);
 		efa_rdm_ep->shm_ep = NULL;
+		cq = container_of(resource->cq, struct efa_rdm_cq, util_cq.cq_fid.fid);
+		ret = fi_close(&cq->shm_cq->fid);
+		assert_int_equal(ret, 0);
+		cq->shm_cq = NULL;
 	}
 
 
@@ -357,6 +363,7 @@ void test_efa_rdm_ep_dc_atomic_error_handling(struct efa_resource **state)
 	struct fi_msg_atomic msg = {0};
 	struct efa_resource *resource = *state;
 	struct efa_ep_addr raw_addr = {0};
+	struct efa_rdm_cq *cq;
 	size_t raw_addr_len = sizeof(struct efa_ep_addr);
 	fi_addr_t peer_addr;
 	int buf[1] = {0}, err, numaddr;
@@ -389,6 +396,10 @@ void test_efa_rdm_ep_dc_atomic_error_handling(struct efa_resource **state)
 		err = fi_close(&efa_rdm_ep->shm_ep->fid);
 		assert_int_equal(err, 0);
 		efa_rdm_ep->shm_ep = NULL;
+		cq = container_of(resource->cq, struct efa_rdm_cq, util_cq.cq_fid.fid);
+		err = fi_close(&cq->shm_cq->fid);
+		assert_int_equal(err, 0);
+		cq->shm_cq = NULL;
 	}
 	/* set peer->flag to EFA_RDM_PEER_REQ_SENT will make efa_rdm_atomic() think
 	 * a REQ packet has been sent to the peer (so no need to send again)

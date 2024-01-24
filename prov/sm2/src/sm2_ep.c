@@ -346,17 +346,14 @@ return_incoming:
 	}
 }
 
-static int sm2_ep_close(struct fid *fid)
+void sm2_ep_close_resources(struct util_ep *util_ep)
 {
-	struct sm2_ep *ep =
-		container_of(fid, struct sm2_ep, util_ep.ep_fid.fid);
+	struct sm2_ep *ep = container_of(util_ep, struct sm2_ep, util_ep);
 
 	cleanup_shm_resources(ep);
 
 	if (ep->srx && ep->util_ep.ep_fid.msg != &sm2_no_recv_msg_ops)
 		(void) util_srx_close(&ep->srx->fid);
-
-	ofi_endpoint_close(&ep->util_ep);
 
 	/* Set our PID to 0 in the regions map if our free queue entry stack is
 	 * full This will allow other entries re-use us or shrink file.
@@ -374,6 +371,15 @@ static int sm2_ep_close(struct fid *fid)
 
 	free((void *) ep->name);
 	free(ep);
+}
+
+static int sm2_ep_close(struct fid *fid)
+{
+	struct sm2_ep *ep =
+		container_of(fid, struct sm2_ep, util_ep.ep_fid.fid);
+
+	ofi_endpoint_close(&ep->util_ep);
+
 	return 0;
 }
 
@@ -628,7 +634,8 @@ int sm2_endpoint(struct fid_domain *domain, struct fi_info *info,
 	ep->tx_size = info->tx_attr->size;
 	ep->rx_size = info->rx_attr->size;
 	ret = ofi_endpoint_init(domain, &sm2_util_prov, info, &ep->util_ep,
-				context, sm2_ep_progress);
+				context, sm2_ep_progress,
+				sm2_ep_close_resources);
 	if (ret)
 		goto name;
 

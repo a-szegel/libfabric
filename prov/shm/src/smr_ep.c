@@ -811,11 +811,10 @@ static void smr_cleanup_epoll(struct smr_sock_info *sock_info)
 	ofi_epoll_close(sock_info->epollfd);
 }
 
-static int smr_ep_close(struct fid *fid)
+void smr_ep_close_resources(struct util_ep *util_ep)
 {
 	struct smr_ep *ep;
-
-	ep = container_of(fid, struct smr_ep, util_ep.ep_fid.fid);
+	ep = container_of(util_ep, struct smr_ep, util_ep);
 
 	if (smr_env.use_dsa_sar)
 		smr_dsa_context_cleanup(ep);
@@ -831,8 +830,6 @@ static int smr_ep_close(struct fid *fid)
 
 	if (ep->srx && ep->util_ep.ep_fid.msg != &smr_no_recv_msg_ops)
 		(void) util_srx_close(&ep->srx->fid);
-
-	ofi_endpoint_close(&ep->util_ep);
 
 	if (ep->region)
 		smr_free(ep->region);
@@ -850,6 +847,15 @@ static int smr_ep_close(struct fid *fid)
 
 	free((void *)ep->name);
 	free(ep);
+}
+
+static int smr_ep_close(struct fid *fid)
+{
+	struct smr_ep *ep;
+
+	ep = container_of(fid, struct smr_ep, util_ep.ep_fid.fid);
+	ofi_endpoint_close(&ep->util_ep);
+
 	return 0;
 }
 
@@ -1542,7 +1548,7 @@ int smr_endpoint(struct fid_domain *domain, struct fi_info *info,
 	ep->rx_size = info->rx_attr->size;
 	ep->tx_size = info->tx_attr->size;
 	ret = ofi_endpoint_init(domain, &smr_util_prov, info, &ep->util_ep, context,
-				smr_ep_progress);
+				smr_ep_progress, smr_ep_close_resources);
 	if (ret)
 		goto name;
 
@@ -1570,6 +1576,7 @@ int smr_endpoint(struct fid_domain *domain, struct fi_info *info,
 	ep->p2p_type = FI_SHM_P2P_CMA;
 	return 0;
 ep:
+	ep->util_ep.prov_cleanup = NULL;
 	ofi_endpoint_close(&ep->util_ep);
 name:
 	free((void *)ep->name);

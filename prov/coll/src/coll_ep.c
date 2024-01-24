@@ -79,17 +79,23 @@ static struct fi_ops_collective coll_ops_collective = {
 	.msg = fi_coll_no_msg,
 };
 
+void coll_ep_close_resources(struct util_ep *util_ep)
+{
+	struct coll_ep *ep;
+	ep = container_of(util_ep, struct coll_ep, util_ep);
+
+	fi_freeinfo(ep->peer_info);
+	fi_freeinfo(ep->coll_info);
+	free(ep);
+}
+
 static int coll_ep_close(struct fid *fid)
 {
 	struct coll_ep *ep;
 
 	ep = container_of(fid, struct coll_ep, util_ep.ep_fid.fid);
 
-	ofi_endpoint_close(&ep->util_ep);
-	fi_freeinfo(ep->peer_info);
-	fi_freeinfo(ep->coll_info);
-	free(ep);
-	return 0;
+	return ofi_endpoint_close(&ep->util_ep);
 }
 
 static int coll_ep_ctrl(struct fid *fid, int command, void *arg)
@@ -153,7 +159,7 @@ int coll_endpoint(struct fid_domain *domain, struct fi_info *info,
 
 	ret = ofi_endpoint_init(domain, &coll_util_prov, info,
 				&ep->util_ep, context,
-				&coll_ep_progress);
+				&coll_ep_progress, coll_ep_close_resources);
 
 	if (ret)
 		goto err;

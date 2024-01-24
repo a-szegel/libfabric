@@ -395,9 +395,17 @@ static void util_av_close(struct util_av *av)
 
 int ofi_av_close_lightweight(struct util_av *av)
 {
+	struct util_ep *ep;
+	struct dlist_entry *item;
+
 	if (ofi_atomic_get32(&av->ref)) {
 		FI_WARN(av->prov, FI_LOG_AV, "AV is busy\n");
 		return -FI_EBUSY;
+	}
+
+	dlist_foreach(&av->ep_list, item) {
+		ep = container_of(item, struct util_ep, av_entry);
+		ep->av = NULL;
 	}
 
 	if (av->eq)

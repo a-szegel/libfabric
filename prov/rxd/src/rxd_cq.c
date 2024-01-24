@@ -44,7 +44,6 @@
 static const char *rxd_cq_strerror(struct fid_cq *cq_fid, int prov_errno,
 		const void *err_data, char *buf, size_t len)
 {
-	struct fid_list_entry *fid_entry;
 	struct util_ep *util_ep;
 	struct rxd_cq *cq;
 	struct rxd_ep *ep;
@@ -52,15 +51,13 @@ static const char *rxd_cq_strerror(struct fid_cq *cq_fid, int prov_errno,
 
 	cq = container_of(cq_fid, struct rxd_cq, util_cq.cq_fid);
 
-	ofi_genlock_lock(&cq->util_cq.ep_list_lock);
-	assert(!dlist_empty(&cq->util_cq.ep_list));
-	fid_entry = container_of(cq->util_cq.ep_list.next,
-				struct fid_list_entry, entry);
-	util_ep = container_of(fid_entry->fid, struct util_ep, ep_fid.fid);
+	ofi_mutex_lock(&cq->util_cq.cntrl_iface_lock);
+	assert(cq->util_cq.ep_list->num_items > 0);
+	util_ep = cq->util_cq.ep_list->items[0];
 	ep = container_of(util_ep, struct rxd_ep, util_ep);
-
 	str = fi_cq_strerror(ep->dg_cq, prov_errno, err_data, buf, len);
-	ofi_genlock_unlock(&cq->util_cq.ep_list_lock);
+	ofi_mutex_unlock(&cq->util_cq.cntrl_iface_lock);
+
 	return str;
 }
 
@@ -1232,9 +1229,10 @@ static struct fi_ops rxd_cq_fi_ops = {
 ssize_t rxd_cq_sreadfrom(struct fid_cq *cq_fid, void *buf, size_t count,
 			 fi_addr_t *src_addr, const void *cond, int timeout)
 {
-	struct fid_list_entry *fid_entry;
 	struct util_cq *cq;
 	struct rxd_ep *ep;
+	struct dlist_entry *itr;
+	struct ofi_rcu_list_to_delete *list_entry;
 	uint64_t endtime;
 	ssize_t ret;
 	int ep_retry;
@@ -1257,17 +1255,37 @@ ssize_t rxd_cq_sreadfrom(struct fid_cq *cq_fid, void *buf, size_t count,
 		}
 
 		ep_retry = -1;
-		ofi_genlock_lock(&cq->ep_list_lock);
-		dlist_foreach_container(&cq->ep_list, struct fid_list_entry,
-					fid_entry, entry) {
-			ep = container_of(fid_entry->fid, struct rxd_ep,
-					  util_ep.ep_fid.fid);
+
+		/* TODO can take advantage for RCU here if desired */
+		ofi_mutex_lock(&cq->cntrl_iface_lock);
+
+		if (OFI_UNLIKELY(!dlist_empty(&cq->ep_list_to_delete))) {
+			dlist_foreach(&cq->ep_list_to_delete, itr) {
+				list_entry = container_of(itr, struct ofi_rcu_list_to_delete, entry);
+				ofi_rcu_list_destroy(&list_entry->rcu_list);
+				ofi_endpoint_clean_resources(list_entry->rcu_item);
+			}
+
+			while (!dlist_empty(&cq->ep_list_to_delete)) {
+				dlist_pop_front(&cq->ep_list_to_delete,
+						struct ofi_rcu_list_to_delete,
+						list_entry, entry);
+				free(list_entry);
+			}
+			dlist_init(&cq->ep_list_to_delete);
+		}
+
+		for (int i = 0; i < cq->ep_list->num_items; i++) {
+			ep = container_of(cq->ep_list->items[i],
+					  struct rxd_ep,
+					  util_ep);
+
 			if (ep->next_retry == -1)
 				continue;
 			ep_retry = ep_retry == -1 ? ep->next_retry :
 					MIN(ep_retry, ep->next_retry);
 		}
-		ofi_genlock_unlock(&cq->ep_list_lock);
+		ofi_mutex_unlock(&cq->cntrl_iface_lock);
 
 		ret = fi_wait(&cq->wait->wait_fid, ep_retry == -1 ?
 			      timeout : rxd_get_timeout(ep_retry));

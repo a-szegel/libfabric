@@ -74,14 +74,22 @@ static struct fi_ops_ep efa_dgram_ep_base_ops = {
 	.tx_size_left = fi_no_tx_size_left,
 };
 
-static void efa_dgram_ep_destroy(struct efa_dgram_ep *ep)
+static void efa_dgram_ep_close_resources(struct util_ep *util_ep)
 {
+	struct efa_dgram_ep *ep;
 	int ret;
 
-	ret = efa_base_ep_destruct(&ep->base_ep);
+	ep = container_of(util_ep, struct efa_dgram_ep, base_ep.util_ep);
+
+	ret = efa_base_ep_close_resources(&ep->base_ep);
 	if (ret) {
 		EFA_WARN(FI_LOG_EP_CTRL, "Unable to close base endpoint\n");
 	}
+
+	if (ep->recv_wr_pool)
+		ofi_bufpool_destroy(ep->recv_wr_pool);
+	if (ep->send_wr_pool)
+		ofi_bufpool_destroy(ep->send_wr_pool);
 
 	free(ep);
 }
@@ -92,9 +100,7 @@ static int efa_dgram_ep_close(fid_t fid)
 
 	ep = container_of(fid, struct efa_dgram_ep, base_ep.util_ep.ep_fid.fid);
 
-	ofi_bufpool_destroy(ep->recv_wr_pool);
-	ofi_bufpool_destroy(ep->send_wr_pool);
-	efa_dgram_ep_destroy(ep);
+	efa_base_ep_close_util_ep(&ep->base_ep);
 
 	return 0;
 }
@@ -464,7 +470,8 @@ int efa_dgram_ep_open(struct fid_domain *domain_fid, struct fi_info *user_info,
 	if (!ep)
 		return -FI_ENOMEM;
 
-	ret = efa_base_ep_construct(&ep->base_ep, domain_fid, user_info, efa_dgram_ep_progress, context);
+	ret = efa_base_ep_construct(&ep->base_ep, domain_fid, user_info, efa_dgram_ep_progress,
+				    efa_dgram_ep_close_resources, context);
 	if (ret)
 		goto err_ep_destroy;
 
@@ -500,6 +507,8 @@ int efa_dgram_ep_open(struct fid_domain *domain_fid, struct fi_info *user_info,
 err_send_wr_destroy:
 	ofi_bufpool_destroy(ep->send_wr_pool);
 err_ep_destroy:
-	efa_dgram_ep_destroy(ep);
+	ep->base_ep.util_ep.prov_cleanup = NULL;
+	efa_dgram_ep_close(&ep->base_ep.util_ep.ep_fid.fid);
+	efa_dgram_ep_close_resources(&ep->base_ep.util_ep);
 	return ret;
 }

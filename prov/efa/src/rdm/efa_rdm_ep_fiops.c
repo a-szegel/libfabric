@@ -428,7 +428,8 @@ int efa_rdm_ep_open(struct fid_domain *domain, struct fi_info *info,
 	cq_attr.wait_obj = FI_WAIT_NONE;
 
 	ret = efa_base_ep_construct(&efa_rdm_ep->base_ep, domain, info,
-				    efa_rdm_ep_progress, context);
+				    efa_rdm_ep_progress, efa_rdm_ep_close_resources,
+				    context);
 	if (ret)
 		goto err_free_ep;
 
@@ -573,7 +574,9 @@ err_close_shm_ep:
 				fi_strerror(-retv));
 	}
 err_destroy_base_ep:
-	efa_base_ep_destruct(&efa_rdm_ep->base_ep);
+	efa_rdm_ep->base_ep.util_ep.prov_cleanup = NULL;
+	efa_base_ep_close_util_ep(&efa_rdm_ep->base_ep);
+	efa_base_ep_close_resources(&efa_rdm_ep->base_ep);
 err_free_ep:
 	if (efa_rdm_ep)
 		free(efa_rdm_ep);
@@ -809,39 +812,22 @@ void efa_rdm_ep_wait_send(struct efa_rdm_ep *efa_rdm_ep)
 	ofi_genlock_unlock(srx_ctx->lock);
 }
 
-/**
- * @brief implement the fi_close() API for the EFA RDM endpoint
- * @param[in,out]	fid		Endpoint to close
- */
-static int efa_rdm_ep_close(struct fid *fid)
+
+void efa_rdm_ep_close_resources(struct util_ep *util_ep)
 {
-	int ret, retv = 0;
+	int err;
 	struct efa_rdm_ep *efa_rdm_ep;
 
-	efa_rdm_ep = container_of(fid, struct efa_rdm_ep, base_ep.util_ep.ep_fid.fid);
+	efa_rdm_ep = container_of(util_ep, struct efa_rdm_ep, base_ep.util_ep);
 
-	if (efa_rdm_ep->base_ep.efa_qp_enabled)
-		efa_rdm_ep_wait_send(efa_rdm_ep);
-
-	ret = efa_base_ep_destruct(&efa_rdm_ep->base_ep);
-	if (ret) {
+	err = efa_base_ep_close_resources(&efa_rdm_ep->base_ep);
+	if (err)
 		EFA_WARN(FI_LOG_EP_CTRL, "Unable to close base endpoint\n");
-		retv = ret;
-	}
 
-	ret = -ibv_destroy_cq(ibv_cq_ex_to_cq(efa_rdm_ep->ibv_cq_ex));
-	if (ret) {
+
+	err = -ibv_destroy_cq(ibv_cq_ex_to_cq(efa_rdm_ep->ibv_cq_ex));
+	if (err)
 		EFA_WARN(FI_LOG_EP_CTRL, "Unable to close ibv_cq_ex\n");
-		retv = ret;
-	}
-
-	if (efa_rdm_ep->shm_ep) {
-		ret = fi_close(&efa_rdm_ep->shm_ep->fid);
-		if (ret) {
-			EFA_WARN(FI_LOG_EP_CTRL, "Unable to close shm EP\n");
-			retv = ret;
-		}
-	}
 
 	/*
 	 * util_srx_close will clean all efa_rdm_rxes that are
@@ -856,7 +842,31 @@ static int efa_rdm_ep_close(struct fid *fid)
 	if (efa_rdm_ep->pke_vec)
 		free(efa_rdm_ep->pke_vec);
 	free(efa_rdm_ep);
-	return retv;
+}
+
+/**
+ * @brief implement the fi_close() API for the EFA RDM endpoint
+ * @param[in,out]	fid		Endpoint to close
+ */
+static int efa_rdm_ep_close(struct fid *fid)
+{
+	int ret = FI_SUCCESS;
+	struct efa_rdm_ep *efa_rdm_ep;
+
+	efa_rdm_ep = container_of(fid, struct efa_rdm_ep, base_ep.util_ep.ep_fid.fid);
+
+	if (efa_rdm_ep->base_ep.efa_qp_enabled)
+		efa_rdm_ep_wait_send(efa_rdm_ep);
+
+	efa_base_ep_close_util_ep(&efa_rdm_ep->base_ep);
+
+	if (efa_rdm_ep->shm_ep) {
+		ret = fi_close(&efa_rdm_ep->shm_ep->fid);
+		if (ret)
+			EFA_WARN(FI_LOG_EP_CTRL, "Unable to close shm EP\n");
+	}
+
+	return ret;
 }
 
 /**

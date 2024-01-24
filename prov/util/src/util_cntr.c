@@ -247,8 +247,22 @@ static struct fi_ops_cntr util_peer_cntr_ops = {
 
 int ofi_cntr_cleanup(struct util_cntr *cntr)
 {
+	struct util_ep *ep;
+	struct fid_list_entry *fid_entry;
+	struct dlist_entry *item;
+	int i;
+
 	if (ofi_atomic_get32(&cntr->ref))
 		return -FI_EBUSY;
+
+	dlist_foreach(&cntr->ep_list, item) {
+		fid_entry = container_of(item, struct fid_list_entry, entry);
+		ep = container_of(fid_entry->fid, struct util_ep, ep_fid.fid);
+		for (i = 0; i < CNTR_CNT; i++) {
+			if (ep->cntrs[i] == cntr)
+				ep->cntrs[i] = NULL;
+		}
+	}
 
 	if (!(cntr->flags & FI_PEER))
 		fi_close(&cntr->peer_cntr->fid);

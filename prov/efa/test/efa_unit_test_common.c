@@ -154,12 +154,12 @@ void efa_unit_test_resource_destruct(struct efa_resource *resource)
 		assert_int_equal(fi_close(&resource->ep->fid), 0);
 	}
 
-	if (resource->eq) {
-		assert_int_equal(fi_close(&resource->eq->fid), 0);
-	}
-
 	if (resource->cq) {
 		assert_int_equal(fi_close(&resource->cq->fid), 0);
+	}
+
+	if (resource->eq) {
+		assert_int_equal(fi_close(&resource->eq->fid), 0);
 	}
 
 	if (resource->av) {

@@ -656,15 +656,15 @@ static void rxd_cleanup_unexp_msg_list(struct dlist_entry *list)
 	}
 }
 
-static int rxd_ep_close(struct fid *fid)
+void rxd_ep_close_resources(struct util_ep *util_ep)
 {
 	int ret;
-	struct rxd_ep *ep;
 	struct rxd_pkt_entry *pkt_entry;
 	struct slist_entry *entry;
 	struct rxd_peer *peer;
+	struct rxd_ep *ep;
 
-	ep = container_of(fid, struct rxd_ep, util_ep.ep_fid.fid);
+	ep = container_of(util_ep, struct rxd_ep, util_ep);
 
 	dlist_foreach_container(&ep->active_peers, struct rxd_peer, peer, entry)
 		rxd_close_peer(ep, peer);
@@ -674,12 +674,12 @@ static int rxd_ep_close(struct fid *fid)
 
 	ret = fi_close(&ep->dg_ep->fid);
 	if (ret)
-		return ret;
+		return;
 
 	if (ep->dg_cq) {
 		ret = fi_close(&ep->dg_cq->fid);
 		if (ret)
-			return ret;
+			return;
 	}
 
 	while (!slist_empty(&ep->rx_pkt_list)) {
@@ -698,9 +698,15 @@ static int rxd_ep_close(struct fid *fid)
 	}
 
 	rxd_ep_free_res(ep);
-	ofi_endpoint_close(&ep->util_ep);
 	free(ep);
-	return 0;
+}
+
+static int rxd_ep_close(struct fid *fid)
+{
+	struct rxd_ep *ep;
+
+	ep = container_of(fid, struct rxd_ep, util_ep.ep_fid.fid);
+	return 	ofi_endpoint_close(&ep->util_ep);
 }
 
 static int rxd_ep_trywait(void *arg)
@@ -1196,7 +1202,7 @@ int rxd_endpoint(struct fid_domain *domain, struct fi_info *info,
 				  util_domain.domain_fid);
 
 	ret = ofi_endpoint_init(domain, &rxd_util_prov, info, &rxd_ep->util_ep,
-				context, rxd_ep_progress);
+				context, rxd_ep_progress, rxd_ep_close_resources);
 	if (ret)
 		goto err1;
 
@@ -1246,6 +1252,7 @@ int rxd_endpoint(struct fid_domain *domain, struct fi_info *info,
 err3:
 	fi_close(&rxd_ep->dg_ep->fid);
 err2:
+	rxd_ep->util_ep.prov_cleanup = NULL;
 	ofi_endpoint_close(&rxd_ep->util_ep);
 err1:
 	free(rxd_ep);

@@ -1206,12 +1206,12 @@ static int rxm_listener_close(struct rxm_ep *ep)
 	return 0;
 }
 
-static int rxm_ep_close(struct fid *fid)
+void rxm_ep_close_resources(struct util_ep *util_ep)
 {
 	struct rxm_ep *ep;
 	int ret;
 
-	ep = container_of(fid, struct rxm_ep, util_ep.ep_fid.fid);
+	ep = container_of(util_ep, struct rxm_ep, util_ep);
 
 	/* Stop listener thread to halt event processing before closing all
 	 * connections.
@@ -1220,7 +1220,7 @@ static int rxm_ep_close(struct fid *fid)
 	rxm_freeall_conns(ep);
 	ret = rxm_listener_close(ep);
 	if (ret)
-		return ret;
+		return;
 
 	rxm_ep_txrx_res_close(ep);
 	if (ep->msg_srx) {
@@ -1228,7 +1228,7 @@ static int rxm_ep_close(struct fid *fid)
 		if (ret) {
 			FI_WARN(&rxm_prov, FI_LOG_EP_CTRL, \
 				"Unable to close msg shared ctx\n");
-			return ret;
+			return;
 		}
 		ep->msg_srx = NULL;
 	}
@@ -1238,7 +1238,7 @@ static int rxm_ep_close(struct fid *fid)
 		if (ret) {
 			FI_WARN(&rxm_prov, FI_LOG_EP_CTRL,
 				"Unable to close msg CQ\n");
-			return ret;
+			return;
 		}
 		ep->msg_cq = NULL;
 	}
@@ -1248,7 +1248,7 @@ static int rxm_ep_close(struct fid *fid)
 		if (ret) {
 			FI_WARN(&rxm_prov, FI_LOG_EP_CTRL,
 				"Unable to close util coll EP\n");
-			return ret;
+			return;
 		}
 		ep->util_coll_ep = NULL;
 	}
@@ -1258,17 +1258,24 @@ static int rxm_ep_close(struct fid *fid)
 		if (ret) {
 			FI_WARN(&rxm_prov, FI_LOG_EP_CTRL,
 				"Unable to close offload coll EP\n");
-			return ret;
+			return;
 		}
 		ep->offload_coll_ep = NULL;
 	}
 
 	free(ep->inject_pkt);
-	ofi_endpoint_close(&ep->util_ep);
 	fi_freeinfo(ep->msg_info);
 	fi_freeinfo(ep->rxm_info);
 	free(ep);
-	return 0;
+}
+
+static int rxm_ep_close(struct fid *fid)
+{
+	struct rxm_ep *ep;
+
+	ep = container_of(fid, struct rxm_ep, util_ep.ep_fid.fid);
+
+	return ofi_endpoint_close(&ep->util_ep);
 }
 
 static int rxm_ep_trywait_cq(void *arg)
@@ -1868,7 +1875,8 @@ int rxm_endpoint(struct fid_domain *domain, struct fi_info *info,
 	if (rxm_ep->rxm_info->caps & FI_COLLECTIVE) {
 		ret = ofi_endpoint_init(domain, &rxm_util_prov, info,
 					&rxm_ep->util_ep, context,
-					&rxm_ep_progress_coll);
+					&rxm_ep_progress_coll,
+					rxm_ep_close_resources);
 		if (ret)
 			goto err1;
 
@@ -1905,7 +1913,7 @@ int rxm_endpoint(struct fid_domain *domain, struct fi_info *info,
 	} else {
 		ret = ofi_endpoint_init(domain, &rxm_util_prov, info,
 					&rxm_ep->util_ep, context,
-					&rxm_ep_progress);
+					&rxm_ep_progress, rxm_ep_close_resources);
 		if (ret)
 			goto err1;
 	}
@@ -1970,6 +1978,7 @@ err2:
 		fi_close(&rxm_ep->util_coll_ep->fid);
 	if (rxm_ep->offload_coll_ep)
 		fi_close(&rxm_ep->offload_coll_ep->fid);
+	rxm_ep->util_ep.prov_cleanup = NULL;
 	ofi_endpoint_close(&rxm_ep->util_ep);
 err1:
 	if (rxm_ep->rxm_info)
