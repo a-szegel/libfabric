@@ -306,6 +306,7 @@ struct util_ep {
 
 	struct ofi_bitmask	*coll_cid_mask;
 	struct slist		coll_ready_queue;
+	ofi_atomic32_t		cq_ref;
 };
 
 int ofi_ep_bind_av(struct util_ep *util_ep, struct util_av *av);
@@ -498,13 +499,120 @@ OFI_DECLARE_CIRQUE(struct fi_cq_tagged_entry, util_comp_cirq);
 
 typedef void (*ofi_cq_progress_func)(struct util_cq *cq);
 
+struct ofi_ep_list {
+	struct util_ep **eps;
+	size_t num_eps;
+};
+
+static inline struct ofi_ep_list*
+ofi_ep_list_create(size_t num_eps)
+{
+	struct ofi_ep_list* list = malloc(sizeof(struct ofi_ep_list));
+	if (!list)
+		return list;
+
+	list->eps = malloc(num_eps * sizeof(struct util_ep*));
+	list->num_eps = num_eps;
+	return list;
+}
+
+static inline void
+ofi_ep_list_copy(struct ofi_ep_list* src, struct ofi_ep_list* dst, size_t size)
+{
+	assert(src->num_eps >= size);
+	assert(dst->num_eps >= size);
+
+	for (int i = 0; i < size; i++) {
+		dst->eps[i] = src->eps[i];
+	}
+}
+
+static inline void
+ofi_ep_list_copy_all_but(struct ofi_ep_list* src, struct ofi_ep_list* dst, size_t src_size, struct util_ep *ep)
+{
+	assert(src->num_eps >= src_size);
+	assert(dst->num_eps >= src_size);
+	assert(index < src_size);
+
+	for (int i = 0, j = 0; i < src_size; i++) {
+		if (src->eps[i] != ep) {
+			dst->eps[j] = src->eps[i];
+			j++;
+		}
+	}
+}
+
+static inline void
+ofi_ep_list_destroy(struct ofi_ep_list** list)
+{
+	(*list)->num_eps = 0;
+	free((*list)->eps);
+	free(*list);
+	*list = NULL;
+}
+
+static inline void
+ofi_util_ep_free_resources(struct util_ep *ep)
+{
+	return;
+}
+
+struct ofi_ep_list_to_delete {
+	struct dlist_entry	entry;
+	struct ofi_ep_list *ep_list;
+	struct util_ep *ep_to_be_closed;
+};
+
+static inline int ep_list_to_delete_insert(struct dlist_entry *ep_list_to_delete, struct ofi_ep_list *ep_list, struct util_ep *ep_to_be_closed)
+{
+	struct ofi_ep_list_to_delete *item;
+
+	item = calloc(1, sizeof(*item));
+	if (!item)
+		return -FI_ENOMEM;
+
+	item->ep_list = ep_list;
+	item->ep_to_be_closed = ep_to_be_closed;
+	dlist_insert_tail(&item->entry, ep_list_to_delete);
+	return FI_SUCCESS;
+}
+
+void ofi_endpoint_clean_resources(struct util_ep *util_ep);
+
+
+static inline void* array_list_remove_item(struct util_ep *util_ep, struct util_cq *cq)
+{
+	struct ofi_dyn_arr *tmp_ep_list;
+
+
+	if (cq->ep_list2->num_eps > 1) {
+		tmp_ep_list = ofi_ep_list_create(cq->ep_list2->num_eps - 1);
+		// Copy contents of old list to tmp_ep_list (without EP to remove)
+		ofi_ep_list_copy_all_but(cq->ep_list2, tmp_ep_list, cq->ep_list2->num_eps, util_ep);
+
+		// atomic swap tmp_ep_list and cq->ep_list
+
+		tmp_ep_list = cq->ep_list2;
+	} else {
+		tmp_ep_list = cq->ep_list2;
+		cq->ep_list2 = NULL;
+	}
+
+    return tmp_ep_list;
+}
+
 struct util_cq {
 	struct fid_cq		cq_fid;
 	struct util_domain	*domain;
 	struct util_wait	*wait;
 	ofi_atomic32_t		ref;
-	struct dlist_entry	ep_list;
-	struct ofi_genlock	ep_list_lock;
+
+
+	ofi_mutex_t		cntrl_iface_lock;
+	struct ofi_ep_list	*ep_list2;
+	struct dlist_entry	ep_list_to_delete;
+
+
 	struct ofi_genlock	cq_lock;
 	uint64_t		flags;
 
