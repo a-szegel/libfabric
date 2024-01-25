@@ -8,8 +8,8 @@ from time import sleep
 
 
 # Configurable server IP (in case we change instances)
-sever_ip = "172.31.35.142"
-client_ip = "172.31.35.207"
+sever_ip = "172.31.74.62"
+client_ip = "172.31.65.25"
 iterations = 2000000
 warmup_iterations = 100
 
