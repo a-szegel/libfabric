@@ -79,6 +79,11 @@ int ofi_ep_bind_eq(struct util_ep *ep, struct util_eq *eq)
 
 	ep->eq = eq;
 	ofi_atomic_inc32(&eq->ref);
+
+	ofi_genlock_lock(&eq->ep_list_lock);
+	dlist_insert_tail(&ep->eq_entry, &eq->ep_list);
+	ofi_genlock_unlock(&eq->ep_list_lock);
+
 	return 0;
 }
 
@@ -310,6 +315,10 @@ int ofi_endpoint_close(struct util_ep *util_ep)
 	if (util_ep->eq) {
 		ofi_eq_remove_fid_events(util_ep->eq,
 					 &util_ep->ep_fid.fid);
+
+		ofi_genlock_lock(&util_ep->eq->ep_list_lock);
+		dlist_remove(&util_ep->eq_entry);
+		ofi_genlock_unlock(&util_ep->eq->ep_list_lock);
 		ofi_atomic_dec32(&util_ep->eq->ref);
 	}
 	ofi_atomic_dec32(&util_ep->domain->ref);

@@ -248,6 +248,7 @@ int ofi_eq_cleanup(struct fid *fid)
 
 	free(eq->saved_err_data);
 	ofi_mutex_destroy(&eq->lock);
+	ofi_genlock_destroy(&eq->ep_list_lock);
 	ofi_atomic_dec32(&eq->fabric->ref);
 	return 0;
 }
@@ -294,6 +295,8 @@ static int util_eq_init(struct fid_fabric *fabric, struct util_eq *eq,
 	ofi_atomic_initialize32(&eq->ref, 0);
 	slist_init(&eq->list);
 	ofi_mutex_init(&eq->lock);
+	ofi_genlock_init(&eq->ep_list_lock, OFI_LOCK_MUTEX);
+	dlist_init(&eq->ep_list);
 
 	switch (attr->wait_obj) {
 	case FI_WAIT_NONE:

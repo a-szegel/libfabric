@@ -282,6 +282,7 @@ struct util_ep {
 	struct util_av		*av;
 	struct dlist_entry	av_entry;
 	struct util_eq		*eq;
+	struct dlist_entry	eq_entry;
 	/* CQ entries */
 	struct util_cq		*rx_cq;
 	uint64_t		rx_op_flags;
@@ -1051,6 +1052,9 @@ struct util_eq {
 	 * be freed in subsequent fi_eq_readerr call against the EQ */
 	void			*saved_err_data;
 	int			internal_wait;
+
+	struct dlist_entry	ep_list;
+	struct ofi_genlock	ep_list_lock;
 };
 
 struct util_event {
