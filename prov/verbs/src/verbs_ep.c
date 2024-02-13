@@ -524,6 +524,9 @@ static int vrb_close_free_ep(struct vrb_ep *ep)
 	free(ep->info_attr.dest_addr);
 	free(ep);
 
+
+	printf("In vrb_close_free_ep() on verb ep: %p 1 \n", ep);
+
 	return 0;
 }
 
@@ -544,6 +547,7 @@ static void vrb_ep_xrc_close(struct vrb_ep *ep)
 
 void vrb_ep_close_resources(struct util_ep *util_ep)
 {
+	printf("In vrb_ep_close_resources() on ep: %p 1 \n", util_ep);
 	struct vrb_ep *ep;
 	int ret;
 	struct vrb_fabric *fab;
@@ -587,6 +591,7 @@ void vrb_ep_close_resources(struct util_ep *util_ep)
 		if (ep->ibv_qp) {
 			ret = ibv_destroy_qp(ep->ibv_qp);
 			if (ret) {
+				printf("In vrb_ep_close_resources() on ep: %p failed to destroy ibv_qp \n", util_ep);
 				VRB_WARN_ERRNO(FI_LOG_EP_CTRL, "ibv_destroy_qp");
 			}
 		}
@@ -598,6 +603,7 @@ void vrb_ep_close_resources(struct util_ep *util_ep)
 		ofi_genlock_unlock(&vrb_ep2_progress(ep)->ep_lock);
 		break;
 	default:
+		printf("In vrb_ep_close_resources() on ep: %p  BAD  BAD BAD \n", util_ep);
 		VRB_WARN(FI_LOG_DOMAIN, "Unknown EP type\n");
 		assert(0);
 		return;

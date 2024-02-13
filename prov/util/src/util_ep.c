@@ -44,6 +44,8 @@ int ofi_ep_bind_cq(struct util_ep *ep, struct util_cq *cq, uint64_t flags)
 
 	ofi_mutex_lock(&cq->cntrl_iface_lock);
 
+	printf("Calling ofi_ep_bind_cq() with ep: %p, cq: %p, and flags: %" PRIu64 "\n", ep, cq, flags);
+
 	ret = ofi_check_bind_cq_flags(ep, cq, flags);
 	if (ret)
 		goto out;
@@ -79,6 +81,8 @@ int ofi_ep_bind_cq(struct util_ep *ep, struct util_cq *cq, uint64_t flags)
 		tmp_ep_list = ofi_rcu_list_swap(&cq->ep_list, tmp_ep_list);
 		ret = ofi_rcu_list_to_delete_insert(&cq->ep_list_to_delete, tmp_ep_list, NULL);
 	}
+
+	printf("ofi_ep_bind_cq() post bind rcu_list size: %zu", cq->ep_list->num_items);
 
 out:
 	ofi_mutex_unlock(&cq->cntrl_iface_lock);
@@ -291,12 +295,20 @@ void ofi_endpoint_clean_resources(struct util_ep *util_ep)
 {
 	int i;
 
+
+	printf("Calling ofi_endpoint_clean_resources() on ep: %p A \n", util_ep);
 	if (!util_ep)
 		return;
+
+
+	printf("Calling ofi_endpoint_clean_resources() on ep: %p B \n", util_ep);
 
 	/* Do not clean EP resources until all CQ's have unbound */
 	if (ofi_atomic_get32(&util_ep->cq_ref))
 		return;
+
+
+	printf("Calling ofi_endpoint_clean_resources() on ep: %p C \n", util_ep);
 
 	/* Delete provider specific resources in EP. This allows
 	 * providers to use util_ep resources during their deletion */
@@ -340,9 +352,13 @@ int ofi_endpoint_close(struct util_ep *util_ep)
 	struct ofi_rcu_list *tmp_ep_list;
 	int i;
 
+	printf("Calling ofi_endpoint_close() on ep: %p 1 \n", util_ep);
+
 	if (util_ep->tx_cq || util_ep->rx_cq) {
 		if (util_ep->tx_cq) {
+			printf("Calling ofi_endpoint_close() on ep: %p 2 \n", util_ep);
 			if (util_ep->tx_cq->ep_list) {
+				printf("Calling ofi_endpoint_close() on ep: %p 3 \n", util_ep);
 				ofi_mutex_lock(&util_ep->tx_cq->cntrl_iface_lock);
 				tmp_ep_list = ofi_rcu_list_clone_list_without_item(util_ep->tx_cq->ep_list, util_ep);
 				tmp_ep_list = ofi_rcu_list_swap(&util_ep->tx_cq->ep_list, tmp_ep_list);
@@ -354,7 +370,9 @@ int ofi_endpoint_close(struct util_ep *util_ep)
 		}
 
 		if (util_ep->rx_cq) {
+			printf("Calling ofi_endpoint_close() on ep: %p 4 \n", util_ep);
 			if (util_ep->rx_cq->ep_list && util_ep->rx_cq != util_ep->tx_cq) {
+				printf("Calling ofi_endpoint_close() on ep: %p 5 \n", util_ep);
 				ofi_mutex_lock(&util_ep->rx_cq->cntrl_iface_lock);
 
 				tmp_ep_list = ofi_rcu_list_clone_list_without_item(util_ep->rx_cq->ep_list, util_ep);
@@ -368,6 +386,7 @@ int ofi_endpoint_close(struct util_ep *util_ep)
 			ofi_atomic_dec32(&util_ep->rx_cq->ref);
 		}
 	} else {
+		printf("Calling ofi_endpoint_close() on ep: %p BAD BAD BAD \n", util_ep);
 		ofi_endpoint_clean_resources(util_ep);
 	}
 
