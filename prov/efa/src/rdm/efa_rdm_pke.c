@@ -364,12 +364,12 @@ ssize_t efa_rdm_pke_sendv(struct efa_rdm_pke **pkt_entry_vec,
 	struct ibv_sge sg_list[2];  /* efa device support up to 2 iov */
 	struct ibv_data_buf inline_data_list[2];
 	int ret, pkt_idx, iov_cnt;
-	struct fid_ep *fid_ep;
-	struct timespec start, end, result;
+	// struct fid_ep *fid_ep;
+	// struct timespec start, end, result;
 
 	assert(pkt_entry_cnt);
 	ep = pkt_entry_vec[0]->ep;
-	fid_ep = &ep->base_ep.util_ep.ep_fid;
+	// fid_ep = &ep->base_ep.util_ep.ep_fid;
 	assert(ep);
 
 	assert(pkt_entry_vec[0]->ope);
@@ -383,13 +383,13 @@ ssize_t efa_rdm_pke_sendv(struct efa_rdm_pke **pkt_entry_vec,
 
 	qp = ep->base_ep.qp;
 
-	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
-	timespec_diff(&fid_ep->libfabric_start, &end, &result);
-	if (fid_ep->msg_count < fid_ep->iterations + fid_ep->warmup_iterations)
-		if (fid_ep->msg_count >= fid_ep->warmup_iterations)
-			fid_ep->libfabric_start_to_rdma_time[fid_ep->msg_count - fid_ep->warmup_iterations] = result.tv_nsec;
+	// clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+	// timespec_diff(&fid_ep->libfabric_start, &end, &result);
+	// if (fid_ep->msg_count < fid_ep->iterations + fid_ep->warmup_iterations)
+	// 	if (fid_ep->msg_count >= fid_ep->warmup_iterations)
+	// 		fid_ep->libfabric_start_to_rdma_time[fid_ep->msg_count - fid_ep->warmup_iterations] = result.tv_nsec;
 
-	clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+	// clock_gettime(CLOCK_MONOTONIC_RAW, &start);
 
 	ibv_wr_start(qp->ibv_qp_ex);
 	for (pkt_idx = 0; pkt_idx < pkt_entry_cnt; ++pkt_idx) {
@@ -443,13 +443,13 @@ ssize_t efa_rdm_pke_sendv(struct efa_rdm_pke **pkt_entry_vec,
 
 	ret = ibv_wr_complete(qp->ibv_qp_ex);
 
-	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
-	timespec_diff(&start, &end, &result);
-	if (fid_ep->msg_count < fid_ep->iterations + fid_ep->warmup_iterations)
-		if (fid_ep->msg_count >= fid_ep->warmup_iterations)
-			fid_ep->rdma_core_time[fid_ep->msg_count - fid_ep->warmup_iterations] = result.tv_nsec;
+	// clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+	// timespec_diff(&start, &end, &result);
+	// if (fid_ep->msg_count < fid_ep->iterations + fid_ep->warmup_iterations)
+	// 	if (fid_ep->msg_count >= fid_ep->warmup_iterations)
+	// 		fid_ep->rdma_core_time[fid_ep->msg_count - fid_ep->warmup_iterations] = result.tv_nsec;
 
-	clock_gettime(CLOCK_MONOTONIC_RAW, &fid_ep->libfabric_start);
+	// clock_gettime(CLOCK_MONOTONIC_RAW, &fid_ep->libfabric_start);
 
 	if (OFI_UNLIKELY(ret)) {
 		return ret;

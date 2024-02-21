@@ -137,9 +137,7 @@ def get_and_print_statistics(vector, name):
 
 
 print("Server's fi_senddata stats:")
-get_and_print_statistics(server_libfabric_to_rdma_core, "Server fi_senddata libfabric to rdma_core")
-get_and_print_statistics(server_rdma_core, "Server fi_senddata rdma_core")
-get_and_print_statistics(server_rdma_core_to_libfabric, "Server fi_senddata rdma_core to libfabric")
+get_and_print_statistics(server_rdma_core_to_libfabric, "Server fi_senddata")
 get_and_print_statistics(server_post_recv_buff, "Server fi_senddata post recv buff")
 get_and_print_statistics(server_empty_cq_progress, "Server fi_senddata empty cq progress")
 get_and_print_statistics(server_fruitful_cq_progress, "Server fi_senddata fruitful cq progress")
@@ -148,9 +146,7 @@ get_and_print_statistics(server_fruitful_cq_progress_num_completions, "Server fi
 print("\n")
 
 print("Client's fi_senddata stats:")
-get_and_print_statistics(client_libfabric_to_rdma_core, "Client fi_senddata libfabric to rdma_core")
-get_and_print_statistics(client_rdma_core, "Client fi_senddata rdma_core")
-get_and_print_statistics(client_rdma_core_to_libfabric, "Client fi_senddata rdma_core to libfabric")
+get_and_print_statistics(client_rdma_core_to_libfabric, "Client fi_senddata")
 get_and_print_statistics(client_post_recv_buff, "Client fi_senddata post recv buff")
 get_and_print_statistics(client_empty_cq_progress, "Client fi_senddata empty cq progress")
 get_and_print_statistics(client_fruitful_cq_progress, "Client fi_senddata fruitful cq progress")
