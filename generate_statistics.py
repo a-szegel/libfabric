@@ -8,8 +8,8 @@ from time import sleep
 
 
 # Configurable server IP (in case we change instances)
-sever_ip = "172.31.35.142"
-client_ip = "172.31.35.207"
+sever_ip = "10.5.11.45"
+client_ip = "10.5.128.200"
 iterations = 2000000
 warmup_iterations = 100
 
@@ -30,7 +30,7 @@ run_command(f"cd $HOME/libfabric/fabtests; {autogen} && {configure} && {clean} &
 # Step 3: Run fi_rdm_pingpong
 print("\n\n Running Eager Send Data Tests \n\n")
 
-executable = "/home/ec2-user/libfabric/fabtests/install/bin/fi_rdm_pingpong"
+executable = "/home/szegel/libfabric/fabtests/install/bin/fi_rdm_pingpong"
 server_args = f" --pin-core 1 -i 0 -p efa -D cuda -w {warmup_iterations} -I {iterations} -S 1024 -E "
 server_command = executable + server_args
 client_command = "ssh " + client_ip + " " + executable + server_args + sever_ip
@@ -91,10 +91,10 @@ def parse_rdm_pingpong_output(filename):
 
 (server_libfabric_to_rdma_core, server_rdma_core, server_rdma_core_to_libfabric,
  server_post_recv_buff, server_empty_cq_progress, server_fruitful_cq_progress,
- server_fruitful_cq_progress_num_completions) = parse_rdm_pingpong_output("/home/ec2-user/libfabric/server_fi_senddata_output.txt")
+ server_fruitful_cq_progress_num_completions) = parse_rdm_pingpong_output("/home/szegel/libfabric/server_fi_senddata_output.txt")
 (client_libfabric_to_rdma_core, client_rdma_core, client_rdma_core_to_libfabric,
  client_post_recv_buff, client_empty_cq_progress, client_fruitful_cq_progress,
- client_fruitful_cq_progress_num_completions) = parse_rdm_pingpong_output("/home/ec2-user/libfabric/client_fi_senddata_output.txt")
+ client_fruitful_cq_progress_num_completions) = parse_rdm_pingpong_output("/home/szegel/libfabric/client_fi_senddata_output.txt")
 
 print("\n")
 
@@ -132,7 +132,7 @@ def get_and_print_statistics(vector, name):
     plt.title(name)
     plt.xlabel("Time (ns)")
     plt.ylabel("Frequency")
-    plt.savefig(f"/home/ec2-user/libfabric/plots/{name}.png")
+    plt.savefig(f"/home/szegel/libfabric/plots/{name}.png")
     plt.close()
 
 
@@ -159,7 +159,7 @@ get_and_print_statistics(client_fruitful_cq_progress_num_completions, "Client fi
 
 # Step 4: Run fi_rdm_rma_pingpong
 print("\n\n Running RMA Write Data Tests \n\n")
-executable = "/home/ec2-user/libfabric/fabtests/install/bin/fi_rma_pingpong"
+executable = "/home/szegel/libfabric/fabtests/install/bin/fi_rma_pingpong"
 server_args = f" --pin-core 1 -i 0 -o writedata -p efa -D cuda -w {warmup_iterations} -I {iterations} -S 131072 -E "
 server_command = executable + server_args
 client_command = "ssh " + client_ip + " " + executable + server_args + sever_ip
@@ -216,10 +216,10 @@ def parse_rma_pingpong_output(filename):
 
 (server_libfabric_to_rdma_core, server_rdma_core, server_rdma_core_to_libfabric,
  server_empty_cq_progress, server_fruitful_cq_progress,
- server_fruitful_cq_progress_num_completions) = parse_rma_pingpong_output("/home/ec2-user/libfabric/server_fi_writedata_output.txt")
+ server_fruitful_cq_progress_num_completions) = parse_rma_pingpong_output("/home/szegel/libfabric/server_fi_writedata_output.txt")
 (client_libfabric_to_rdma_core, client_rdma_core, client_rdma_core_to_libfabric,
  client_empty_cq_progress, client_fruitful_cq_progress,
- client_fruitful_cq_progress_num_completions) = parse_rma_pingpong_output("/home/ec2-user/libfabric/client_fi_writedata_output.txt")
+ client_fruitful_cq_progress_num_completions) = parse_rma_pingpong_output("/home/szegel/libfabric/client_fi_writedata_output.txt")
 
 
 print("\n")
