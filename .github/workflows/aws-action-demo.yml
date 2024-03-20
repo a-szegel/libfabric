@@ -1,5 +1,5 @@
 name: AWS example workflow
-on: [push, pull_request]
+on: pull_request
 env:
   PR_NUMBER: ${{ github.event.pull_request.number }}
 permissions:
@@ -19,4 +19,6 @@ jobs:
       - name: List S3 buckets
         run: |
           echo $PR_NUMBER
+          echo $AWS_REGION
+          echo $env.PR_NUMBER
           aws s3 ls
