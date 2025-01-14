@@ -100,7 +100,7 @@ int efa_prov_info_set_domain_attr(struct fi_info *prov_info,
 	size_t name_len;
 
 	*prov_info->domain_attr = efa_domain_attr;
-	prov_info->domain_attr->av_type = FI_AV_UNSPEC;
+	prov_info->domain_attr->av_type = FI_AV_TABLE;
 
 	/* set domain name */
 	name_len = strlen(device->ibv_ctx->device->name) + strlen(efa_domain_name_suffix(ep_type));
@@ -184,7 +184,7 @@ void efa_prov_info_set_ep_attr(struct fi_info *prov_info,
 		 * a completion, therefore there is no way for dgram endpoint
 		 * to implement FI_INJECT. Because FI_INJECT is not an optional
 		 * feature, we had to set inject_size to 0.
-		 * 
+		 *
 		 * TODO:
 		 * Remove this after implementing cq read for efa-raw
                  */

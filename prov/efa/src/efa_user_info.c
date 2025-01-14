@@ -476,13 +476,6 @@ int efa_user_info_alter_rdm(int version, struct fi_info *info, const struct fi_i
 		}
 	}
 
-	/* Use a table for AV if the app has no strong requirement */
-	if (!hints || !hints->domain_attr ||
-	    hints->domain_attr->av_type == FI_AV_UNSPEC)
-		info->domain_attr->av_type = FI_AV_TABLE;
-	else
-		info->domain_attr->av_type = hints->domain_attr->av_type;
-
 	if (!hints || !hints->domain_attr ||
 	    hints->domain_attr->resource_mgmt == FI_RM_UNSPEC)
 		info->domain_attr->resource_mgmt = FI_RM_ENABLED;
