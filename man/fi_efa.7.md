@@ -39,8 +39,8 @@ The following features are supported:
   message size of the MTU of the underlying hardware (approximately 8 KiB).
 
 *Address vectors*
-: The provider supports *FI_AV_TABLE* and *FI_AV_MAP* address vector types.
-  *FI_EVENT* is unsupported.
+: The provider supports *FI_AV_TABLE* address vector type.
+  *FI_EVENT* and *FI_AV_MAP* are unsupported.
 
 *Completion events*
 : The provider supports *FI_CQ_FORMAT_CONTEXT*, *FI_CQ_FORMAT_MSG*, and
@@ -90,7 +90,7 @@ No support for inject.
 - Unless the application explicitly disables P2P, e.g. via FI_HMEM_P2P_DISABLED,
   zero-copy receive can be enabled only if available FI_HMEM devices all have
   P2P support.
-  
+
 
 
 When using FI_HMEM for AWS Neuron or Habana SynapseAI buffers, the provider

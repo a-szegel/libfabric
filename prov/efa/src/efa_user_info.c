@@ -129,7 +129,7 @@ int efa_user_info_set_dest_addr(const char *node, const char *service, uint64_t 
 }
 
 /**
- * @brief check the src_addr and desc_addr field of user provided hints
+ * @brief check the src_addr, desc_addr and AV type fields of user provided hints
  *
  * @param	node[in]	node from user's call to fi_getinfo()
  * @param	service[in]	service from user's call to fi_getinfo()
@@ -150,6 +150,10 @@ int efa_user_info_check_hints_addr(const char *node, const char *service,
 	if (((!node && !service) || (flags & FI_SOURCE)) &&
 	    hints && hints->dest_addr &&
 	    hints->dest_addrlen != EFA_EP_ADDR_LEN)
+		return -FI_ENODATA;
+
+	// EFA Provider only supports FI_AV_TABLE because FI_AV_MAP is deprecated
+	if (hints && hints->domain_attr && hints->domain_attr->av_type == FI_AV_MAP)
 		return -FI_ENODATA;
 
 	return 0;
@@ -475,13 +479,6 @@ int efa_user_info_alter_rdm(int version, struct fi_info *info, const struct fi_i
 				"FI_MSG_PREFIX size = %ld\n", info->ep_attr->msg_prefix_size);
 		}
 	}
-
-	/* Use a table for AV if the app has no strong requirement */
-	if (!hints || !hints->domain_attr ||
-	    hints->domain_attr->av_type == FI_AV_UNSPEC)
-		info->domain_attr->av_type = FI_AV_TABLE;
-	else
-		info->domain_attr->av_type = hints->domain_attr->av_type;
 
 	if (!hints || !hints->domain_attr ||
 	    hints->domain_attr->resource_mgmt == FI_RM_UNSPEC)

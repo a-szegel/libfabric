@@ -186,6 +186,8 @@ void test_efa_use_device_rdma_opt0();
 void test_efa_use_device_rdma_env1();
 void test_efa_use_device_rdma_env0();
 void test_efa_use_device_rdma_opt_old();
+void test_info_dgram_open_with_fi_av_map();
+void test_info_rdm_open_with_fi_av_map();
 void test_efa_srx_min_multi_recv_size();
 void test_efa_srx_cq();
 void test_efa_srx_lock();

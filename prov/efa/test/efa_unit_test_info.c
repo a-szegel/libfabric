@@ -159,7 +159,7 @@ void test_info_tx_rx_msg_order_dgram_order_sas(struct efa_resource **state)
 
 /**
  * @brief Verify max order size is set correctly according to hints
- * 
+ *
  * @param hints hints
  * @param expected_ret expected rc of fi_getinfo
  * @param expected_size expected value of max_order_*_size. Ignored when expected_ret is non-zero.
@@ -559,7 +559,7 @@ static int get_first_nic_name(char **name) {
  * "first" NIC.
  *
  * @param[in]	filter			The value that would be set for FI_EFA_IFACE
- * @param[in]	expect_first_name	The expected name of the "first" NIC	
+ * @param[in]	expect_first_name	The expected name of the "first" NIC
  */
 static void test_efa_nic_selection(const char *filter, const char *expect_first_name) {
 	int ret;
@@ -698,4 +698,46 @@ void test_efa_use_device_rdma_env0() {
 void test_efa_use_device_rdma_opt_old() {
 	test_use_device_rdma(1, 1, 1, FI_VERSION(1,17));
 	test_use_device_rdma(0, 0, 0, FI_VERSION(1,17));
+}
+
+
+/**
+ * @brief test that RDM provider fails when HINTS specify non FI_AV_TABLE/FI_AV_UNSPEC
+ */
+void test_info_dgram_open_with_fi_av_map()
+{
+	struct fi_info *hints, *info;
+	int err;
+
+	// TEST DGRAM
+	hints = efa_unit_test_alloc_hints(FI_EP_DGRAM);
+	hints->domain_attr->av_type = FI_AV_MAP;
+
+	err = fi_getinfo(FI_VERSION(1, 14), NULL, NULL, 0ULL, hints, &info);
+	assert_int_not_equal(err, 0);
+
+	// Test invalid option
+	hints->domain_attr->av_type = 3;
+	err = fi_getinfo(FI_VERSION(1, 14), NULL, NULL, 0ULL, hints, &info);
+	assert_int_not_equal(err, 0);
+}
+
+/**
+ * @brief test that RDM provider fails when HINTS specify non FI_AV_TABLE/FI_AV_UNSPEC
+ */
+void test_info_rdm_open_with_fi_av_map()
+{
+	struct fi_info *hints, *info;
+	int err;
+
+	hints = efa_unit_test_alloc_hints(FI_EP_RDM);
+	hints->domain_attr->av_type = FI_AV_MAP;
+
+	err = fi_getinfo(FI_VERSION(1, 14), NULL, NULL, 0ULL, hints, &info);
+	assert_int_not_equal(err, 0);
+
+	// Test invalid option
+	hints->domain_attr->av_type = 3;
+	err = fi_getinfo(FI_VERSION(1, 14), NULL, NULL, 0ULL, hints, &info);
+	assert_int_not_equal(err, 0);
 }
