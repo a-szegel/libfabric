@@ -19,16 +19,17 @@ struct efa_ah {
 	UT_hash_handle	hh; /* hash map handle, link all efa_ah with efa_ep->ah_map */
 };
 
-struct efa_conn {
-	struct efa_ah		*ah;
-	struct efa_ep_addr	*ep_addr;
-	fi_addr_t		fi_addr;
-	struct efa_rdm_peer	rdm_peer;
+struct efa_av_entry {
+	// util_av requires ep_addr to be the first entry
+	struct efa_ep_addr ep_addr;
+	struct efa_ah	*ah;
+	fi_addr_t	fi_addr;
 };
 
-struct efa_av_entry {
-	uint8_t			ep_addr[EFA_EP_ADDR_LEN];
-	struct efa_conn		conn;
+struct efa_rdm_av_entry {
+	struct efa_av_entry	base_av_entry;
+	struct efa_ep_addr	*rdm_ep_addr;
+	struct efa_rdm_peer	rdm_peer;
 };
 
 struct efa_cur_reverse_av_key {
@@ -37,8 +38,8 @@ struct efa_cur_reverse_av_key {
 };
 
 struct efa_cur_reverse_av {
-	struct efa_cur_reverse_av_key key;
-	struct efa_conn *conn;
+	struct efa_cur_reverse_av_key	key;
+	struct efa_av_entry		*av_entry;
 	UT_hash_handle hh;
 };
 
@@ -49,8 +50,8 @@ struct efa_prv_reverse_av_key {
 };
 
 struct efa_prv_reverse_av {
-	struct efa_prv_reverse_av_key key;
-	struct efa_conn *conn;
+	struct efa_prv_reverse_av_key	key;
+	struct efa_av_entry		*av_entry;
 	UT_hash_handle hh;
 };
 
