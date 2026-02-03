@@ -645,7 +645,7 @@ int efa_rdm_ep_open(struct fid_domain *domain, struct fi_info *info,
 	efa_rdm_ep->write_in_order_aligned_128_bytes = false;
 	efa_rdm_ep->homogeneous_peers = false;
 
-	efa_rdm_ep->pke_vec = calloc(sizeof(struct efa_rdm_pke *), EFA_RDM_EP_MAX_WR_PER_IBV_POST_RECV);
+	efa_rdm_ep->pke_vec = calloc(sizeof(struct efa_rdm_pke *), efa_rdm_ep_get_rx_pool_size(efa_rdm_ep));
 	if (!efa_rdm_ep->pke_vec) {
 		EFA_WARN(FI_LOG_EP_CTRL, "cannot alloc memory for efa_rdm_ep->pke_vec!\n");
 		ret = -FI_ENOMEM;

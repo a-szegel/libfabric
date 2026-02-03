@@ -1403,6 +1403,8 @@ void test_efa_rdm_ep_rx_refill_impl(struct efa_resource **state, int threshold, 
 	for (i = 0; i < 4; i++) {
 		pkt_entry = ofi_bufpool_get_ibuf(efa_rdm_ep->efa_rx_pkt_pool, i);
 		assert_non_null(pkt_entry);
+		/* Simulate packet consumption - decrement posted count */
+		efa_rdm_ep->efa_rx_pkts_posted--;
 		efa_rdm_pke_release_rx(pkt_entry);
 	}
 	assert_int_equal(efa_rdm_ep->efa_rx_pkts_to_post, 4);
@@ -1414,16 +1416,19 @@ void test_efa_rdm_ep_rx_refill_impl(struct efa_resource **state, int threshold, 
 	 * pkts should NOT be refilled
 	 */
 	assert_int_equal(efa_rdm_ep->efa_rx_pkts_to_post, 4);
-	assert_int_equal(efa_rdm_ep->efa_rx_pkts_posted, rx_size);
+	assert_int_equal(efa_rdm_ep->efa_rx_pkts_posted, rx_size - 4);
 
 	/* releasing more pkts to reach the threshold or rx_size*/
 	for (i = 4; i < MIN(rx_size, threshold); i++) {
 		pkt_entry = ofi_bufpool_get_ibuf(efa_rdm_ep->efa_rx_pkt_pool, i);
 		assert_non_null(pkt_entry);
+		/* Simulate packet consumption - decrement posted count */
+		efa_rdm_ep->efa_rx_pkts_posted--;
 		efa_rdm_pke_release_rx(pkt_entry);
 	}
 
-	assert_int_equal(efa_rdm_ep->efa_rx_pkts_to_post, i);
+	assert_int_equal(efa_rdm_ep->efa_rx_pkts_to_post, MIN(rx_size, threshold));
+	assert_int_equal(efa_rdm_ep->efa_rx_pkts_posted, rx_size - MIN(rx_size, threshold));
 
 	efa_rdm_ep_bulk_post_internal_rx_pkts(efa_rdm_ep);
 
@@ -1432,7 +1437,7 @@ void test_efa_rdm_ep_rx_refill_impl(struct efa_resource **state, int threshold, 
 	 * pkts should be refilled
 	 */
 	assert_int_equal(efa_rdm_ep->efa_rx_pkts_to_post, 0);
-	assert_int_equal(efa_rdm_ep->efa_rx_pkts_posted, rx_size + i);
+	assert_int_equal(efa_rdm_ep->efa_rx_pkts_posted, rx_size);
 
 	/* recover the original value */
 	efa_env.internal_rx_refill_threshold = threshold_orig;
