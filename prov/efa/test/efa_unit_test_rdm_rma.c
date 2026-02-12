@@ -298,7 +298,7 @@ static void test_efa_rdm_0byte_prep(struct efa_resource *resource, fi_addr_t *ad
 	size_t raw_addr_len = sizeof(raw_addr);
 	int ret;
 
-	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	efa_unit_test_resource_construct_rdm_shm_disabled(resource);
 
 	ret = fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len);
 	assert_int_equal(ret, 0);
@@ -310,7 +310,7 @@ static void test_efa_rdm_0byte_prep(struct efa_resource *resource, fi_addr_t *ad
 }
 
 /* RDM MSG 0-byte tests */
-void test_efa_rdm_msg_send_0_byte(struct efa_resource **state)
+void test_efa_rdm_msg_send_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -323,7 +323,7 @@ void test_efa_rdm_msg_send_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_msg_sendv_0_byte(struct efa_resource **state)
+void test_efa_rdm_msg_sendv_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -337,7 +337,7 @@ void test_efa_rdm_msg_sendv_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_msg_sendmsg_0_byte(struct efa_resource **state)
+void test_efa_rdm_msg_sendmsg_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -354,7 +354,7 @@ void test_efa_rdm_msg_sendmsg_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_msg_senddata_0_byte(struct efa_resource **state)
+void test_efa_rdm_msg_senddata_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -367,7 +367,7 @@ void test_efa_rdm_msg_senddata_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_msg_inject_0_byte(struct efa_resource **state)
+void test_efa_rdm_msg_inject_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -380,7 +380,7 @@ void test_efa_rdm_msg_inject_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_msg_injectdata_0_byte(struct efa_resource **state)
+void test_efa_rdm_msg_injectdata_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -394,7 +394,7 @@ void test_efa_rdm_msg_injectdata_0_byte(struct efa_resource **state)
 }
 
 /* RDM Tagged 0-byte tests */
-void test_efa_rdm_tagged_send_0_byte(struct efa_resource **state)
+void test_efa_rdm_tagged_send_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -407,7 +407,7 @@ void test_efa_rdm_tagged_send_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_tagged_sendv_0_byte(struct efa_resource **state)
+void test_efa_rdm_tagged_sendv_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -421,7 +421,7 @@ void test_efa_rdm_tagged_sendv_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_tagged_sendmsg_0_byte(struct efa_resource **state)
+void test_efa_rdm_tagged_sendmsg_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -438,7 +438,7 @@ void test_efa_rdm_tagged_sendmsg_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_tagged_senddata_0_byte(struct efa_resource **state)
+void test_efa_rdm_tagged_senddata_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -451,7 +451,7 @@ void test_efa_rdm_tagged_senddata_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_tagged_inject_0_byte(struct efa_resource **state)
+void test_efa_rdm_tagged_inject_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -464,7 +464,7 @@ void test_efa_rdm_tagged_inject_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_tagged_injectdata_0_byte(struct efa_resource **state)
+void test_efa_rdm_tagged_injectdata_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -478,7 +478,7 @@ void test_efa_rdm_tagged_injectdata_0_byte(struct efa_resource **state)
 }
 
 /* RDM RMA 0-byte tests */
-void test_efa_rdm_rma_read_0_byte(struct efa_resource **state)
+void test_efa_rdm_rma_read_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -491,7 +491,7 @@ void test_efa_rdm_rma_read_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_rma_readv_0_byte(struct efa_resource **state)
+void test_efa_rdm_rma_readv_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -505,7 +505,7 @@ void test_efa_rdm_rma_readv_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_rma_readmsg_0_byte(struct efa_resource **state)
+void test_efa_rdm_rma_readmsg_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -523,7 +523,7 @@ void test_efa_rdm_rma_readmsg_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_rma_write_0_byte(struct efa_resource **state)
+void test_efa_rdm_rma_write_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -536,7 +536,7 @@ void test_efa_rdm_rma_write_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_rma_writev_0_byte(struct efa_resource **state)
+void test_efa_rdm_rma_writev_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -550,7 +550,7 @@ void test_efa_rdm_rma_writev_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_rma_writemsg_0_byte(struct efa_resource **state)
+void test_efa_rdm_rma_writemsg_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -568,7 +568,7 @@ void test_efa_rdm_rma_writemsg_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_rma_writedata_0_byte(struct efa_resource **state)
+void test_efa_rdm_rma_writedata_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -581,7 +581,7 @@ void test_efa_rdm_rma_writedata_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_rma_inject_write_0_byte(struct efa_resource **state)
+void test_efa_rdm_rma_inject_write_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
@@ -594,7 +594,7 @@ void test_efa_rdm_rma_inject_write_0_byte(struct efa_resource **state)
 	
 }
 
-void test_efa_rdm_rma_inject_writedata_0_byte(struct efa_resource **state)
+void test_efa_rdm_rma_inject_writedata_0_byte_no_shm(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	fi_addr_t addr;
