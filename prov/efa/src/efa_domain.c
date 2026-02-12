@@ -310,7 +310,7 @@ int efa_domain_open(struct fid_fabric *fabric_fid, struct fi_info *info,
 			struct iovec iov;
 			struct fid_mr *mr_fid;
 
-			efa_domain->zero_byte_bounce_buf = ofi_buf_alloc(4096);
+			efa_domain->zero_byte_bounce_buf = malloc(4096);
 			if (!efa_domain->zero_byte_bounce_buf) {
 				EFA_WARN(FI_LOG_DOMAIN, "Failed to allocate zero-byte bounce buffer\n");
 				err = -FI_ENOMEM;
@@ -325,7 +325,7 @@ int efa_domain_open(struct fid_fabric *fabric_fid, struct fi_info *info,
 						   0, 0, 0, &mr_fid, NULL);
 			if (err) {
 				EFA_WARN(FI_LOG_DOMAIN, "Failed to register zero-byte bounce buffer: %d\n", err);
-				ofi_buf_free(efa_domain->zero_byte_bounce_buf);
+				free(efa_domain->zero_byte_bounce_buf);
 				efa_domain->zero_byte_bounce_buf = NULL;
 				goto err_free;
 			}
@@ -405,7 +405,7 @@ static int efa_domain_close(fid_t fid)
 	}
 
 	if (efa_domain->zero_byte_bounce_buf) {
-		ofi_buf_free(efa_domain->zero_byte_bounce_buf);
+		free(efa_domain->zero_byte_bounce_buf);
 		efa_domain->zero_byte_bounce_buf = NULL;
 	}
 
