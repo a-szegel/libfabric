@@ -290,3 +290,361 @@ void test_efa_rdm_rma_should_write_using_rdma_unsolicited_write_recv_not_match(
 			ep, peer, &txe, true, false, true, true);
 	assert_false(result);
 }
+
+/* RDM 0-byte operation tests */
+static void test_efa_rdm_0byte_prep(struct efa_resource *resource, fi_addr_t *addr)
+{
+	struct efa_ep_addr raw_addr;
+	size_t raw_addr_len = sizeof(raw_addr);
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	ret = fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len);
+	assert_int_equal(ret, 0);
+
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	ret = fi_av_insert(resource->av, &raw_addr, 1, addr, 0, NULL);
+	assert_int_equal(ret, 1);
+}
+
+/* RDM MSG 0-byte tests */
+void test_efa_rdm_msg_send_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_send(resource->ep, NULL, 0, NULL, addr, NULL);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_msg_sendv_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	struct iovec iov = {0};
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_sendv(resource->ep, &iov, NULL, 0, addr, NULL);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_msg_sendmsg_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	struct iovec iov = {0};
+	struct fi_msg msg = {0};
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	efa_unit_test_construct_msg(&msg, &iov, 0, addr, NULL, 0, NULL);
+
+	ret = fi_sendmsg(resource->ep, &msg, 0);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_msg_senddata_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_senddata(resource->ep, NULL, 0, NULL, 0, addr, NULL);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_msg_inject_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_inject(resource->ep, NULL, 0, addr);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_msg_injectdata_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_injectdata(resource->ep, NULL, 0, 0, addr);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+/* RDM Tagged 0-byte tests */
+void test_efa_rdm_tagged_send_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_tsend(resource->ep, NULL, 0, NULL, addr, 0, NULL);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_tagged_sendv_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	struct iovec iov = {0};
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_tsendv(resource->ep, &iov, NULL, 0, addr, 0, NULL);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_tagged_sendmsg_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	struct iovec iov = {0};
+	struct fi_msg_tagged tmsg = {0};
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	efa_unit_test_construct_tmsg(&tmsg, &iov, 0, addr, NULL, 0, NULL, 0, 0);
+
+	ret = fi_tsendmsg(resource->ep, &tmsg, 0);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_tagged_senddata_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_tsenddata(resource->ep, NULL, 0, NULL, 0, addr, 0, NULL);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_tagged_inject_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_tinject(resource->ep, NULL, 0, addr, 0);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_tagged_injectdata_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_tinjectdata(resource->ep, NULL, 0, 0, addr, 0);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+/* RDM RMA 0-byte tests */
+void test_efa_rdm_rma_read_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_read(resource->ep, NULL, 0, NULL, addr, 0, 0, NULL);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_rma_readv_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	struct iovec iov = {0};
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_readv(resource->ep, &iov, NULL, 0, addr, 0, 0, NULL);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_rma_readmsg_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	struct iovec iov = {0};
+	struct fi_msg_rma msg = {0};
+	struct fi_rma_iov rma_iov = {0};
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	efa_unit_test_construct_msg_rma(&msg, &iov, NULL, 0, addr, &rma_iov, 1, NULL, 0);
+
+	ret = fi_readmsg(resource->ep, &msg, 0);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_rma_write_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_write(resource->ep, NULL, 0, NULL, addr, 0, 0, NULL);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_rma_writev_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	struct iovec iov = {0};
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_writev(resource->ep, &iov, NULL, 0, addr, 0, 0, NULL);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_rma_writemsg_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	struct iovec iov = {0};
+	struct fi_msg_rma msg = {0};
+	struct fi_rma_iov rma_iov = {0};
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	efa_unit_test_construct_msg_rma(&msg, &iov, NULL, 0, addr, &rma_iov, 1, NULL, 0);
+
+	ret = fi_writemsg(resource->ep, &msg, 0);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_rma_writedata_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_writedata(resource->ep, NULL, 0, NULL, 0, addr, 0, 0, NULL);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_rma_inject_write_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_inject_write(resource->ep, NULL, 0, addr, 0, 0);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
+
+void test_efa_rdm_rma_inject_writedata_0_byte(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	fi_addr_t addr;
+	int ret;
+
+	test_efa_rdm_0byte_prep(resource, &addr);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	ret = fi_inject_writedata(resource->ep, NULL, 0, 0, addr, 0, 0);
+	assert_int_equal(ret, 0);
+	assert_int_equal(efa_rdm_ep->ope_num_total_tx, 1);
+}
