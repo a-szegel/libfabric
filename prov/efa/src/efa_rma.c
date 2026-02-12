@@ -364,7 +364,7 @@ ssize_t efa_rma_inject_write(struct fid_ep *ep_fid, const void *buf, size_t len,
 
 	/* Only support 0-byte inject for efa-direct */
 	if (len != 0)
-		return -FI_EOPNOTSUPP;
+		return -FI_ENOSYS;
 
 	ofi_genlock_lock(&base_ep->util_ep.lock);
 
