@@ -310,10 +310,11 @@ static void test_efa_rdm_0byte_prep(struct efa_resource *resource, fi_addr_t *ad
 	ret = fi_av_insert(resource->av, &raw_addr, 1, addr, 0, NULL);
 	assert_int_equal(ret, 1);
 
-	/* Mark peer as handshake received to allow operations */
+	/* Mark peer as handshake received and enable RDMA write/read */
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 	peer = efa_rdm_ep_get_peer(efa_rdm_ep, *addr);
 	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
+	peer->extra_info[0] |= EFA_RDM_EXTRA_FEATURE_RDMA_WRITE | EFA_RDM_EXTRA_FEATURE_RDMA_READ;
 }
 
 /* RDM MSG 0-byte tests */
