@@ -314,7 +314,7 @@ static void test_efa_rdm_0byte_prep(struct efa_resource *resource, fi_addr_t *ad
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 	peer = efa_rdm_ep_get_peer(efa_rdm_ep, *addr);
 	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
-	peer->extra_info[0] |= EFA_RDM_EXTRA_FEATURE_RDMA_WRITE | EFA_RDM_EXTRA_FEATURE_RDMA_READ;
+	peer->extra_info[0] |= EFA_RDM_EXTRA_FEATURE_RDMA_WRITE | EFA_RDM_EXTRA_FEATURE_RDMA_READ | EFA_RDM_EXTRA_FEATURE_UNSOLICITED_WRITE_RECV;
 }
 
 /* RDM MSG 0-byte tests */
