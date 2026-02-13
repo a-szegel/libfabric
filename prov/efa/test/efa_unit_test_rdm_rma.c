@@ -494,7 +494,7 @@ void test_efa_rdm_rma_read_0_byte_no_shm(struct efa_resource **state)
 
 	test_efa_rdm_0byte_prep(resource, &addr);
 
-	ret = fi_read(resource->ep, NULL, 0, NULL, addr, 0, 0, NULL);
+	ret = fi_read(resource->ep, NULL, 0, NULL, addr, 0x87654321, 123456, NULL);
 	assert_int_equal(ret, 0);
 	
 }
@@ -508,7 +508,7 @@ void test_efa_rdm_rma_readv_0_byte_no_shm(struct efa_resource **state)
 
 	test_efa_rdm_0byte_prep(resource, &addr);
 
-	ret = fi_readv(resource->ep, &iov, NULL, 0, addr, 0, 0, NULL);
+	ret = fi_readv(resource->ep, &iov, NULL, 0, addr, 0x87654321, 123456, NULL);
 	assert_int_equal(ret, 0);
 	
 }
@@ -519,7 +519,7 @@ void test_efa_rdm_rma_readmsg_0_byte_no_shm(struct efa_resource **state)
 	fi_addr_t addr;
 	struct iovec iov = {0};
 	struct fi_msg_rma msg = {0};
-	struct fi_rma_iov rma_iov = {0};
+	struct fi_rma_iov rma_iov = {.addr = 0x87654321, .len = 0, .key = 123456};
 	int ret;
 
 	test_efa_rdm_0byte_prep(resource, &addr);
@@ -539,7 +539,7 @@ void test_efa_rdm_rma_write_0_byte_no_shm(struct efa_resource **state)
 
 	test_efa_rdm_0byte_prep(resource, &addr);
 
-	ret = fi_write(resource->ep, NULL, 0, NULL, addr, 0, 0, NULL);
+	ret = fi_write(resource->ep, NULL, 0, NULL, addr, 0x87654321, 123456, NULL);
 	assert_int_equal(ret, 0);
 	
 }
@@ -553,7 +553,7 @@ void test_efa_rdm_rma_writev_0_byte_no_shm(struct efa_resource **state)
 
 	test_efa_rdm_0byte_prep(resource, &addr);
 
-	ret = fi_writev(resource->ep, &iov, NULL, 0, addr, 0, 0, NULL);
+	ret = fi_writev(resource->ep, &iov, NULL, 0, addr, 0x87654321, 123456, NULL);
 	assert_int_equal(ret, 0);
 	
 }
@@ -564,7 +564,7 @@ void test_efa_rdm_rma_writemsg_0_byte_no_shm(struct efa_resource **state)
 	fi_addr_t addr;
 	struct iovec iov = {0};
 	struct fi_msg_rma msg = {0};
-	struct fi_rma_iov rma_iov = {0};
+	struct fi_rma_iov rma_iov = {.addr = 0x87654321, .len = 0, .key = 123456};
 	int ret;
 
 	test_efa_rdm_0byte_prep(resource, &addr);
@@ -584,7 +584,7 @@ void test_efa_rdm_rma_writedata_0_byte_no_shm(struct efa_resource **state)
 
 	test_efa_rdm_0byte_prep(resource, &addr);
 
-	ret = fi_writedata(resource->ep, NULL, 0, NULL, 0, addr, 0, 0, NULL);
+	ret = fi_writedata(resource->ep, NULL, 0, NULL, 0, addr, 0x87654321, 123456, NULL);
 	assert_int_equal(ret, 0);
 	
 }
@@ -597,7 +597,7 @@ void test_efa_rdm_rma_inject_write_0_byte_no_shm(struct efa_resource **state)
 
 	test_efa_rdm_0byte_prep(resource, &addr);
 
-	ret = fi_inject_write(resource->ep, NULL, 0, addr, 0, 0);
+	ret = fi_inject_write(resource->ep, NULL, 0, addr, 0x87654321, 123456);
 	assert_int_equal(ret, 0);
 	
 }
@@ -610,7 +610,7 @@ void test_efa_rdm_rma_inject_writedata_0_byte_no_shm(struct efa_resource **state
 
 	test_efa_rdm_0byte_prep(resource, &addr);
 
-	ret = fi_inject_writedata(resource->ep, NULL, 0, 0, addr, 0, 0);
+	ret = fi_inject_writedata(resource->ep, NULL, 0, 0, addr, 0x87654321, 123456);
 	assert_int_equal(ret, 0);
 	
 }
