@@ -296,6 +296,8 @@ static void test_efa_rdm_0byte_prep(struct efa_resource *resource, fi_addr_t *ad
 {
 	struct efa_ep_addr raw_addr;
 	size_t raw_addr_len = sizeof(raw_addr);
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct efa_rdm_peer *peer;
 	int ret;
 
 	efa_unit_test_resource_construct_rdm_shm_disabled(resource);
@@ -307,6 +309,11 @@ static void test_efa_rdm_0byte_prep(struct efa_resource *resource, fi_addr_t *ad
 	raw_addr.qkey = 0x1234;
 	ret = fi_av_insert(resource->av, &raw_addr, 1, addr, 0, NULL);
 	assert_int_equal(ret, 1);
+
+	/* Mark peer as handshake received to allow operations */
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, *addr);
+	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
 }
 
 /* RDM MSG 0-byte tests */
