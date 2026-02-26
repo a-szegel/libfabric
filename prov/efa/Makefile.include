@@ -262,9 +262,27 @@ TESTS += \
 prov_efa_test_efa_unit_tests_gtest_SOURCES = \
 	prov/efa/test/efa_unit_test_main_gtest.cpp \
 	prov/efa/test/efa_unit_test_mocks_gtest.cpp \
+	prov/efa/test/efa_unit_test_av_gtest.cpp \
+	prov/efa/test/efa_unit_test_cntr_gtest.cpp \
+	prov/efa/test/efa_unit_test_cq_gtest.cpp \
+	prov/efa/test/efa_unit_test_data_path_direct_gtest.cpp \
 	prov/efa/test/efa_unit_test_device_gtest.cpp \
+	prov/efa/test/efa_unit_test_domain_gtest.cpp \
+	prov/efa/test/efa_unit_test_ep_gtest.cpp \
 	prov/efa/test/efa_unit_test_fork_support_gtest.cpp \
-	prov/efa/test/efa_unit_test_send_gtest.cpp
+	prov/efa/test/efa_unit_test_hmem_gtest.cpp \
+	prov/efa/test/efa_unit_test_info_gtest.cpp \
+	prov/efa/test/efa_unit_test_mr_gtest.cpp \
+	prov/efa/test/efa_unit_test_msg_gtest.cpp \
+	prov/efa/test/efa_unit_test_ope_gtest.cpp \
+	prov/efa/test/efa_unit_test_pke_gtest.cpp \
+	prov/efa/test/efa_unit_test_rdm_peer_gtest.cpp \
+	prov/efa/test/efa_unit_test_rdm_rma_gtest.cpp \
+	prov/efa/test/efa_unit_test_rma_gtest.cpp \
+	prov/efa/test/efa_unit_test_rnr_gtest.cpp \
+	prov/efa/test/efa_unit_test_runt_gtest.cpp \
+	prov/efa/test/efa_unit_test_send_gtest.cpp \
+	prov/efa/test/efa_unit_test_srx_gtest.cpp
 
 prov_efa_test_efa_unit_tests_gtest_CPPFLAGS = $(GTEST_CPPFLAGS) $(efa_CPPFLAGS) -I$(top_srcdir)/include -I$(top_srcdir)/prov/efa/test
 prov_efa_test_efa_unit_tests_gtest_CXXFLAGS = -std=c++14
