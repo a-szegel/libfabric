@@ -92,4 +92,10 @@ protected:
     }
 };
 
+// Forward declarations for C functions we'll call
+extern "C" {
+    int efa_device_construct_gid(struct efa_device *efa_device, struct ibv_device *ibv_device);
+    int efa_device_construct_data(struct efa_device *efa_device, struct ibv_device *ibv_device);
+}
+
 #endif // EFA_UNIT_TEST_COMMON_HPP

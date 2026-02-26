@@ -125,3 +125,39 @@ int __wrap_efadv_query_ah(struct ibv_ah *ibvah, struct efadv_ah_attr *attr, uint
 }
 
 } // extern "C"
+
+// Define global variables needed by tests
+struct efa_unit_test_mocks {
+    int (*efadv_query_device)(struct ibv_context*, struct efadv_device_attr*, uint32_t);
+    enum ibv_fork_status (*ibv_is_fork_initialized)();
+};
+
+struct efa_unit_test_mocks g_efa_unit_test_mocks = {nullptr, nullptr};
+
+// Device count
+int g_efa_selected_device_cnt = 0;
+
+// Fork status
+enum efa_fork_support_status {
+    EFA_FORK_SUPPORT_OFF = 0,
+    EFA_FORK_SUPPORT_ON,
+    EFA_FORK_SUPPORT_UNNEEDED,
+};
+enum efa_fork_support_status g_efa_fork_status = EFA_FORK_SUPPORT_OFF;
+
+// Environment settings
+enum efa_env_huge_page_setting {
+    EFA_ENV_HUGE_PAGE_UNSPEC = 0,
+    EFA_ENV_HUGE_PAGE_DISABLED,
+    EFA_ENV_HUGE_PAGE_ENABLED,
+};
+
+struct efa_env {
+    int huge_page_setting;
+};
+struct efa_env efa_env = {EFA_ENV_HUGE_PAGE_UNSPEC};
+
+// Real function declarations
+enum ibv_fork_status __real_ibv_is_fork_initialized() {
+    return IBV_FORK_UNNEEDED;
+}
