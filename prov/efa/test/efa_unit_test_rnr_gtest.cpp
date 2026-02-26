@@ -6,6 +6,13 @@
 class EfaUnitTestRnr : public EfaUnitTestBase {
 };
 
+TEST_F(EfaUnitTestRnr, test_efa_rnr_queue_and_resend_impl) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
 TEST_F(EfaUnitTestRnr, test_efa_rnr_queue_and_resend_msg) {
     struct ibv_pd mock_pd;
     struct ibv_qp mock_qp;
