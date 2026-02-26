@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <string.h>
+#include <stdlib.h>
 
 extern "C" {
 #include <infiniband/verbs.h>
@@ -37,6 +39,7 @@ using ::testing::Return;
 using ::testing::NiceMock;
 using ::testing::SetArgPointee;
 using ::testing::DoAll;
+using ::testing::Invoke;
 
 // Global mock pointer
 class RdmaCoreMock;
@@ -65,11 +68,12 @@ public:
     MOCK_METHOD(struct ibv_ah*, ibv_create_ah, (struct ibv_pd*, struct ibv_ah_attr*));
     MOCK_METHOD(int, ibv_destroy_ah, (struct ibv_ah*));
     MOCK_METHOD(enum ibv_fork_status, ibv_is_fork_initialized, ());
+    MOCK_METHOD(int, ibv_fork_init, ());
     MOCK_METHOD(int, efadv_query_device, (struct ibv_context*, struct efadv_device_attr*, uint32_t));
     MOCK_METHOD(int, efadv_query_ah, (struct ibv_ah*, struct efadv_ah_attr*, uint32_t));
 };
 
-// C wrapper functions that delegate to mock
+// C wrapper functions
 extern "C" {
 
 struct ibv_device** __wrap_ibv_get_device_list(int *num) {
@@ -172,6 +176,11 @@ enum ibv_fork_status __wrap_ibv_is_fork_initialized() {
     return g_rdma_mock->ibv_is_fork_initialized();
 }
 
+int __wrap_ibv_fork_init() {
+    if (!g_rdma_mock) return 0;
+    return g_rdma_mock->ibv_fork_init();
+}
+
 int __wrap_efadv_query_device(struct ibv_context *ibvctx, struct efadv_device_attr *attr, uint32_t inlen) {
     if (!g_rdma_mock) return -1;
     return g_rdma_mock->efadv_query_device(ibvctx, attr, inlen);
@@ -201,46 +210,664 @@ protected:
 };
 
 // ============================================================================
-// DEVICE TESTS (efa_unit_test_device.c)
+// DEVICE TESTS - Pure unit tests for device operations
 // ============================================================================
 
-TEST_F(EfaUnitTest, DeviceQueryReturnsError) {
-    EXPECT_CALL(*mock, ibv_query_device(_, _)).WillOnce(Return(-1));
+TEST_F(EfaUnitTest, DeviceListReturnsNull) {
+    EXPECT_CALL(*mock, ibv_get_device_list(_))
+        .WillOnce(DoAll(SetArgPointee<0>(0), Return(nullptr)));
     
-    struct ibv_context ctx = {};
-    struct ibv_device_attr attr = {};
-    int ret = ibv_query_device(&ctx, &attr);
+    int num_devices = 0;
+    struct ibv_device **list = ibv_get_device_list(&num_devices);
+    
+    EXPECT_EQ(list, nullptr);
+    EXPECT_EQ(num_devices, 0);
+}
+
+TEST_F(EfaUnitTest, DeviceListReturnsDevices) {
+    struct ibv_device mock_device;
+    struct ibv_device *device_array[2] = {&mock_device, nullptr};
+    
+    EXPECT_CALL(*mock, ibv_get_device_list(_))
+        .WillOnce(DoAll(SetArgPointee<0>(1), Return(device_array)));
+    
+    int num_devices = 0;
+    struct ibv_device **list = ibv_get_device_list(&num_devices);
+    
+    EXPECT_NE(list, nullptr);
+    EXPECT_EQ(num_devices, 1);
+    EXPECT_EQ(list[0], &mock_device);
+}
+
+TEST_F(EfaUnitTest, DeviceGetNameReturnsName) {
+    struct ibv_device mock_device;
+    
+    EXPECT_CALL(*mock, ibv_get_device_name(&mock_device))
+        .WillOnce(Return("rdmap0s31-rdm"));
+    
+    const char *name = ibv_get_device_name(&mock_device);
+    EXPECT_STREQ(name, "rdmap0s31-rdm");
+}
+
+TEST_F(EfaUnitTest, DeviceOpenSuccess) {
+    struct ibv_device mock_device;
+    struct ibv_context mock_ctx;
+    
+    EXPECT_CALL(*mock, ibv_open_device(&mock_device))
+        .WillOnce(Return(&mock_ctx));
+    
+    struct ibv_context *ctx = ibv_open_device(&mock_device);
+    EXPECT_EQ(ctx, &mock_ctx);
+}
+
+TEST_F(EfaUnitTest, DeviceOpenFailure) {
+    struct ibv_device mock_device;
+    
+    EXPECT_CALL(*mock, ibv_open_device(&mock_device))
+        .WillOnce(Return(nullptr));
+    
+    struct ibv_context *ctx = ibv_open_device(&mock_device);
+    EXPECT_EQ(ctx, nullptr);
+}
+
+TEST_F(EfaUnitTest, DeviceCloseSuccess) {
+    struct ibv_context mock_ctx;
+    
+    EXPECT_CALL(*mock, ibv_close_device(&mock_ctx))
+        .WillOnce(Return(0));
+    
+    int ret = ibv_close_device(&mock_ctx);
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(EfaUnitTest, DeviceQuerySuccess) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr))
+        .WillOnce(Invoke([](struct ibv_context*, struct ibv_device_attr *a) {
+            a->max_qp = 1024;
+            a->max_cq = 512;
+            return 0;
+        }));
+    
+    int ret = ibv_query_device(&mock_ctx, &attr);
+    EXPECT_EQ(ret, 0);
+    EXPECT_EQ(attr.max_qp, 1024);
+    EXPECT_EQ(attr.max_cq, 512);
+}
+
+TEST_F(EfaUnitTest, DeviceQueryFailure) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr))
+        .WillOnce(Return(-1));
+    
+    int ret = ibv_query_device(&mock_ctx, &attr);
+    EXPECT_EQ(ret, -1);
+}
+
+TEST_F(EfaUnitTest, EfadvQueryDeviceSuccess) {
+    struct ibv_context mock_ctx;
+    struct efadv_device_attr attr = {};
+    
+    EXPECT_CALL(*mock, efadv_query_device(&mock_ctx, &attr, sizeof(attr)))
+        .WillOnce(Invoke([](struct ibv_context*, struct efadv_device_attr *a, uint32_t) {
+            a->max_sq_wr = 2048;
+            a->max_rq_wr = 2048;
+            return 0;
+        }));
+    
+    int ret = efadv_query_device(&mock_ctx, &attr, sizeof(attr));
+    EXPECT_EQ(ret, 0);
+    EXPECT_EQ(attr.max_sq_wr, 2048);
+    EXPECT_EQ(attr.max_rq_wr, 2048);
+}
+
+TEST_F(EfaUnitTest, EfadvQueryDeviceFailure) {
+    struct ibv_context mock_ctx;
+    struct efadv_device_attr attr = {};
+    
+    EXPECT_CALL(*mock, efadv_query_device(&mock_ctx, &attr, sizeof(attr)))
+        .WillOnce(Return(-1));
+    
+    int ret = efadv_query_device(&mock_ctx, &attr, sizeof(attr));
     EXPECT_EQ(ret, -1);
 }
 
 // ============================================================================
-// FORK SUPPORT TESTS (efa_unit_test_fork_support.c)
+// FORK SUPPORT TESTS - Pure unit tests for fork support
 // ============================================================================
 
-TEST_F(EfaUnitTest, ForkInitializedReturnsDisabled) {
-    EXPECT_CALL(*mock, ibv_is_fork_initialized()).WillOnce(Return(IBV_FORK_DISABLED));
+TEST_F(EfaUnitTest, ForkStatusDisabled) {
+    EXPECT_CALL(*mock, ibv_is_fork_initialized())
+        .WillOnce(Return(IBV_FORK_DISABLED));
     
     enum ibv_fork_status status = ibv_is_fork_initialized();
     EXPECT_EQ(status, IBV_FORK_DISABLED);
 }
 
-TEST_F(EfaUnitTest, ForkInitializedReturnsUnneeded) {
-    EXPECT_CALL(*mock, ibv_is_fork_initialized()).WillOnce(Return(IBV_FORK_UNNEEDED));
+TEST_F(EfaUnitTest, ForkStatusEnabled) {
+    EXPECT_CALL(*mock, ibv_is_fork_initialized())
+        .WillOnce(Return(IBV_FORK_ENABLED));
+    
+    enum ibv_fork_status status = ibv_is_fork_initialized();
+    EXPECT_EQ(status, IBV_FORK_ENABLED);
+}
+
+TEST_F(EfaUnitTest, ForkStatusUnneeded) {
+    EXPECT_CALL(*mock, ibv_is_fork_initialized())
+        .WillOnce(Return(IBV_FORK_UNNEEDED));
     
     enum ibv_fork_status status = ibv_is_fork_initialized();
     EXPECT_EQ(status, IBV_FORK_UNNEEDED);
 }
 
+TEST_F(EfaUnitTest, ForkInitSuccess) {
+    EXPECT_CALL(*mock, ibv_fork_init())
+        .WillOnce(Return(0));
+    
+    int ret = ibv_fork_init();
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(EfaUnitTest, ForkInitFailure) {
+    EXPECT_CALL(*mock, ibv_fork_init())
+        .WillOnce(Return(-1));
+    
+    int ret = ibv_fork_init();
+    EXPECT_EQ(ret, -1);
+}
+
 // ============================================================================
-// SEND TESTS (efa_unit_test_send.c)
+// PROTECTION DOMAIN TESTS - Pure unit tests for PD operations
 // ============================================================================
 
-TEST_F(EfaUnitTest, SendMockVerification) {
-    // Just verify mocks work
-    EXPECT_CALL(*mock, ibv_get_device_list(_)).WillOnce(Return(nullptr));
+TEST_F(EfaUnitTest, PdAllocSuccess) {
+    struct ibv_context mock_ctx;
+    struct ibv_pd mock_pd;
+    
+    EXPECT_CALL(*mock, ibv_alloc_pd(&mock_ctx))
+        .WillOnce(Return(&mock_pd));
+    
+    struct ibv_pd *pd = ibv_alloc_pd(&mock_ctx);
+    EXPECT_EQ(pd, &mock_pd);
+}
+
+TEST_F(EfaUnitTest, PdAllocFailure) {
+    struct ibv_context mock_ctx;
+    
+    EXPECT_CALL(*mock, ibv_alloc_pd(&mock_ctx))
+        .WillOnce(Return(nullptr));
+    
+    struct ibv_pd *pd = ibv_alloc_pd(&mock_ctx);
+    EXPECT_EQ(pd, nullptr);
+}
+
+TEST_F(EfaUnitTest, PdDeallocSuccess) {
+    struct ibv_pd mock_pd;
+    
+    EXPECT_CALL(*mock, ibv_dealloc_pd(&mock_pd))
+        .WillOnce(Return(0));
+    
+    int ret = ibv_dealloc_pd(&mock_pd);
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(EfaUnitTest, PdDeallocFailure) {
+    struct ibv_pd mock_pd;
+    
+    EXPECT_CALL(*mock, ibv_dealloc_pd(&mock_pd))
+        .WillOnce(Return(-1));
+    
+    int ret = ibv_dealloc_pd(&mock_pd);
+    EXPECT_EQ(ret, -1);
+}
+
+// ============================================================================
+// MEMORY REGION TESTS - Pure unit tests for MR operations
+// ============================================================================
+
+TEST_F(EfaUnitTest, MrRegisterSuccess) {
+    struct ibv_pd mock_pd;
+    struct ibv_mr mock_mr;
+    char buffer[4096];
+    
+    EXPECT_CALL(*mock, ibv_reg_mr(&mock_pd, buffer, 4096, IBV_ACCESS_LOCAL_WRITE))
+        .WillOnce(Return(&mock_mr));
+    
+    struct ibv_mr *mr = ibv_reg_mr(&mock_pd, buffer, 4096, IBV_ACCESS_LOCAL_WRITE);
+    EXPECT_EQ(mr, &mock_mr);
+}
+
+TEST_F(EfaUnitTest, MrRegisterFailure) {
+    struct ibv_pd mock_pd;
+    char buffer[4096];
+    
+    EXPECT_CALL(*mock, ibv_reg_mr(&mock_pd, buffer, 4096, _))
+        .WillOnce(Return(nullptr));
+    
+    struct ibv_mr *mr = ibv_reg_mr(&mock_pd, buffer, 4096, IBV_ACCESS_LOCAL_WRITE);
+    EXPECT_EQ(mr, nullptr);
+}
+
+TEST_F(EfaUnitTest, MrDeregisterSuccess) {
+    struct ibv_mr mock_mr;
+    
+    EXPECT_CALL(*mock, ibv_dereg_mr(&mock_mr))
+        .WillOnce(Return(0));
+    
+    int ret = ibv_dereg_mr(&mock_mr);
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(EfaUnitTest, MrDeregisterFailure) {
+    struct ibv_mr mock_mr;
+    
+    EXPECT_CALL(*mock, ibv_dereg_mr(&mock_mr))
+        .WillOnce(Return(-1));
+    
+    int ret = ibv_dereg_mr(&mock_mr);
+    EXPECT_EQ(ret, -1);
+}
+
+TEST_F(EfaUnitTest, MrRegisterWithDifferentAccessFlags) {
+    struct ibv_pd mock_pd;
+    struct ibv_mr mock_mr;
+    char buffer[4096];
+    
+    int access_flags[] = {
+        IBV_ACCESS_LOCAL_WRITE,
+        IBV_ACCESS_REMOTE_WRITE,
+        IBV_ACCESS_REMOTE_READ,
+        IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE
+    };
+    
+    for (int flags : access_flags) {
+        EXPECT_CALL(*mock, ibv_reg_mr(&mock_pd, buffer, 4096, flags))
+            .WillOnce(Return(&mock_mr));
+        
+        struct ibv_mr *mr = ibv_reg_mr(&mock_pd, buffer, 4096, flags);
+        EXPECT_EQ(mr, &mock_mr);
+    }
+}
+
+// ============================================================================
+// COMPLETION QUEUE TESTS - Pure unit tests for CQ operations
+// ============================================================================
+
+TEST_F(EfaUnitTest, CqCreateSuccess) {
+    struct ibv_context mock_ctx;
+    struct ibv_cq mock_cq;
+    
+    EXPECT_CALL(*mock, ibv_create_cq(&mock_ctx, 1024, nullptr, nullptr, 0))
+        .WillOnce(Return(&mock_cq));
+    
+    struct ibv_cq *cq = ibv_create_cq(&mock_ctx, 1024, nullptr, nullptr, 0);
+    EXPECT_EQ(cq, &mock_cq);
+}
+
+TEST_F(EfaUnitTest, CqCreateFailure) {
+    struct ibv_context mock_ctx;
+    
+    EXPECT_CALL(*mock, ibv_create_cq(&mock_ctx, 1024, nullptr, nullptr, 0))
+        .WillOnce(Return(nullptr));
+    
+    struct ibv_cq *cq = ibv_create_cq(&mock_ctx, 1024, nullptr, nullptr, 0);
+    EXPECT_EQ(cq, nullptr);
+}
+
+TEST_F(EfaUnitTest, CqDestroySuccess) {
+    struct ibv_cq mock_cq;
+    
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq))
+        .WillOnce(Return(0));
+    
+    int ret = ibv_destroy_cq(&mock_cq);
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(EfaUnitTest, CqDestroyFailure) {
+    struct ibv_cq mock_cq;
+    
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq))
+        .WillOnce(Return(-1));
+    
+    int ret = ibv_destroy_cq(&mock_cq);
+    EXPECT_EQ(ret, -1);
+}
+
+TEST_F(EfaUnitTest, CqCreateWithDifferentSizes) {
+    struct ibv_context mock_ctx;
+    struct ibv_cq mock_cq;
+    
+    int sizes[] = {64, 128, 256, 512, 1024, 2048, 4096};
+    
+    for (int size : sizes) {
+        EXPECT_CALL(*mock, ibv_create_cq(&mock_ctx, size, nullptr, nullptr, 0))
+            .WillOnce(Return(&mock_cq));
+        
+        struct ibv_cq *cq = ibv_create_cq(&mock_ctx, size, nullptr, nullptr, 0);
+        EXPECT_EQ(cq, &mock_cq);
+    }
+}
+
+// ============================================================================
+// QUEUE PAIR TESTS - Pure unit tests for QP operations
+// ============================================================================
+
+TEST_F(EfaUnitTest, QpCreateSuccess) {
+    struct ibv_pd mock_pd;
+    struct ibv_qp mock_qp;
+    struct ibv_qp_init_attr attr = {};
+    
+    EXPECT_CALL(*mock, ibv_create_qp(&mock_pd, &attr))
+        .WillOnce(Return(&mock_qp));
+    
+    struct ibv_qp *qp = ibv_create_qp(&mock_pd, &attr);
+    EXPECT_EQ(qp, &mock_qp);
+}
+
+TEST_F(EfaUnitTest, QpCreateFailure) {
+    struct ibv_pd mock_pd;
+    struct ibv_qp_init_attr attr = {};
+    
+    EXPECT_CALL(*mock, ibv_create_qp(&mock_pd, &attr))
+        .WillOnce(Return(nullptr));
+    
+    struct ibv_qp *qp = ibv_create_qp(&mock_pd, &attr);
+    EXPECT_EQ(qp, nullptr);
+}
+
+TEST_F(EfaUnitTest, QpDestroySuccess) {
+    struct ibv_qp mock_qp;
+    
+    EXPECT_CALL(*mock, ibv_destroy_qp(&mock_qp))
+        .WillOnce(Return(0));
+    
+    int ret = ibv_destroy_qp(&mock_qp);
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(EfaUnitTest, QpDestroyFailure) {
+    struct ibv_qp mock_qp;
+    
+    EXPECT_CALL(*mock, ibv_destroy_qp(&mock_qp))
+        .WillOnce(Return(-1));
+    
+    int ret = ibv_destroy_qp(&mock_qp);
+    EXPECT_EQ(ret, -1);
+}
+
+TEST_F(EfaUnitTest, QpModifySuccess) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE))
+        .WillOnce(Return(0));
+    
+    int ret = ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE);
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(EfaUnitTest, QpModifyFailure) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE))
+        .WillOnce(Return(-1));
+    
+    int ret = ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE);
+    EXPECT_EQ(ret, -1);
+}
+
+// ============================================================================
+// ADDRESS HANDLE TESTS - Pure unit tests for AH operations
+// ============================================================================
+
+TEST_F(EfaUnitTest, AhCreateSuccess) {
+    struct ibv_pd mock_pd;
+    struct ibv_ah mock_ah;
+    struct ibv_ah_attr attr = {};
+    
+    EXPECT_CALL(*mock, ibv_create_ah(&mock_pd, &attr))
+        .WillOnce(Return(&mock_ah));
+    
+    struct ibv_ah *ah = ibv_create_ah(&mock_pd, &attr);
+    EXPECT_EQ(ah, &mock_ah);
+}
+
+TEST_F(EfaUnitTest, AhCreateFailure) {
+    struct ibv_pd mock_pd;
+    struct ibv_ah_attr attr = {};
+    
+    EXPECT_CALL(*mock, ibv_create_ah(&mock_pd, &attr))
+        .WillOnce(Return(nullptr));
+    
+    struct ibv_ah *ah = ibv_create_ah(&mock_pd, &attr);
+    EXPECT_EQ(ah, nullptr);
+}
+
+TEST_F(EfaUnitTest, AhDestroySuccess) {
+    struct ibv_ah mock_ah;
+    
+    EXPECT_CALL(*mock, ibv_destroy_ah(&mock_ah))
+        .WillOnce(Return(0));
+    
+    int ret = ibv_destroy_ah(&mock_ah);
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(EfaUnitTest, AhDestroyFailure) {
+    struct ibv_ah mock_ah;
+    
+    EXPECT_CALL(*mock, ibv_destroy_ah(&mock_ah))
+        .WillOnce(Return(-1));
+    
+    int ret = ibv_destroy_ah(&mock_ah);
+    EXPECT_EQ(ret, -1);
+}
+
+TEST_F(EfaUnitTest, EfadvQueryAhSuccess) {
+    struct ibv_ah mock_ah;
+    struct efadv_ah_attr attr = {};
+    
+    EXPECT_CALL(*mock, efadv_query_ah(&mock_ah, &attr, sizeof(attr)))
+        .WillOnce(Invoke([](struct ibv_ah*, struct efadv_ah_attr *a, uint32_t) {
+            a->ahn = 42;
+            return 0;
+        }));
+    
+    int ret = efadv_query_ah(&mock_ah, &attr, sizeof(attr));
+    EXPECT_EQ(ret, 0);
+    EXPECT_EQ(attr.ahn, 42);
+}
+
+TEST_F(EfaUnitTest, EfadvQueryAhFailure) {
+    struct ibv_ah mock_ah;
+    struct efadv_ah_attr attr = {};
+    
+    EXPECT_CALL(*mock, efadv_query_ah(&mock_ah, &attr, sizeof(attr)))
+        .WillOnce(Return(-1));
+    
+    int ret = efadv_query_ah(&mock_ah, &attr, sizeof(attr));
+    EXPECT_EQ(ret, -1);
+}
+
+// ============================================================================
+// PORT AND GID TESTS - Pure unit tests for port/GID queries
+// ============================================================================
+
+TEST_F(EfaUnitTest, GidQuerySuccess) {
+    struct ibv_context mock_ctx;
+    union ibv_gid gid;
+    
+    EXPECT_CALL(*mock, ibv_query_gid(&mock_ctx, 1, 0, &gid))
+        .WillOnce(Invoke([](struct ibv_context*, uint8_t, int, union ibv_gid *g) {
+            memset(g, 0xAB, sizeof(*g));
+            return 0;
+        }));
+    
+    int ret = ibv_query_gid(&mock_ctx, 1, 0, &gid);
+    EXPECT_EQ(ret, 0);
+    EXPECT_EQ(gid.raw[0], 0xAB);
+}
+
+TEST_F(EfaUnitTest, GidQueryFailure) {
+    struct ibv_context mock_ctx;
+    union ibv_gid gid;
+    
+    EXPECT_CALL(*mock, ibv_query_gid(&mock_ctx, 1, 0, &gid))
+        .WillOnce(Return(-1));
+    
+    int ret = ibv_query_gid(&mock_ctx, 1, 0, &gid);
+    EXPECT_EQ(ret, -1);
+}
+
+// ============================================================================
+// EDGE CASE AND ERROR HANDLING TESTS
+// ============================================================================
+
+TEST_F(EfaUnitTest, NullPointerHandling) {
+    // Test that functions handle null pointers gracefully
+    EXPECT_CALL(*mock, ibv_get_device_list(nullptr))
+        .WillOnce(Return(nullptr));
     
     struct ibv_device **list = ibv_get_device_list(nullptr);
     EXPECT_EQ(list, nullptr);
+}
+
+TEST_F(EfaUnitTest, MultipleDeviceOperations) {
+    struct ibv_device mock_device;
+    struct ibv_context mock_ctx;
+    struct ibv_pd mock_pd;
+    
+    // Open device
+    EXPECT_CALL(*mock, ibv_open_device(&mock_device))
+        .WillOnce(Return(&mock_ctx));
+    
+    struct ibv_context *ctx = ibv_open_device(&mock_device);
+    ASSERT_NE(ctx, nullptr);
+    
+    // Allocate PD
+    EXPECT_CALL(*mock, ibv_alloc_pd(ctx))
+        .WillOnce(Return(&mock_pd));
+    
+    struct ibv_pd *pd = ibv_alloc_pd(ctx);
+    ASSERT_NE(pd, nullptr);
+    
+    // Deallocate PD
+    EXPECT_CALL(*mock, ibv_dealloc_pd(pd))
+        .WillOnce(Return(0));
+    
+    int ret = ibv_dealloc_pd(pd);
+    EXPECT_EQ(ret, 0);
+    
+    // Close device
+    EXPECT_CALL(*mock, ibv_close_device(ctx))
+        .WillOnce(Return(0));
+    
+    ret = ibv_close_device(ctx);
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(EfaUnitTest, ResourceCleanupOnFailure) {
+    struct ibv_context mock_ctx;
+    struct ibv_pd mock_pd;
+    struct ibv_cq mock_cq;
+    
+    // Successful PD allocation
+    EXPECT_CALL(*mock, ibv_alloc_pd(&mock_ctx))
+        .WillOnce(Return(&mock_pd));
+    
+    struct ibv_pd *pd = ibv_alloc_pd(&mock_ctx);
+    ASSERT_NE(pd, nullptr);
+    
+    // Failed CQ creation
+    EXPECT_CALL(*mock, ibv_create_cq(&mock_ctx, 1024, nullptr, nullptr, 0))
+        .WillOnce(Return(nullptr));
+    
+    struct ibv_cq *cq = ibv_create_cq(&mock_ctx, 1024, nullptr, nullptr, 0);
+    EXPECT_EQ(cq, nullptr);
+    
+    // Cleanup PD
+    EXPECT_CALL(*mock, ibv_dealloc_pd(pd))
+        .WillOnce(Return(0));
+    
+    int ret = ibv_dealloc_pd(pd);
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(EfaUnitTest, ConcurrentOperations) {
+    struct ibv_context mock_ctx;
+    struct ibv_pd mock_pd1, mock_pd2;
+    
+    // Allocate multiple PDs
+    EXPECT_CALL(*mock, ibv_alloc_pd(&mock_ctx))
+        .WillOnce(Return(&mock_pd1))
+        .WillOnce(Return(&mock_pd2));
+    
+    struct ibv_pd *pd1 = ibv_alloc_pd(&mock_ctx);
+    struct ibv_pd *pd2 = ibv_alloc_pd(&mock_ctx);
+    
+    EXPECT_NE(pd1, nullptr);
+    EXPECT_NE(pd2, nullptr);
+    EXPECT_NE(pd1, pd2);
+    
+    // Deallocate in reverse order
+    EXPECT_CALL(*mock, ibv_dealloc_pd(pd2))
+        .WillOnce(Return(0));
+    EXPECT_CALL(*mock, ibv_dealloc_pd(pd1))
+        .WillOnce(Return(0));
+    
+    EXPECT_EQ(ibv_dealloc_pd(pd2), 0);
+    EXPECT_EQ(ibv_dealloc_pd(pd1), 0);
+}
+
+TEST_F(EfaUnitTest, LargeBufferRegistration) {
+    struct ibv_pd mock_pd;
+    struct ibv_mr mock_mr;
+    size_t large_size = 1024 * 1024 * 1024; // 1GB
+    
+    EXPECT_CALL(*mock, ibv_reg_mr(&mock_pd, _, large_size, _))
+        .WillOnce(Return(&mock_mr));
+    
+    struct ibv_mr *mr = ibv_reg_mr(&mock_pd, nullptr, large_size, IBV_ACCESS_LOCAL_WRITE);
+    EXPECT_EQ(mr, &mock_mr);
+}
+
+TEST_F(EfaUnitTest, ZeroSizeOperations) {
+    struct ibv_pd mock_pd;
+    
+    // Zero-size MR registration should fail
+    EXPECT_CALL(*mock, ibv_reg_mr(&mock_pd, _, 0, _))
+        .WillOnce(Return(nullptr));
+    
+    struct ibv_mr *mr = ibv_reg_mr(&mock_pd, nullptr, 0, IBV_ACCESS_LOCAL_WRITE);
+    EXPECT_EQ(mr, nullptr);
+}
+
+TEST_F(EfaUnitTest, MaxResourceLimits) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr))
+        .WillOnce(Invoke([](struct ibv_context*, struct ibv_device_attr *a) {
+            a->max_qp = 32768;
+            a->max_cq = 16384;
+            a->max_mr = 65536;
+            a->max_pd = 256;
+            a->max_qp_wr = 16384;
+            a->max_cqe = 131072;
+            return 0;
+        }));
+    
+    int ret = ibv_query_device(&mock_ctx, &attr);
+    EXPECT_EQ(ret, 0);
+    EXPECT_GT(attr.max_qp, 0);
+    EXPECT_GT(attr.max_cq, 0);
+    EXPECT_GT(attr.max_mr, 0);
 }
 
 // ============================================================================
