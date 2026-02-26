@@ -19,6 +19,7 @@ AM_INIT_AUTOMAKE([1.11 dist-bzip2 foreign -Wall -Werror subdir-objects parallel-
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 m4_include(config/fi_check_package.m4)
 m4_include(config/fi_strip_optflags.m4)
+m4_include(m4/check_gtest.m4)
 
 AC_CANONICAL_HOST
 
@@ -105,6 +106,7 @@ AC_ARG_ENABLE([atomics],
 
 dnl Checks for programs
 AC_PROG_CC
+AC_PROG_CXX
 dnl Autoconf 2.70 changed behavior of how it searches for C / C99
 dnl compilers.  Since the world hasn't uniformly updated to Autoconf
 dnl >=v2.70, support both <v2.70 and >=v2.70.

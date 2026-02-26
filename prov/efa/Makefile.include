@@ -238,6 +238,40 @@ prov_efa_test_efa_unit_test_LIBS = $(efa_LIBS) $(linkback)
 
 endif ENABLE_EFA_UNIT_TEST
 
+# GoogleTest unit tests
+if ENABLE_GTEST
+
+GTEST_WRAP_FLAGS = \
+	-Wl,--wrap=efa_ah_alloc,--wrap=efa_ah_release \
+	-Wl,--wrap=ofi_copy_from_hmem_iov \
+	-Wl,--wrap=efa_rdm_pke_copy_payload_to_ope,--wrap=efa_rdm_pke_read \
+	-Wl,--wrap=efa_rdm_pke_proc_matched_rtm,--wrap=efa_rdm_ope_post_send \
+	-Wl,--wrap=efa_device_support_unsolicited_write_recv \
+	-Wl,--wrap=efa_qp_post_recv,--wrap=efa_qp_post_send \
+	-Wl,--wrap=efa_qp_post_read,--wrap=efa_qp_post_write \
+	-Wl,--wrap=efa_ibv_cq_start_poll,--wrap=efa_ibv_cq_next_poll \
+	-Wl,--wrap=efa_ibv_cq_end_poll,--wrap=efa_ibv_cq_wc_read_opcode \
+	-Wl,--wrap=efa_ibv_cq_wc_read_qp_num,--wrap=efa_ibv_cq_wc_read_vendor_err \
+	-Wl,--wrap=efa_ibv_cq_wc_read_src_qp,--wrap=efa_ibv_cq_wc_read_slid \
+	-Wl,--wrap=efa_ibv_cq_wc_read_byte_len,--wrap=efa_ibv_cq_wc_read_wc_flags \
+	-Wl,--wrap=efa_ibv_cq_wc_read_imm_data,--wrap=efa_ibv_cq_wc_is_unsolicited \
+	-Wl,--wrap=efa_ibv_cq_wc_read_sgid,--wrap=efa_ibv_get_cq_event \
+	-Wl,--wrap=efa_ibv_req_notify_cq
+
+noinst_PROGRAMS += \
+	prov/efa/test/efa_unit_tests_gtest
+
+TESTS += \
+	prov/efa/test/efa_unit_tests_gtest
+
+prov_efa_test_efa_unit_tests_gtest_SOURCES = prov/efa/test/efa_unit_tests_gtest.cpp
+prov_efa_test_efa_unit_tests_gtest_CPPFLAGS = $(GTEST_CPPFLAGS)
+prov_efa_test_efa_unit_tests_gtest_CXXFLAGS = -std=c++14
+prov_efa_test_efa_unit_tests_gtest_LDADD = $(GTEST_LIBS)
+prov_efa_test_efa_unit_tests_gtest_LDFLAGS = $(GTEST_LDFLAGS)
+
+endif ENABLE_GTEST
+
 efa_CPPFLAGS += \
 	-I$(top_srcdir)/prov/efa/src/ \
 	-I$(top_srcdir)/prov/efa/src/rdm/

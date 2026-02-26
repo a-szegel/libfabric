@@ -325,6 +325,9 @@ AC_DEFUN([FI_EFA_CONFIGURE],[
 	AC_SUBST(cmocka_rpath)
 	AC_DEFINE_UNQUOTED([EFA_UNIT_TEST], [$efa_unit_test], [EFA unit testing])
 
+	dnl Check for GoogleTest/GoogleMock
+	CHECK_GTEST()
+
 	AM_CONDITIONAL([HAVE_EFADV_CQ_EX], [ test $efadv_support_extended_cq = 1])
 	AM_CONDITIONAL([HAVE_EFADV_QUERY_MR], [ test $have_efadv_query_mr = 1])
 	AM_CONDITIONAL([HAVE_EFADV_QUERY_QP_WQS], [ test $have_efadv_query_qp_wqs = 1])
