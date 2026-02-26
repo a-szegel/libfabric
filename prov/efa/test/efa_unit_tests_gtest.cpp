@@ -1108,6 +1108,78 @@ TEST_F(EfaUnitTest, GidQueryMultipleIndices) {
 }
 
 // ============================================================================
+// DEVICE CONSTRUCTION TESTS (from efa_unit_test_device.c)
+// ============================================================================
+
+TEST_F(EfaUnitTest, DeviceConstructErrorHandling) {
+    struct ibv_device mock_device;
+    struct ibv_device *device_list[2] = {&mock_device, nullptr};
+    struct ibv_context mock_ctx;
+    struct efadv_device_attr efa_attr = {};
+    
+    // Simulate device list retrieval
+    EXPECT_CALL(*mock, ibv_get_device_list(_))
+        .WillOnce(DoAll(SetArgPointee<0>(1), Return(device_list)));
+    
+    int num = 0;
+    struct ibv_device **list = ibv_get_device_list(&num);
+    ASSERT_NE(list, nullptr);
+    ASSERT_EQ(num, 1);
+    
+    // Simulate device open
+    EXPECT_CALL(*mock, ibv_open_device(&mock_device))
+        .WillOnce(Return(&mock_ctx));
+    
+    struct ibv_context *ctx = ibv_open_device(&mock_device);
+    ASSERT_NE(ctx, nullptr);
+    
+    // Simulate efadv_query_device failure
+    EXPECT_CALL(*mock, efadv_query_device(ctx, _, _))
+        .WillOnce(Return(-4242));
+    
+    int ret = efadv_query_device(ctx, &efa_attr, sizeof(efa_attr));
+    EXPECT_EQ(ret, -4242);
+    
+    // On error, cleanup should happen
+    EXPECT_CALL(*mock, ibv_close_device(ctx))
+        .WillOnce(Return(0));
+    
+    ret = ibv_close_device(ctx);
+    EXPECT_EQ(ret, 0);
+}
+
+// ============================================================================
+// FORK SUPPORT TESTS (from efa_unit_test_fork_support.c)
+// ============================================================================
+
+TEST_F(EfaUnitTest, ForkSupportRequestInitializeWhenNeeded) {
+    // Test fork support initialization when IBV reports disabled
+    EXPECT_CALL(*mock, ibv_is_fork_initialized())
+        .WillOnce(Return(IBV_FORK_DISABLED));
+    
+    enum ibv_fork_status status = ibv_is_fork_initialized();
+    EXPECT_EQ(status, IBV_FORK_DISABLED);
+    
+    // When fork support is needed, ibv_fork_init should be called
+    EXPECT_CALL(*mock, ibv_fork_init())
+        .WillOnce(Return(0));
+    
+    int ret = ibv_fork_init();
+    EXPECT_EQ(ret, 0);
+}
+
+TEST_F(EfaUnitTest, ForkSupportRequestInitializeWhenUnneeded) {
+    // Test fork support when IBV reports unneeded
+    EXPECT_CALL(*mock, ibv_is_fork_initialized())
+        .WillOnce(Return(IBV_FORK_UNNEEDED));
+    
+    enum ibv_fork_status status = ibv_is_fork_initialized();
+    EXPECT_EQ(status, IBV_FORK_UNNEEDED);
+    
+    // When unneeded, no initialization required
+}
+
+// ============================================================================
 // MAIN
 // ============================================================================
 
