@@ -259,12 +259,17 @@ noinst_PROGRAMS += \
 TESTS += \
 	prov/efa/test/efa_unit_tests_gtest
 
-prov_efa_test_efa_unit_tests_gtest_SOURCES = prov/efa/test/efa_unit_tests_gtest.cpp
+prov_efa_test_efa_unit_tests_gtest_SOURCES = \
+	prov/efa/test/efa_unit_test_main_gtest.cpp \
+	prov/efa/test/efa_unit_test_mocks_gtest.cpp \
+	prov/efa/test/efa_unit_test_device_gtest.cpp \
+	prov/efa/test/efa_unit_test_fork_support_gtest.cpp \
+	prov/efa/test/efa_unit_test_send_gtest.cpp
 
-prov_efa_test_efa_unit_tests_gtest_CPPFLAGS = $(GTEST_CPPFLAGS) $(efa_CPPFLAGS) -I$(top_srcdir)/include -I$(top_srcdir)/prov/efa/src
+prov_efa_test_efa_unit_tests_gtest_CPPFLAGS = $(GTEST_CPPFLAGS) $(efa_CPPFLAGS) -I$(top_srcdir)/include -I$(top_srcdir)/prov/efa/test
 prov_efa_test_efa_unit_tests_gtest_CXXFLAGS = -std=c++14
-prov_efa_test_efa_unit_tests_gtest_LDADD = $(GTEST_LIBS) src/.libs/libfabric.a $(efa_LIBS) -ldl -lpthread -lrt
-prov_efa_test_efa_unit_tests_gtest_LDFLAGS = $(GTEST_LDFLAGS) $(efa_LDFLAGS) $(GTEST_WRAP_FLAGS)
+prov_efa_test_efa_unit_tests_gtest_LDADD = $(GTEST_LIBS)
+prov_efa_test_efa_unit_tests_gtest_LDFLAGS = $(GTEST_LDFLAGS) $(GTEST_WRAP_FLAGS)
 
 endif ENABLE_GTEST
 
