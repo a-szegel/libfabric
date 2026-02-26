@@ -92,10 +92,13 @@ protected:
     }
 };
 
-// Forward declarations for C functions we'll call
+// C wrapper function declarations
 extern "C" {
-    int efa_device_construct_gid(struct efa_device *efa_device, struct ibv_device *ibv_device);
-    int efa_device_construct_data(struct efa_device *efa_device, struct ibv_device *ibv_device);
+    int efa_unit_test_device_construct_gid_wrapper(void *efa_device_ptr, struct ibv_device *ibv_device);
+    int efa_unit_test_device_check_null(void *efa_device_ptr);
+    void efa_unit_test_fork_support_request_initialize_wrapper(void);
+    int efa_unit_test_get_fork_status(void);
+    int efa_unit_test_get_huge_page_setting(void);
 }
 
 #endif // EFA_UNIT_TEST_COMMON_HPP

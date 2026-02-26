@@ -262,6 +262,7 @@ TESTS += \
 prov_efa_test_efa_unit_tests_gtest_SOURCES = \
 	prov/efa/test/efa_unit_test_main_gtest.cpp \
 	prov/efa/test/efa_unit_test_mocks_gtest.cpp \
+	prov/efa/test/efa_unit_test_wrappers.c \
 	prov/efa/test/efa_unit_test_av_gtest.cpp \
 	prov/efa/test/efa_unit_test_cntr_gtest.cpp \
 	prov/efa/test/efa_unit_test_cq_gtest.cpp \

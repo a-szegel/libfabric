@@ -3,18 +3,46 @@
 
 #include "efa_unit_test_common.hpp"
 
+extern "C" {
+    struct efa_unit_test_mocks {
+        int (*efadv_query_device)(struct ibv_context*, struct efadv_device_attr*, uint32_t);
+        enum ibv_fork_status (*ibv_is_fork_initialized)();
+    };
+    extern struct efa_unit_test_mocks g_efa_unit_test_mocks;
+    extern int g_efa_selected_device_cnt;
+}
+
+// Mock function for efadv_query_device
+static int g_mock_efadv_ret = 0;
+static int mock_efadv_query_device(struct ibv_context *ctx, struct efadv_device_attr *attr, uint32_t inlen) {
+    return g_mock_efadv_ret;
+}
+
 class EfaUnitTestDevice : public EfaUnitTestBase {
+protected:
+    void TearDown() override {
+        g_efa_unit_test_mocks.efadv_query_device = nullptr;
+        EfaUnitTestBase::TearDown();
+    }
 };
 
-// Simplified test that just verifies the structure
 TEST_F(EfaUnitTestDevice, test_efa_device_construct_error_handling) {
-    // This test verifies that the test infrastructure is set up correctly
-    // Full implementation requires linking against EFA provider internals
-    // which have C99 features incompatible with C++
+    int ibv_err = 4242;
+    struct ibv_device **ibv_device_list;
+    char efa_device_buf[1024] = {0};
     
-    // For now, just verify mock is available
-    EXPECT_NE(mock, nullptr);
+    ibv_device_list = ibv_get_device_list(&g_efa_selected_device_cnt);
+    if (ibv_device_list == nullptr) {
+        GTEST_SKIP() << "No devices available";
+        return;
+    }
     
-    // TODO: Implement full test once C++/C interop issues are resolved
-    GTEST_SKIP() << "Full implementation pending C++/C interop resolution";
+    g_mock_efadv_ret = ibv_err;
+    g_efa_unit_test_mocks.efadv_query_device = mock_efadv_query_device;
+    
+    efa_unit_test_device_construct_gid_wrapper(efa_device_buf, ibv_device_list[0]);
+    
+    EXPECT_EQ(efa_unit_test_device_check_null(efa_device_buf), 1);
+    
+    ibv_free_device_list(ibv_device_list);
 }

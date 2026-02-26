@@ -144,6 +144,7 @@ enum efa_fork_support_status {
     EFA_FORK_SUPPORT_UNNEEDED,
 };
 enum efa_fork_support_status g_efa_fork_status = EFA_FORK_SUPPORT_OFF;
+int g_efa_huge_page_setting = 0;
 
 // Environment settings
 enum efa_env_huge_page_setting {
