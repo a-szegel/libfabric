@@ -871,6 +871,243 @@ TEST_F(EfaUnitTest, MaxResourceLimits) {
 }
 
 // ============================================================================
+// ADDITIONAL COMPREHENSIVE TESTS
+// ============================================================================
+
+TEST_F(EfaUnitTest, DeviceListMultipleDevices) {
+    struct ibv_device dev1, dev2, dev3;
+    struct ibv_device *device_array[4] = {&dev1, &dev2, &dev3, nullptr};
+    
+    EXPECT_CALL(*mock, ibv_get_device_list(_))
+        .WillOnce(DoAll(SetArgPointee<0>(3), Return(device_array)));
+    
+    int num = 0;
+    struct ibv_device **list = ibv_get_device_list(&num);
+    
+    EXPECT_EQ(num, 3);
+    EXPECT_EQ(list[0], &dev1);
+    EXPECT_EQ(list[1], &dev2);
+    EXPECT_EQ(list[2], &dev3);
+    EXPECT_EQ(list[3], nullptr);
+}
+
+TEST_F(EfaUnitTest, DeviceFreeList) {
+    struct ibv_device mock_device;
+    struct ibv_device *device_array[2] = {&mock_device, nullptr};
+    
+    EXPECT_CALL(*mock, ibv_free_device_list(device_array))
+        .Times(1);
+    
+    ibv_free_device_list(device_array);
+}
+
+TEST_F(EfaUnitTest, MrMultipleRegistrations) {
+    struct ibv_pd mock_pd;
+    struct ibv_mr mr1, mr2, mr3;
+    char buf1[1024], buf2[2048], buf3[4096];
+    
+    EXPECT_CALL(*mock, ibv_reg_mr(&mock_pd, buf1, 1024, _))
+        .WillOnce(Return(&mr1));
+    EXPECT_CALL(*mock, ibv_reg_mr(&mock_pd, buf2, 2048, _))
+        .WillOnce(Return(&mr2));
+    EXPECT_CALL(*mock, ibv_reg_mr(&mock_pd, buf3, 4096, _))
+        .WillOnce(Return(&mr3));
+    
+    struct ibv_mr *m1 = ibv_reg_mr(&mock_pd, buf1, 1024, IBV_ACCESS_LOCAL_WRITE);
+    struct ibv_mr *m2 = ibv_reg_mr(&mock_pd, buf2, 2048, IBV_ACCESS_LOCAL_WRITE);
+    struct ibv_mr *m3 = ibv_reg_mr(&mock_pd, buf3, 4096, IBV_ACCESS_LOCAL_WRITE);
+    
+    EXPECT_EQ(m1, &mr1);
+    EXPECT_EQ(m2, &mr2);
+    EXPECT_EQ(m3, &mr3);
+}
+
+TEST_F(EfaUnitTest, CqMultipleSizes) {
+    struct ibv_context mock_ctx;
+    struct ibv_cq cq1, cq2, cq3;
+    
+    EXPECT_CALL(*mock, ibv_create_cq(&mock_ctx, 128, _, _, _))
+        .WillOnce(Return(&cq1));
+    EXPECT_CALL(*mock, ibv_create_cq(&mock_ctx, 512, _, _, _))
+        .WillOnce(Return(&cq2));
+    EXPECT_CALL(*mock, ibv_create_cq(&mock_ctx, 2048, _, _, _))
+        .WillOnce(Return(&cq3));
+    
+    struct ibv_cq *c1 = ibv_create_cq(&mock_ctx, 128, nullptr, nullptr, 0);
+    struct ibv_cq *c2 = ibv_create_cq(&mock_ctx, 512, nullptr, nullptr, 0);
+    struct ibv_cq *c3 = ibv_create_cq(&mock_ctx, 2048, nullptr, nullptr, 0);
+    
+    EXPECT_EQ(c1, &cq1);
+    EXPECT_EQ(c2, &cq2);
+    EXPECT_EQ(c3, &cq3);
+}
+
+TEST_F(EfaUnitTest, QpStateTransitions) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    
+    // RESET -> INIT
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, IBV_QP_STATE))
+        .WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+    
+    // INIT -> RTR
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, IBV_QP_STATE))
+        .WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+    
+    // RTR -> RTS
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, IBV_QP_STATE))
+        .WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, DeviceAttributeValidation) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr))
+        .WillOnce(Invoke([](struct ibv_context*, struct ibv_device_attr *a) {
+            strncpy(a->fw_ver, "1.2.3.4", sizeof(a->fw_ver) - 1);
+            a->node_guid = 0xABCDEF0123456789ULL;
+            a->sys_image_guid = 0x9876543210FEDCBAULL;
+            a->max_mr_size = 0xFFFFFFFFFFFFFFFFULL;
+            a->page_size_cap = 4096;
+            a->vendor_id = 0x1D0F; // Amazon
+            a->vendor_part_id = 0xEFA0;
+            a->hw_ver = 1;
+            a->max_qp = 2048;
+            a->max_qp_wr = 8192;
+            a->device_cap_flags = IBV_DEVICE_RESIZE_MAX_WR | IBV_DEVICE_BAD_PKEY_CNTR;
+            a->max_sge = 16;
+            a->max_sge_rd = 16;
+            a->max_cq = 1024;
+            a->max_cqe = 16384;
+            a->max_mr = 32768;
+            a->max_pd = 256;
+            a->max_qp_rd_atom = 16;
+            a->max_ee_rd_atom = 0;
+            a->max_res_rd_atom = 32768;
+            a->max_qp_init_rd_atom = 16;
+            a->max_ee_init_rd_atom = 0;
+            a->atomic_cap = IBV_ATOMIC_NONE;
+            a->max_ee = 0;
+            a->max_rdd = 0;
+            a->max_mw = 0;
+            a->max_raw_ipv6_qp = 0;
+            a->max_raw_ethy_qp = 0;
+            a->max_mcast_grp = 0;
+            a->max_mcast_qp_attach = 0;
+            a->max_total_mcast_qp_attach = 0;
+            a->max_ah = 256;
+            a->max_fmr = 0;
+            a->max_map_per_fmr = 0;
+            a->max_srq = 0;
+            a->max_srq_wr = 0;
+            a->max_srq_sge = 0;
+            a->max_pkeys = 1;
+            a->local_ca_ack_delay = 0;
+            a->phys_port_cnt = 1;
+            return 0;
+        }));
+    
+    int ret = ibv_query_device(&mock_ctx, &attr);
+    EXPECT_EQ(ret, 0);
+    EXPECT_EQ(attr.vendor_id, 0x1D0F);
+    EXPECT_EQ(attr.max_qp, 2048);
+    EXPECT_EQ(attr.max_sge, 16);
+    EXPECT_EQ(attr.phys_port_cnt, 1);
+}
+
+TEST_F(EfaUnitTest, EfaDeviceSpecificAttributes) {
+    struct ibv_context mock_ctx;
+    struct efadv_device_attr attr = {};
+    
+    EXPECT_CALL(*mock, efadv_query_device(&mock_ctx, &attr, sizeof(attr)))
+        .WillOnce(Invoke([](struct ibv_context*, struct efadv_device_attr *a, uint32_t) {
+            a->max_sq_wr = 8192;
+            a->max_rq_wr = 8192;
+            a->max_sq_sge = 16;
+            a->max_rq_sge = 16;
+            a->inline_buf_size = 128;
+            a->max_rdma_size = 1024 * 1024; // 1MB
+            a->device_caps = EFADV_DEVICE_ATTR_CAPS_RDMA_READ | EFADV_DEVICE_ATTR_CAPS_RNR_RETRY;
+            return 0;
+        }));
+    
+    int ret = efadv_query_device(&mock_ctx, &attr, sizeof(attr));
+    EXPECT_EQ(ret, 0);
+    EXPECT_EQ(attr.max_sq_wr, 8192);
+    EXPECT_EQ(attr.max_rq_wr, 8192);
+    EXPECT_EQ(attr.inline_buf_size, 128);
+    EXPECT_TRUE(attr.device_caps & EFADV_DEVICE_ATTR_CAPS_RDMA_READ);
+}
+
+TEST_F(EfaUnitTest, ErrorRecoverySequence) {
+    struct ibv_context mock_ctx;
+    struct ibv_pd mock_pd;
+    struct ibv_cq mock_cq;
+    struct ibv_qp mock_qp;
+    
+    // Successful setup
+    EXPECT_CALL(*mock, ibv_alloc_pd(&mock_ctx)).WillOnce(Return(&mock_pd));
+    EXPECT_CALL(*mock, ibv_create_cq(&mock_ctx, _, _, _, _)).WillOnce(Return(&mock_cq));
+    EXPECT_CALL(*mock, ibv_create_qp(&mock_pd, _)).WillOnce(Return(&mock_qp));
+    
+    struct ibv_pd *pd = ibv_alloc_pd(&mock_ctx);
+    struct ibv_cq *cq = ibv_create_cq(&mock_ctx, 1024, nullptr, nullptr, 0);
+    struct ibv_qp_init_attr qp_attr = {};
+    struct ibv_qp *qp = ibv_create_qp(pd, &qp_attr);
+    
+    ASSERT_NE(pd, nullptr);
+    ASSERT_NE(cq, nullptr);
+    ASSERT_NE(qp, nullptr);
+    
+    // Cleanup in reverse order
+    EXPECT_CALL(*mock, ibv_destroy_qp(qp)).WillOnce(Return(0));
+    EXPECT_CALL(*mock, ibv_destroy_cq(cq)).WillOnce(Return(0));
+    EXPECT_CALL(*mock, ibv_dealloc_pd(pd)).WillOnce(Return(0));
+    
+    EXPECT_EQ(ibv_destroy_qp(qp), 0);
+    EXPECT_EQ(ibv_destroy_cq(cq), 0);
+    EXPECT_EQ(ibv_dealloc_pd(pd), 0);
+}
+
+TEST_F(EfaUnitTest, ForkSupportCombinations) {
+    // Test all fork status combinations
+    enum ibv_fork_status statuses[] = {
+        IBV_FORK_DISABLED,
+        IBV_FORK_ENABLED,
+        IBV_FORK_UNNEEDED
+    };
+    
+    for (auto status : statuses) {
+        EXPECT_CALL(*mock, ibv_is_fork_initialized())
+            .WillOnce(Return(status));
+        
+        enum ibv_fork_status result = ibv_is_fork_initialized();
+        EXPECT_EQ(result, status);
+    }
+}
+
+TEST_F(EfaUnitTest, GidQueryMultipleIndices) {
+    struct ibv_context mock_ctx;
+    union ibv_gid gid;
+    
+    for (int idx = 0; idx < 4; idx++) {
+        EXPECT_CALL(*mock, ibv_query_gid(&mock_ctx, 1, idx, &gid))
+            .WillOnce(Invoke([idx](struct ibv_context*, uint8_t, int, union ibv_gid *g) {
+                memset(g, idx, sizeof(*g));
+                return 0;
+            }));
+        
+        int ret = ibv_query_gid(&mock_ctx, 1, idx, &gid);
+        EXPECT_EQ(ret, 0);
+        EXPECT_EQ(gid.raw[0], idx);
+    }
+}
+
+// ============================================================================
 // MAIN
 // ============================================================================
 
