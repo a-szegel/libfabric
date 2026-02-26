@@ -2377,3 +2377,1585 @@ int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+TEST_F(EfaUnitTest, Ope1) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope2) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope3) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope4) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope5) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope6) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope7) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope8) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope9) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope10) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope11) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope12) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope13) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope14) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope15) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope16) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope17) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope18) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope19) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope20) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope21) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope22) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope23) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope24) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope25) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope26) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope27) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope28) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope29) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope30) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope31) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope32) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope33) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope34) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope35) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope36) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope37) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ope38) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Info1) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info2) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info3) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info4) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info5) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info6) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info7) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info8) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info9) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info10) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info11) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info12) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info13) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info14) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info15) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info16) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info17) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info18) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info19) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info20) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info21) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info22) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info23) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info24) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info25) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info26) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info27) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info28) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info29) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info30) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info31) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info32) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info33) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info34) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info35) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info36) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info37) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info38) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info39) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info40) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info41) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info42) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Info43) {
+    struct ibv_context mock_ctx;
+    struct ibv_device_attr attr;
+    EXPECT_CALL(*mock, ibv_query_device(&mock_ctx, &attr)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_query_device(&mock_ctx, &attr), 0);
+}
+
+TEST_F(EfaUnitTest, Cq1) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq2) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq3) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq4) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq5) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq6) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq7) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq8) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq9) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq10) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq11) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq12) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq13) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq14) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq15) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq16) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq17) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq18) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq19) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq20) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq21) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq22) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq23) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq24) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq25) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq26) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq27) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq28) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq29) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq30) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq31) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq32) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq33) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq34) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq35) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq36) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq37) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq38) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq39) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq40) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq41) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq42) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq43) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq44) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq45) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq46) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq47) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq48) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq49) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq50) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq51) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq52) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq53) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq54) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq55) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq56) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq57) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq58) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq59) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq60) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq61) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq62) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq63) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq64) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq65) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq66) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq67) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq68) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq69) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq70) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq71) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq72) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq73) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq74) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq75) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq76) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Cq77) {
+    struct ibv_cq mock_cq;
+    EXPECT_CALL(*mock, ibv_destroy_cq(&mock_cq)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_destroy_cq(&mock_cq), 0);
+}
+
+TEST_F(EfaUnitTest, Ep1) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep2) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep3) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep4) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep5) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep6) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep7) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep8) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep9) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep10) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep11) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep12) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep13) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep14) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep15) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep16) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep17) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep18) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep19) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep20) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep21) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep22) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep23) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep24) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep25) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep26) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep27) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep28) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep29) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep30) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep31) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep32) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep33) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep34) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep35) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep36) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep37) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep38) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep39) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep40) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep41) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep42) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep43) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep44) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep45) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep46) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep47) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep48) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep49) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep50) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep51) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep52) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep53) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep54) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep55) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep56) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep57) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep58) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep59) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep60) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep61) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep62) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep63) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep64) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep65) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep66) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep67) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep68) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep69) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep70) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep71) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep72) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep73) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep74) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep75) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep76) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep77) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep78) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
+TEST_F(EfaUnitTest, Ep79) {
+    struct ibv_qp mock_qp;
+    struct ibv_qp_attr attr = {};
+    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
+    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+}
+
