@@ -265,10 +265,10 @@ TESTS += \
 	prov/efa/test/efa_unit_tests_gtest
 
 prov_efa_test_efa_unit_tests_gtest_SOURCES = prov/efa/test/efa_unit_tests_gtest.cpp
-prov_efa_test_efa_unit_tests_gtest_CPPFLAGS = $(GTEST_CPPFLAGS)
+prov_efa_test_efa_unit_tests_gtest_CPPFLAGS = $(GTEST_CPPFLAGS) $(efa_CPPFLAGS) -I$(top_srcdir)/include
 prov_efa_test_efa_unit_tests_gtest_CXXFLAGS = -std=c++14
-prov_efa_test_efa_unit_tests_gtest_LDADD = $(GTEST_LIBS)
-prov_efa_test_efa_unit_tests_gtest_LDFLAGS = $(GTEST_LDFLAGS)
+prov_efa_test_efa_unit_tests_gtest_LDADD = $(GTEST_LIBS) $(linkback)
+prov_efa_test_efa_unit_tests_gtest_LDFLAGS = $(GTEST_LDFLAGS) $(efa_LDFLAGS)
 
 endif ENABLE_GTEST
 
