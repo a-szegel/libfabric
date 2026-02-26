@@ -242,21 +242,16 @@ endif ENABLE_EFA_UNIT_TEST
 if ENABLE_GTEST
 
 GTEST_WRAP_FLAGS = \
-	-Wl,--wrap=efa_ah_alloc,--wrap=efa_ah_release \
-	-Wl,--wrap=ofi_copy_from_hmem_iov \
-	-Wl,--wrap=efa_rdm_pke_copy_payload_to_ope,--wrap=efa_rdm_pke_read \
-	-Wl,--wrap=efa_rdm_pke_proc_matched_rtm,--wrap=efa_rdm_ope_post_send \
-	-Wl,--wrap=efa_device_support_unsolicited_write_recv \
-	-Wl,--wrap=efa_qp_post_recv,--wrap=efa_qp_post_send \
-	-Wl,--wrap=efa_qp_post_read,--wrap=efa_qp_post_write \
-	-Wl,--wrap=efa_ibv_cq_start_poll,--wrap=efa_ibv_cq_next_poll \
-	-Wl,--wrap=efa_ibv_cq_end_poll,--wrap=efa_ibv_cq_wc_read_opcode \
-	-Wl,--wrap=efa_ibv_cq_wc_read_qp_num,--wrap=efa_ibv_cq_wc_read_vendor_err \
-	-Wl,--wrap=efa_ibv_cq_wc_read_src_qp,--wrap=efa_ibv_cq_wc_read_slid \
-	-Wl,--wrap=efa_ibv_cq_wc_read_byte_len,--wrap=efa_ibv_cq_wc_read_wc_flags \
-	-Wl,--wrap=efa_ibv_cq_wc_read_imm_data,--wrap=efa_ibv_cq_wc_is_unsolicited \
-	-Wl,--wrap=efa_ibv_cq_wc_read_sgid,--wrap=efa_ibv_get_cq_event \
-	-Wl,--wrap=efa_ibv_req_notify_cq
+	-Wl,--wrap=ibv_get_device_list,--wrap=ibv_free_device_list \
+	-Wl,--wrap=ibv_get_device_name,--wrap=ibv_open_device,--wrap=ibv_close_device \
+	-Wl,--wrap=ibv_query_device,--wrap=ibv_query_port,--wrap=ibv_query_gid \
+	-Wl,--wrap=ibv_alloc_pd,--wrap=ibv_dealloc_pd \
+	-Wl,--wrap=ibv_reg_mr,--wrap=ibv_dereg_mr \
+	-Wl,--wrap=ibv_create_cq,--wrap=ibv_destroy_cq \
+	-Wl,--wrap=ibv_create_qp,--wrap=ibv_destroy_qp,--wrap=ibv_modify_qp \
+	-Wl,--wrap=ibv_create_ah,--wrap=ibv_destroy_ah \
+	-Wl,--wrap=ibv_is_fork_initialized \
+	-Wl,--wrap=efadv_query_device,--wrap=efadv_query_ah
 
 noinst_PROGRAMS += \
 	prov/efa/test/efa_unit_tests_gtest
@@ -268,7 +263,7 @@ prov_efa_test_efa_unit_tests_gtest_SOURCES = prov/efa/test/efa_unit_tests_gtest.
 prov_efa_test_efa_unit_tests_gtest_CPPFLAGS = $(GTEST_CPPFLAGS) $(efa_CPPFLAGS) -I$(top_srcdir)/include
 prov_efa_test_efa_unit_tests_gtest_CXXFLAGS = -std=c++14
 prov_efa_test_efa_unit_tests_gtest_LDADD = $(GTEST_LIBS) $(linkback)
-prov_efa_test_efa_unit_tests_gtest_LDFLAGS = $(GTEST_LDFLAGS) $(efa_LDFLAGS)
+prov_efa_test_efa_unit_tests_gtest_LDFLAGS = $(GTEST_LDFLAGS) $(efa_LDFLAGS) $(GTEST_WRAP_FLAGS)
 
 endif ENABLE_GTEST
 
