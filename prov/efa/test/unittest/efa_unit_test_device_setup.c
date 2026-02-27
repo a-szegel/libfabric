@@ -4,55 +4,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <dlfcn.h>
 #include "efa_device.h"
 
 // Control variables
 bool g_mock_efa_device_list_initialize = false;
 int g_mock_efa_device_list_initialize_return = 0;
 
+// Weak references to EFA globals - will bind at link time
+__attribute__((weak)) struct efa_device *g_efa_selected_device_list;
+__attribute__((weak)) int g_efa_selected_device_cnt;
+__attribute__((weak)) union ibv_gid *g_efa_ibv_gid_list;
+__attribute__((weak)) int g_efa_ibv_gid_cnt;
+
+// Weak reference to provider initialization function
+__attribute__((weak)) int efa_util_prov_initialize(void);
+
 // Local storage for mock device list
 static struct efa_device *mock_device_list = NULL;
-static int mock_device_cnt = 0;
 static union ibv_gid *mock_gid_list = NULL;
-static int mock_gid_cnt = 0;
-
-// Get pointers to EFA globals using dlsym
-static struct efa_device** get_g_efa_selected_device_list(void) {
-    static struct efa_device **ptr = NULL;
-    if (!ptr) {
-        ptr = (struct efa_device**)dlsym(RTLD_NEXT, "g_efa_selected_device_list");
-        if (!ptr) ptr = (struct efa_device**)dlsym(RTLD_DEFAULT, "g_efa_selected_device_list");
-    }
-    return ptr;
-}
-
-static int* get_g_efa_selected_device_cnt(void) {
-    static int *ptr = NULL;
-    if (!ptr) {
-        ptr = (int*)dlsym(RTLD_NEXT, "g_efa_selected_device_cnt");
-        if (!ptr) ptr = (int*)dlsym(RTLD_DEFAULT, "g_efa_selected_device_cnt");
-    }
-    return ptr;
-}
-
-static union ibv_gid** get_g_efa_ibv_gid_list(void) {
-    static union ibv_gid **ptr = NULL;
-    if (!ptr) {
-        ptr = (union ibv_gid**)dlsym(RTLD_NEXT, "g_efa_ibv_gid_list");
-        if (!ptr) ptr = (union ibv_gid**)dlsym(RTLD_DEFAULT, "g_efa_ibv_gid_list");
-    }
-    return ptr;
-}
-
-static int* get_g_efa_ibv_gid_cnt(void) {
-    static int *ptr = NULL;
-    if (!ptr) {
-        ptr = (int*)dlsym(RTLD_NEXT, "g_efa_ibv_gid_cnt");
-        if (!ptr) ptr = (int*)dlsym(RTLD_DEFAULT, "g_efa_ibv_gid_cnt");
-    }
-    return ptr;
-}
 
 void efa_mock_setup_device_list(struct ibv_context *ctx,
                                   struct ibv_device_attr *dev_attr,
@@ -62,7 +31,6 @@ void efa_mock_setup_device_list(struct ibv_context *ctx,
                                   uint32_t max_rdma_size) {
     // Allocate device list
     mock_device_list = (struct efa_device*)calloc(1, sizeof(struct efa_device));
-    mock_device_cnt = 1;
     
     // Setup device
     mock_device_list[0].ibv_ctx = ctx;
@@ -75,37 +43,17 @@ void efa_mock_setup_device_list(struct ibv_context *ctx,
     
     // Setup GID list
     mock_gid_list = (union ibv_gid*)calloc(1, sizeof(union ibv_gid));
-    mock_gid_cnt = 1;
     memcpy(&mock_gid_list[0], gid, sizeof(*gid));
     
-    // Set the real EFA globals via dlsym
-    struct efa_device **dev_list_ptr = get_g_efa_selected_device_list();
-    int *dev_cnt_ptr = get_g_efa_selected_device_cnt();
-    union ibv_gid **gid_list_ptr = get_g_efa_ibv_gid_list();
-    int *gid_cnt_ptr = get_g_efa_ibv_gid_cnt();
+    // Set the EFA globals
+    g_efa_selected_device_list = mock_device_list;
+    g_efa_selected_device_cnt = 1;
+    g_efa_ibv_gid_list = mock_gid_list;
+    g_efa_ibv_gid_cnt = 1;
     
-    if (dev_list_ptr) {
-        *dev_list_ptr = mock_device_list;
-    } else {
-        fprintf(stderr, "WARNING: Could not find g_efa_selected_device_list\n");
-    }
-    
-    if (dev_cnt_ptr) {
-        *dev_cnt_ptr = mock_device_cnt;
-    } else {
-        fprintf(stderr, "WARNING: Could not find g_efa_selected_device_cnt\n");
-    }
-    
-    if (gid_list_ptr) {
-        *gid_list_ptr = mock_gid_list;
-    } else {
-        fprintf(stderr, "WARNING: Could not find g_efa_ibv_gid_list\n");
-    }
-    
-    if (gid_cnt_ptr) {
-        *gid_cnt_ptr = mock_gid_cnt;
-    } else {
-        fprintf(stderr, "WARNING: Could not find g_efa_ibv_gid_cnt\n");
+    // Rebuild provider info list if function is available
+    if (efa_util_prov_initialize) {
+        efa_util_prov_initialize();
     }
 }
 
@@ -114,22 +62,15 @@ void efa_mock_cleanup_device_list(void) {
         free(mock_device_list);
         mock_device_list = NULL;
     }
-    mock_device_cnt = 0;
     
     if (mock_gid_list) {
         free(mock_gid_list);
         mock_gid_list = NULL;
     }
-    mock_gid_cnt = 0;
     
-    // Clear the real EFA globals
-    struct efa_device **dev_list_ptr = get_g_efa_selected_device_list();
-    int *dev_cnt_ptr = get_g_efa_selected_device_cnt();
-    union ibv_gid **gid_list_ptr = get_g_efa_ibv_gid_list();
-    int *gid_cnt_ptr = get_g_efa_ibv_gid_cnt();
-    
-    if (dev_list_ptr) *dev_list_ptr = NULL;
-    if (dev_cnt_ptr) *dev_cnt_ptr = 0;
-    if (gid_list_ptr) *gid_list_ptr = NULL;
-    if (gid_cnt_ptr) *gid_cnt_ptr = 0;
+    // Clear the EFA globals
+    g_efa_selected_device_list = NULL;
+    g_efa_selected_device_cnt = 0;
+    g_efa_ibv_gid_list = NULL;
+    g_efa_ibv_gid_cnt = 0;
 }

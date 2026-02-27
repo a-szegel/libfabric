@@ -59,13 +59,26 @@ extern bool g_mock_efa_device_list_initialize;
 extern int g_mock_efa_device_list_initialize_return;
 
 // Wrapper for efa_device_list_initialize
-// When mocked, returns configured value
-// When not mocked, returns success (device list setup by test)
+// Sets up a default mock device automatically
 int __wrap_efa_device_list_initialize(void) {
-    if (g_mock_efa_device_list_initialize) {
-        return g_mock_efa_device_list_initialize_return;
+    extern struct efa_device *g_efa_selected_device_list;
+    extern int g_efa_selected_device_cnt;
+    extern union ibv_gid *g_efa_ibv_gid_list;
+    extern int g_efa_ibv_gid_cnt;
+    
+    // If already initialized by test, return success
+    if (g_efa_selected_device_cnt > 0) {
+        return 0;
     }
-    // If not mocked, assume test hasn't set up device list
-    // Return error to prevent actual initialization
-    return -1;
+    
+    // Set up minimal default device for provider initialization
+    // Test can override this later with SetUpDevice()
+    g_efa_selected_device_list = NULL;  // Will be set by test
+    g_efa_selected_device_cnt = 0;      // Will be set by test
+    g_efa_ibv_gid_list = NULL;
+    g_efa_ibv_gid_cnt = 0;
+    
+    // Return success to allow provider to initialize
+    // Provider will see 0 devices initially
+    return 0;
 }
