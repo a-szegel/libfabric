@@ -260,32 +260,32 @@ TESTS += \
 	prov/efa/test/efa_unit_tests_gtest
 
 prov_efa_test_efa_unit_tests_gtest_SOURCES = \
-	prov/efa/test/efa_unit_test_main_gtest.cpp \
-	prov/efa/test/efa_unit_test_mocks_gtest.cpp \
-	prov/efa/test/efa_unit_test_wrappers.c \
-	prov/efa/test/efa_unit_test_av_gtest.cpp \
-	prov/efa/test/efa_unit_test_cntr_gtest.cpp \
-	prov/efa/test/efa_unit_test_cq_gtest.cpp \
-	prov/efa/test/efa_unit_test_data_path_direct_gtest.cpp \
-	prov/efa/test/efa_unit_test_device_gtest.cpp \
-	prov/efa/test/efa_unit_test_domain_gtest.cpp \
-	prov/efa/test/efa_unit_test_ep_gtest.cpp \
-	prov/efa/test/efa_unit_test_fork_support_gtest.cpp \
-	prov/efa/test/efa_unit_test_hmem_gtest.cpp \
-	prov/efa/test/efa_unit_test_info_gtest.cpp \
-	prov/efa/test/efa_unit_test_mr_gtest.cpp \
-	prov/efa/test/efa_unit_test_msg_gtest.cpp \
-	prov/efa/test/efa_unit_test_ope_gtest.cpp \
-	prov/efa/test/efa_unit_test_pke_gtest.cpp \
-	prov/efa/test/efa_unit_test_rdm_peer_gtest.cpp \
-	prov/efa/test/efa_unit_test_rdm_rma_gtest.cpp \
-	prov/efa/test/efa_unit_test_rma_gtest.cpp \
-	prov/efa/test/efa_unit_test_rnr_gtest.cpp \
-	prov/efa/test/efa_unit_test_runt_gtest.cpp \
-	prov/efa/test/efa_unit_test_send_gtest.cpp \
-	prov/efa/test/efa_unit_test_srx_gtest.cpp
+	prov/efa/test/unittest/efa_unit_test_main.cpp \
+	prov/efa/test/unittest/efa_unit_test_mocks.cpp \
+	prov/efa/test/unittest/efa_unit_test_wrappers.c \
+	prov/efa/test/unittest/efa_unit_test_av.cpp \
+	prov/efa/test/unittest/efa_unit_test_cntr.cpp \
+	prov/efa/test/unittest/efa_unit_test_cq.cpp \
+	prov/efa/test/unittest/efa_unit_test_data_path_direct.cpp \
+	prov/efa/test/unittest/efa_unit_test_device.cpp \
+	prov/efa/test/unittest/efa_unit_test_domain.cpp \
+	prov/efa/test/unittest/efa_unit_test_ep.cpp \
+	prov/efa/test/unittest/efa_unit_test_fork_support.cpp \
+	prov/efa/test/unittest/efa_unit_test_hmem.cpp \
+	prov/efa/test/unittest/efa_unit_test_info.cpp \
+	prov/efa/test/unittest/efa_unit_test_mr.cpp \
+	prov/efa/test/unittest/efa_unit_test_msg.cpp \
+	prov/efa/test/unittest/efa_unit_test_ope.cpp \
+	prov/efa/test/unittest/efa_unit_test_pke.cpp \
+	prov/efa/test/unittest/efa_unit_test_rdm_peer.cpp \
+	prov/efa/test/unittest/efa_unit_test_rdm_rma.cpp \
+	prov/efa/test/unittest/efa_unit_test_rma.cpp \
+	prov/efa/test/unittest/efa_unit_test_rnr.cpp \
+	prov/efa/test/unittest/efa_unit_test_runt.cpp \
+	prov/efa/test/unittest/efa_unit_test_send.cpp \
+	prov/efa/test/unittest/efa_unit_test_srx.cpp
 
-prov_efa_test_efa_unit_tests_gtest_CPPFLAGS = $(GTEST_CPPFLAGS) $(efa_CPPFLAGS) -I$(top_srcdir)/include -I$(top_srcdir)/prov/efa/test -I$(top_srcdir)/prov/efa/src
+prov_efa_test_efa_unit_tests_gtest_CPPFLAGS = $(GTEST_CPPFLAGS) $(efa_CPPFLAGS) -I$(top_srcdir)/include -I$(top_srcdir)/prov/efa/test/unittest -I$(top_srcdir)/prov/efa/src
 prov_efa_test_efa_unit_tests_gtest_CXXFLAGS = -std=c++14
 prov_efa_test_efa_unit_tests_gtest_LDADD = $(GTEST_LIBS) $(top_builddir)/src/libfabric.la
 prov_efa_test_efa_unit_tests_gtest_LDFLAGS = $(GTEST_LDFLAGS) $(GTEST_WRAP_FLAGS)
