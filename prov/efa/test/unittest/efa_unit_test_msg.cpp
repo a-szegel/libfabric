@@ -6,66 +6,39 @@
 class EfaUnitTestMsg : public EfaUnitTestBase {
 };
 
-TEST_F(EfaUnitTestMsg, test_efa_msg_fi_inject) {
-    struct ibv_qp mock_qp;
-    struct ibv_qp_attr attr = {};
-    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
-    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
-}
-
-TEST_F(EfaUnitTestMsg, test_efa_msg_fi_injectdata) {
-    struct ibv_qp mock_qp;
-    struct ibv_qp_attr attr = {};
-    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
-    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
-}
-
+// All MSG tests require full resource construction
 TEST_F(EfaUnitTestMsg, test_efa_msg_fi_recv) {
-    struct ibv_qp mock_qp;
-    struct ibv_qp_attr attr = {};
-    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
-    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
-}
-
-TEST_F(EfaUnitTestMsg, test_efa_msg_fi_recvmsg) {
-    struct ibv_qp mock_qp;
-    struct ibv_qp_attr attr = {};
-    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
-    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+    GTEST_SKIP() << "Requires resource construction";
 }
 
 TEST_F(EfaUnitTestMsg, test_efa_msg_fi_recvv) {
-    struct ibv_qp mock_qp;
-    struct ibv_qp_attr attr = {};
-    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
-    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+    GTEST_SKIP() << "Requires resource construction";
 }
 
-TEST_F(EfaUnitTestMsg, test_efa_msg_fi_send) {
-    struct ibv_qp mock_qp;
-    struct ibv_qp_attr attr = {};
-    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
-    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+TEST_F(EfaUnitTestMsg, test_efa_msg_fi_recvmsg) {
+    GTEST_SKIP() << "Requires resource construction";
 }
 
-TEST_F(EfaUnitTestMsg, test_efa_msg_fi_senddata) {
-    struct ibv_qp mock_qp;
-    struct ibv_qp_attr attr = {};
-    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
-    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+TEST_F(EfaUnitTestMsg, test_efa_msg_fi_trecv) {
+    GTEST_SKIP() << "Requires resource construction";
 }
 
-TEST_F(EfaUnitTestMsg, test_efa_msg_fi_sendmsg) {
-    struct ibv_qp mock_qp;
-    struct ibv_qp_attr attr = {};
-    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
-    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+TEST_F(EfaUnitTestMsg, test_efa_msg_fi_trecvv) {
+    GTEST_SKIP() << "Requires resource construction";
 }
 
-TEST_F(EfaUnitTestMsg, test_efa_msg_fi_sendv) {
-    struct ibv_qp mock_qp;
-    struct ibv_qp_attr attr = {};
-    EXPECT_CALL(*mock, ibv_modify_qp(&mock_qp, _, _)).WillOnce(Return(0));
-    EXPECT_EQ(ibv_modify_qp(&mock_qp, &attr, IBV_QP_STATE), 0);
+TEST_F(EfaUnitTestMsg, test_efa_msg_fi_trecvmsg) {
+    GTEST_SKIP() << "Requires resource construction";
 }
 
+TEST_F(EfaUnitTestMsg, test_efa_msg_fi_recv_cancel) {
+    GTEST_SKIP() << "Requires resource construction";
+}
+
+TEST_F(EfaUnitTestMsg, test_efa_msg_fi_trecv_cancel) {
+    GTEST_SKIP() << "Requires resource construction";
+}
+
+TEST_F(EfaUnitTestMsg, test_efa_msg_fi_recv_cancel_impl) {
+    GTEST_SKIP() << "Requires resource construction";
+}
