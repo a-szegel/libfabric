@@ -99,6 +99,7 @@ extern "C" {
     void efa_unit_test_fork_support_request_initialize_wrapper(void);
     int efa_unit_test_get_fork_status(void);
     int efa_unit_test_get_huge_page_setting(void);
+    struct fi_info *efa_unit_test_alloc_hints(enum fi_ep_type ep_type, char *fabric_name);
 }
 
 #endif // EFA_UNIT_TEST_COMMON_HPP

@@ -3,6 +3,9 @@
 
 #include "efa_unit_test_common.hpp"
 
+#define EFA_FABRIC_NAME "efa"
+#define EFA_DIRECT_FABRIC_NAME "efa-direct"
+
 class EfaUnitTestInfo : public EfaUnitTestBase {
 };
 
@@ -67,7 +70,23 @@ TEST_F(EfaUnitTestInfo, test_info_check_shm_info_threading) {
 }
 
 TEST_F(EfaUnitTestInfo, test_info_dgram_attributes) {
-    GTEST_SKIP() << "Placeholder - requires implementation";
+    struct fi_info *hints, *info = NULL, *info_head = NULL;
+    int err;
+
+    hints = efa_unit_test_alloc_hints(FI_EP_DGRAM, (char*)EFA_FABRIC_NAME);
+    ASSERT_NE(hints, nullptr);
+
+    err = fi_getinfo(FI_VERSION(1,6), NULL, NULL, 0, hints, &info_head);
+    ASSERT_EQ(err, 0);
+    ASSERT_NE(info_head, nullptr);
+
+    for (info = info_head; info; info = info->next) {
+        EXPECT_STREQ(info->fabric_attr->name, EFA_FABRIC_NAME);
+        EXPECT_NE(strstr(info->domain_attr->name, "dgrm"), nullptr);
+    }
+
+    fi_freeinfo(info_head);
+    fi_freeinfo(hints);
 }
 
 TEST_F(EfaUnitTestInfo, test_info_direct_attributes_no_rma) {
@@ -123,11 +142,66 @@ TEST_F(EfaUnitTestInfo, test_info_max_order_size_rdm_with_atomic_order) {
 }
 
 TEST_F(EfaUnitTestInfo, test_info_open_ep_with_wrong_info) {
-    GTEST_SKIP() << "Placeholder - requires implementation";
+    struct fi_info *hints, *info;
+    struct fid_fabric *fabric = NULL;
+    struct fid_domain *domain = NULL;
+    struct fid_ep *ep = NULL;
+    int err;
+
+    hints = efa_unit_test_alloc_hints(FI_EP_DGRAM, (char*)EFA_FABRIC_NAME);
+    ASSERT_NE(hints, nullptr);
+
+    err = fi_getinfo(FI_VERSION(1, 14), NULL, NULL, 0ULL, hints, &info);
+    ASSERT_EQ(err, 0);
+
+    /* dgram endpoint require FI_MSG_PREFIX */
+    EXPECT_EQ(info->mode, FI_MSG_PREFIX | FI_CONTEXT2);
+
+    /* make the info wrong by setting the mode to 0 */
+    info->mode = 0;
+
+    err = fi_fabric(info->fabric_attr, &fabric, NULL);
+    ASSERT_EQ(err, 0);
+
+    err = fi_domain(fabric, info, &domain, NULL);
+    ASSERT_EQ(err, 0);
+
+    /* because of the error in the info object, fi_endpoint() should fail with -FI_ENODATA */
+    err = fi_endpoint(domain, info, &ep, NULL);
+    EXPECT_EQ(err, -FI_ENODATA);
+    EXPECT_EQ(ep, nullptr);
+
+    err = fi_close(&domain->fid);
+    EXPECT_EQ(err, 0);
+
+    err = fi_close(&fabric->fid);
+    EXPECT_EQ(err, 0);
+
+    fi_freeinfo(hints);
+    fi_freeinfo(info);
 }
 
 TEST_F(EfaUnitTestInfo, test_info_rdm_attributes) {
-    GTEST_SKIP() << "Placeholder - requires implementation";
+    struct fi_info *hints, *info = NULL, *info_head = NULL;
+    int err;
+
+    hints = efa_unit_test_alloc_hints(FI_EP_RDM, (char*)EFA_FABRIC_NAME);
+    ASSERT_NE(hints, nullptr);
+
+    err = fi_getinfo(FI_VERSION(1,6), NULL, NULL, 0, hints, &info_head);
+    ASSERT_EQ(err, 0);
+    ASSERT_NE(info_head, nullptr);
+
+    for (info = info_head; info; info = info->next) {
+        EXPECT_STREQ(info->fabric_attr->name, EFA_FABRIC_NAME);
+        EXPECT_NE(strstr(info->domain_attr->name, "rdm"), nullptr);
+        EXPECT_EQ(info->ep_attr->max_msg_size, UINT64_MAX);
+        EXPECT_EQ(info->domain_attr->progress, FI_PROGRESS_MANUAL);
+        EXPECT_EQ(info->domain_attr->control_progress, FI_PROGRESS_MANUAL);
+    }
+
+    fi_freeinfo(info_head);
+    fi_freeinfo(hints);
 }
 
 TEST_F(EfaUnitTestInfo, test_info_reuse_domain_via_domain_attr) {
