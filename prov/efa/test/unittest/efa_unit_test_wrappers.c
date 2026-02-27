@@ -59,22 +59,19 @@ int efa_unit_test_get_huge_page_setting(void) {
 }
 
 // Wrapper for efa_device_list_initialize
-// Sets up a default mock device automatically
+// Returns success with 0 devices initially - device will be created by tests
 int __wrap_efa_device_list_initialize(void) {
-    // If already initialized by test, return success
+    // During provider initialization (EFA_INI), we return success with 0 devices
+    // The provider will handle this gracefully
+    // Tests will call SetUpDevice() to create the device later
+    
+    // If device already exists (test called SetUpDevice), return success
     if (g_efa_selected_device_cnt > 0) {
         return 0;
     }
     
-    // Set up minimal default device for provider initialization
-    // Test can override this later with SetUpDevice()
-    g_efa_selected_device_list = NULL;  // Will be set by test
-    g_efa_selected_device_cnt = 0;      // Will be set by test
-    g_efa_ibv_gid_list = NULL;
-    g_efa_ibv_gid_cnt = 0;
-    
-    // Return success to allow provider to initialize
-    // Provider will see 0 devices initially
+    // Return success with 0 devices - provider will initialize without devices
+    // This is safe and allows provider to load
     return 0;
 }
 

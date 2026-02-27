@@ -124,6 +124,156 @@ int __wrap_efadv_query_ah(struct ibv_ah *ibvah, struct efadv_ah_attr *attr, uint
     return g_rdma_mock->efadv_query_ah(ibvah, attr, inlen);
 }
 
+// Additional rdma-core function mocks
+int __wrap_ibv_req_notify_cq(struct ibv_cq *cq, int solicited_only) {
+    return 0;
+}
+
+int __wrap_ibv_ack_cq_events(struct ibv_cq *cq, unsigned int nevents) {
+    return 0;
+}
+
+int __wrap_ibv_get_cq_event(struct ibv_comp_channel *channel, struct ibv_cq **cq, void **cq_context) {
+    return -1;
+}
+
+struct ibv_comp_channel* __wrap_ibv_create_comp_channel(struct ibv_context *context) {
+    return (struct ibv_comp_channel*)calloc(1, sizeof(struct ibv_comp_channel));
+}
+
+int __wrap_ibv_destroy_comp_channel(struct ibv_comp_channel *channel) {
+    if (channel) free(channel);
+    return 0;
+}
+
+struct ibv_cq_ex* __wrap_ibv_create_cq_ex(struct ibv_context *context, struct ibv_cq_init_attr_ex *cq_attr) {
+    return (struct ibv_cq_ex*)calloc(1, sizeof(struct ibv_cq_ex));
+}
+
+struct ibv_cq* __wrap_ibv_cq_ex_to_cq(struct ibv_cq_ex *cq) {
+    return (struct ibv_cq*)cq;
+}
+
+int __wrap_ibv_start_poll(struct ibv_cq_ex *cq, struct ibv_poll_cq_attr *attr) {
+    return ENOENT;
+}
+
+int __wrap_ibv_next_poll(struct ibv_cq_ex *cq) {
+    return ENOENT;
+}
+
+void __wrap_ibv_end_poll(struct ibv_cq_ex *cq) {
+}
+
+uint32_t __wrap_ibv_wc_read_byte_len(struct ibv_cq_ex *cq) {
+    return 0;
+}
+
+uint32_t __wrap_ibv_wc_read_imm_data(struct ibv_cq_ex *cq) {
+    return 0;
+}
+
+uint32_t __wrap_ibv_wc_read_qp_num(struct ibv_cq_ex *cq) {
+    return 0;
+}
+
+uint32_t __wrap_ibv_wc_read_src_qp(struct ibv_cq_ex *cq) {
+    return 0;
+}
+
+uint32_t __wrap_ibv_wc_read_slid(struct ibv_cq_ex *cq) {
+    return 0;
+}
+
+uint32_t __wrap_ibv_wc_read_wc_flags(struct ibv_cq_ex *cq) {
+    return 0;
+}
+
+uint32_t __wrap_ibv_wc_read_vendor_err(struct ibv_cq_ex *cq) {
+    return 0;
+}
+
+enum ibv_wc_opcode __wrap_ibv_wc_read_opcode(struct ibv_cq_ex *cq) {
+    return IBV_WC_SEND;
+}
+
+int __wrap_ibv_wc_read_sgid(struct ibv_cq_ex *cq, union ibv_gid *sgid) {
+    memset(sgid, 0, sizeof(*sgid));
+    return 0;
+}
+
+struct ibv_qp_ex* __wrap_ibv_qp_to_qp_ex(struct ibv_qp *qp) {
+    return (struct ibv_qp_ex*)qp;
+}
+
+struct ibv_qp* __wrap_ibv_create_qp_ex(struct ibv_context *context, struct ibv_qp_init_attr_ex *qp_attr) {
+    struct ibv_qp *qp = (struct ibv_qp*)calloc(1, sizeof(struct ibv_qp));
+    if (qp) {
+        qp->context = context;
+        qp->qp_num = 1;
+    }
+    return qp;
+}
+
+int __wrap_ibv_query_qp_data_in_order(struct ibv_qp *qp, enum ibv_wr_opcode op, uint32_t flags) {
+    return 0;
+}
+
+int __wrap_ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr) {
+    return 0;
+}
+
+int __wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr) {
+    return 0;
+}
+
+struct ibv_mr* __wrap_ibv_reg_dmabuf_mr(struct ibv_pd *pd, uint64_t offset, size_t length,
+                                         uint64_t iova, int fd, int access) {
+    struct ibv_mr *mr = (struct ibv_mr*)calloc(1, sizeof(struct ibv_mr));
+    if (mr) {
+        mr->context = pd->context;
+        mr->pd = pd;
+        mr->addr = (void*)iova;
+        mr->length = length;
+        mr->lkey = 0x1234;
+        mr->rkey = 0x1234;
+    }
+    return mr;
+}
+
+struct ibv_cq* __wrap_efadv_create_cq(struct ibv_context *ibvctx, struct ibv_cq_init_attr_ex *attr_ex,
+                                       struct efadv_cq_init_attr *efa_attr, uint32_t inlen) {
+    return (struct ibv_cq*)calloc(1, sizeof(struct ibv_cq));
+}
+
+struct ibv_qp* __wrap_efadv_create_qp_ex(struct ibv_context *ibvctx, struct ibv_qp_init_attr_ex *attr_ex,
+                                          struct efadv_qp_init_attr *efa_attr, uint32_t inlen) {
+    struct ibv_qp *qp = (struct ibv_qp*)calloc(1, sizeof(struct ibv_qp));
+    if (qp) {
+        qp->context = ibvctx;
+        qp->qp_num = 1;
+    }
+    return qp;
+}
+
+int __wrap_efadv_query_cq(struct ibv_cq *ibvcq, struct efadv_cq_attr *attr, uint32_t inlen) {
+    return 0;
+}
+
+int __wrap_efadv_query_mr(struct ibv_mr *ibvmr, struct efadv_mr_attr *attr, uint32_t inlen) {
+    return 0;
+}
+
+int __wrap_efadv_query_qp_wqs(struct ibv_qp *ibvqp, struct efadv_wq_attr *send_wq_attr,
+                               struct efadv_wq_attr *recv_wq_attr, uint32_t inlen) {
+    return 0;
+}
+
+int __wrap_efadv_wc_read_sgid(struct ibv_cq_ex *ibvcqx, union ibv_gid *sgid) {
+    memset(sgid, 0, sizeof(*sgid));
+    return 0;
+}
+
 } // extern "C"
 
 // Define global variables needed by tests
@@ -134,8 +284,8 @@ struct efa_unit_test_mocks {
 
 struct efa_unit_test_mocks g_efa_unit_test_mocks = {nullptr, nullptr};
 
-// Device count
-int g_efa_selected_device_cnt = 0;
+// Device count - defined in efa_unit_test_device_setup.c
+extern int g_efa_selected_device_cnt;
 
 // Fork status
 enum efa_fork_support_status {
