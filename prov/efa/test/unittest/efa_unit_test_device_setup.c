@@ -41,9 +41,12 @@ void efa_mock_setup_device_list(struct ibv_context *ctx,
     mock_device_list[0].rdm_info = fi_allocinfo();
     if (mock_device_list[0].rdm_info) {
         mock_device_list[0].rdm_info->ep_attr->type = FI_EP_RDM;
+        mock_device_list[0].rdm_info->ep_attr->max_msg_size = UINT64_MAX;
         mock_device_list[0].rdm_info->caps = FI_MSG | FI_RMA | FI_TAGGED;
         mock_device_list[0].rdm_info->mode = FI_CONTEXT;
         mock_device_list[0].rdm_info->domain_attr->name = strdup("efa-rdm");
+        mock_device_list[0].rdm_info->domain_attr->progress = FI_PROGRESS_MANUAL;
+        mock_device_list[0].rdm_info->domain_attr->control_progress = FI_PROGRESS_MANUAL;
         mock_device_list[0].rdm_info->fabric_attr->name = strdup("efa");
     }
     

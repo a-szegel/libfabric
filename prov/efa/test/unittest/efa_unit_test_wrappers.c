@@ -4,6 +4,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include "rdma/fabric.h"
+#include "efa_device.h"
+
+// External declarations
+extern int g_efa_fork_status;
+extern int g_efa_huge_page_setting;
+extern bool g_mock_efa_device_list_initialize;
+extern int g_mock_efa_device_list_initialize_return;
 
 // Simplified efa_device structure for testing
 struct test_efa_device {
@@ -11,10 +19,6 @@ struct test_efa_device {
     void *rdm_info;
     void *dgram_info;
 };
-
-// External declarations
-extern int g_efa_fork_status;
-extern int g_efa_huge_page_setting;
 
 // Simplified wrapper - just sets fields to NULL to simulate error
 int efa_unit_test_device_construct_gid_wrapper(void *efa_device_ptr, void *ibv_device) {
@@ -54,18 +58,9 @@ int efa_unit_test_get_huge_page_setting(void) {
     return g_efa_huge_page_setting;
 }
 
-// Forward declaration
-extern bool g_mock_efa_device_list_initialize;
-extern int g_mock_efa_device_list_initialize_return;
-
 // Wrapper for efa_device_list_initialize
 // Sets up a default mock device automatically
 int __wrap_efa_device_list_initialize(void) {
-    extern struct efa_device *g_efa_selected_device_list;
-    extern int g_efa_selected_device_cnt;
-    extern union ibv_gid *g_efa_ibv_gid_list;
-    extern int g_efa_ibv_gid_cnt;
-    
     // If already initialized by test, return success
     if (g_efa_selected_device_cnt > 0) {
         return 0;
@@ -81,4 +76,60 @@ int __wrap_efa_device_list_initialize(void) {
     // Return success to allow provider to initialize
     // Provider will see 0 devices initially
     return 0;
+}
+
+// Real fi_getinfo from libfabric
+extern int __real_fi_getinfo(uint32_t version, const char *node, const char *service,
+                              uint64_t flags, const struct fi_info *hints, struct fi_info **info);
+
+// Wrapper for fi_getinfo - intercept and build from mocked devices
+int __wrap_fi_getinfo(uint32_t version, const char *node, const char *service,
+                      uint64_t flags, const struct fi_info *hints, struct fi_info **info) {
+    // If we have mocked devices, build info from them
+    if (g_efa_selected_device_cnt > 0 && g_efa_selected_device_list != NULL) {
+        struct fi_info *head = NULL, *tail = NULL;
+        
+        for (int i = 0; i < g_efa_selected_device_cnt; i++) {
+            struct efa_device *dev = &g_efa_selected_device_list[i];
+            
+            // Check hints to see what type is requested
+            if (hints == NULL || hints->ep_attr == NULL || 
+                hints->ep_attr->type == FI_EP_UNSPEC || hints->ep_attr->type == FI_EP_RDM) {
+                if (dev->rdm_info != NULL) {
+                    struct fi_info *dup = fi_dupinfo(dev->rdm_info);
+                    if (dup) {
+                        if (tail) {
+                            tail->next = dup;
+                            tail = dup;
+                        } else {
+                            head = tail = dup;
+                        }
+                    }
+                }
+            }
+            
+            if (hints == NULL || hints->ep_attr == NULL ||
+                hints->ep_attr->type == FI_EP_UNSPEC || hints->ep_attr->type == FI_EP_DGRAM) {
+                if (dev->dgram_info != NULL) {
+                    struct fi_info *dup = fi_dupinfo(dev->dgram_info);
+                    if (dup) {
+                        if (tail) {
+                            tail->next = dup;
+                            tail = dup;
+                        } else {
+                            head = tail = dup;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (head) {
+            *info = head;
+            return 0;
+        }
+    }
+    
+    // Fall back to real fi_getinfo
+    return __real_fi_getinfo(version, node, service, flags, hints, info);
 }

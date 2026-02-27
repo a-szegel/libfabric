@@ -252,7 +252,8 @@ GTEST_WRAP_FLAGS = \
 	-Wl,--wrap=ibv_create_ah,--wrap=ibv_destroy_ah \
 	-Wl,--wrap=ibv_is_fork_initialized,--wrap=ibv_fork_init \
 	-Wl,--wrap=efadv_query_device,--wrap=efadv_query_ah \
-	-Wl,--wrap=efa_device_list_initialize
+	-Wl,--wrap=efa_device_list_initialize \
+	-Wl,--wrap=fi_getinfo
 
 noinst_PROGRAMS += \
 	prov/efa/test/efa_unit_tests_gtest
