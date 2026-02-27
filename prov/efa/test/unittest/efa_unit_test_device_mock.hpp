@@ -83,6 +83,9 @@ public:
     // Setup all common operations
     void setup_all();
     
+    // Setup EFA device list globals
+    void setup_efa_device_list();
+    
     // Get mock objects
     struct ibv_device** get_device_list() { return device_list; }
     struct ibv_context* get_context() { return context; }

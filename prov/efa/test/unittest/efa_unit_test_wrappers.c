@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 // Simplified efa_device structure for testing
 struct test_efa_device {
@@ -51,4 +52,20 @@ int efa_unit_test_get_fork_status(void) {
 // Get huge page setting
 int efa_unit_test_get_huge_page_setting(void) {
     return g_efa_huge_page_setting;
+}
+
+// Forward declaration
+extern bool g_mock_efa_device_list_initialize;
+extern int g_mock_efa_device_list_initialize_return;
+
+// Wrapper for efa_device_list_initialize
+// When mocked, returns configured value
+// When not mocked, returns success (device list setup by test)
+int __wrap_efa_device_list_initialize(void) {
+    if (g_mock_efa_device_list_initialize) {
+        return g_mock_efa_device_list_initialize_return;
+    }
+    // If not mocked, assume test hasn't set up device list
+    // Return error to prevent actual initialization
+    return -1;
 }

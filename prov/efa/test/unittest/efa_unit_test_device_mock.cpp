@@ -8,6 +8,20 @@
 
 efa_device_simulator *g_device_simulator = nullptr;
 
+// C helper functions
+extern "C" {
+extern bool g_mock_efa_device_list_initialize;
+extern int g_mock_efa_device_list_initialize_return;
+
+void efa_mock_setup_device_list(struct ibv_context *ctx,
+                                  struct ibv_device_attr *dev_attr,
+                                  struct efadv_device_attr *efa_attr,
+                                  struct ibv_port_attr *port_attr,
+                                  union ibv_gid *gid,
+                                  uint32_t max_rdma_size);
+void efa_mock_cleanup_device_list(void);
+}
+
 efa_device_simulator::efa_device_simulator(const efa_mock_device_config &cfg) 
     : config(cfg) {
     
@@ -45,6 +59,9 @@ efa_device_simulator::~efa_device_simulator() {
     free(context);
     free(device);
     free(device_list);
+    
+    // Cleanup EFA device list
+    efa_mock_cleanup_device_list();
 }
 
 void efa_device_simulator::init_device_attr() {
@@ -235,4 +252,15 @@ void efa_device_simulator::setup_all() {
     setup_mr_reg();
     setup_ah_create();
     setup_efadv_query();
+    setup_efa_device_list();
+}
+
+void efa_device_simulator::setup_efa_device_list() {
+    // Enable mocking of efa_device_list_initialize
+    g_mock_efa_device_list_initialize = true;
+    g_mock_efa_device_list_initialize_return = 0;
+    
+    // Call C helper to setup device list
+    efa_mock_setup_device_list(context, &device_attr, &efadv_attr, 
+                                &port_attr, &gid, config.max_rdma_size);
 }
