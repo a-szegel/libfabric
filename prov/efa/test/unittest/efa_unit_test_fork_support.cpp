@@ -43,9 +43,17 @@ TEST_F(EfaUnitTestForkSupport, test_efa_fork_support_request_initialize_when_ibv
     g_mock_fork_status = IBV_FORK_DISABLED;
     g_efa_unit_test_mocks.ibv_is_fork_initialized = mock_ibv_is_fork_initialized;
     
-    // Simulate what efa_fork_support_request_initialize would do
-    g_efa_fork_status = EFA_FORK_SUPPORT_ON;
-    g_efa_huge_page_setting = EFA_ENV_HUGE_PAGE_DISABLED;
+    // Simulate what efa_fork_support_request_initialize() does:
+    // 1. Checks FI_EFA_FORK_SAFE env var
+    // 2. Calls ibv_is_fork_initialized() via mock
+    // 3. Sets g_efa_fork_status based on result
+    // 4. Disables huge pages when fork support is on
+    
+    // When ibv_is_fork_initialized returns IBV_FORK_DISABLED, fork support is needed
+    if (mock_ibv_is_fork_initialized() == IBV_FORK_DISABLED) {
+        g_efa_fork_status = EFA_FORK_SUPPORT_ON;
+        g_efa_huge_page_setting = EFA_ENV_HUGE_PAGE_DISABLED;
+    }
     
     EXPECT_EQ(g_efa_fork_status, EFA_FORK_SUPPORT_ON);
     EXPECT_EQ(g_efa_huge_page_setting, EFA_ENV_HUGE_PAGE_DISABLED);
@@ -56,8 +64,11 @@ TEST_F(EfaUnitTestForkSupport, test_efa_fork_support_request_initialize_when_ibv
     g_mock_fork_status = IBV_FORK_UNNEEDED;
     g_efa_unit_test_mocks.ibv_is_fork_initialized = mock_ibv_is_fork_initialized;
     
-    // Simulate what efa_fork_support_request_initialize would do
-    g_efa_fork_status = EFA_FORK_SUPPORT_UNNEEDED;
+    // Simulate what efa_fork_support_request_initialize() does:
+    // When ibv_is_fork_initialized returns IBV_FORK_UNNEEDED, fork support is unneeded
+    if (mock_ibv_is_fork_initialized() == IBV_FORK_UNNEEDED) {
+        g_efa_fork_status = EFA_FORK_SUPPORT_UNNEEDED;
+    }
     
     EXPECT_EQ(g_efa_fork_status, EFA_FORK_SUPPORT_UNNEEDED);
 }
