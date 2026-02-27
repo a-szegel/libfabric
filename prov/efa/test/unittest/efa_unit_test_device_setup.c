@@ -4,7 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <dlfcn.h>
 #include "efa_device.h"
+#include "ofi_util.h"
 
 // Control variables
 bool g_mock_efa_device_list_initialize = false;
@@ -15,9 +17,6 @@ __attribute__((weak)) struct efa_device *g_efa_selected_device_list;
 __attribute__((weak)) int g_efa_selected_device_cnt;
 __attribute__((weak)) union ibv_gid *g_efa_ibv_gid_list;
 __attribute__((weak)) int g_efa_ibv_gid_cnt;
-
-// Weak reference to provider initialization function
-__attribute__((weak)) int efa_util_prov_initialize(void);
 
 // Local storage for mock device list
 static struct efa_device *mock_device_list = NULL;
@@ -41,6 +40,26 @@ void efa_mock_setup_device_list(struct ibv_context *ctx,
     mock_device_list[0].device_caps = efa_attr->device_caps;
     mock_device_list[0].max_rdma_size = max_rdma_size;
     
+    // Create minimal rdm_info
+    mock_device_list[0].rdm_info = fi_allocinfo();
+    if (mock_device_list[0].rdm_info) {
+        mock_device_list[0].rdm_info->ep_attr->type = FI_EP_RDM;
+        mock_device_list[0].rdm_info->caps = FI_MSG | FI_RMA | FI_TAGGED;
+        mock_device_list[0].rdm_info->mode = FI_CONTEXT;
+        mock_device_list[0].rdm_info->domain_attr->name = strdup("efa-rdm");
+        mock_device_list[0].rdm_info->fabric_attr->name = strdup("efa");
+    }
+    
+    // Create minimal dgram_info
+    mock_device_list[0].dgram_info = fi_allocinfo();
+    if (mock_device_list[0].dgram_info) {
+        mock_device_list[0].dgram_info->ep_attr->type = FI_EP_DGRAM;
+        mock_device_list[0].dgram_info->caps = FI_MSG;
+        mock_device_list[0].dgram_info->mode = FI_MSG_PREFIX | FI_CONTEXT2;
+        mock_device_list[0].dgram_info->domain_attr->name = strdup("efa-dgrm");
+        mock_device_list[0].dgram_info->fabric_attr->name = strdup("efa");
+    }
+    
     // Setup GID list
     mock_gid_list = (union ibv_gid*)calloc(1, sizeof(union ibv_gid));
     memcpy(&mock_gid_list[0], gid, sizeof(*gid));
@@ -51,11 +70,32 @@ void efa_mock_setup_device_list(struct ibv_context *ctx,
     g_efa_ibv_gid_list = mock_gid_list;
     g_efa_ibv_gid_cnt = 1;
     
-    // Rebuild provider info list if function is available
-    if (efa_util_prov_initialize) {
-        efa_util_prov_initialize();
+    // Access util_prov via dlsym since weak symbols don't work
+    void *handle = dlopen(NULL, RTLD_NOW);
+    if (handle) {
+        struct util_prov *prov = (struct util_prov*)dlsym(handle, "efa_util_prov");
+        if (prov) {
+            fprintf(stderr, "DEBUG: Found efa_util_prov via dlsym\n");
+            // Clear old info
+            if (prov->info) {
+                fprintf(stderr, "DEBUG: Freeing old info\n");
+                fi_freeinfo((struct fi_info*)prov->info);
+            }
+            
+            // Set new info
+            prov->info = fi_dupinfo(mock_device_list[0].rdm_info);
+            fprintf(stderr, "DEBUG: Set new info, prov->info = %p\n", prov->info);
+        } else {
+            fprintf(stderr, "DEBUG: dlsym failed: %s\n", dlerror());
+        }
+        dlclose(handle);
+    } else {
+        fprintf(stderr, "DEBUG: dlopen failed: %s\n", dlerror());
     }
 }
+
+
+
 
 void efa_mock_cleanup_device_list(void) {
     if (mock_device_list) {
