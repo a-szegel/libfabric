@@ -2,6 +2,7 @@
 /* SPDX-FileCopyrightText: Copyright Amazon.com, Inc. or its affiliates. All rights reserved. */
 
 #include "efa_unit_test_common.hpp"
+#include "efa_unit_test_device_mock.hpp"
 
 extern "C" {
     struct efa_unit_test_mocks {
@@ -12,30 +13,28 @@ extern "C" {
     extern int g_efa_selected_device_cnt;
 }
 
-// Mock function for efadv_query_device
 static int g_mock_efadv_ret = 0;
 static int mock_efadv_query_device(struct ibv_context *ctx, struct efadv_device_attr *attr, uint32_t inlen) {
     return g_mock_efadv_ret;
 }
 
-class EfaUnitTestDevice : public EfaUnitTestBase {
+class EfaUnitTestDevice : public EfaUnitTestWithDevice {
 protected:
     void TearDown() override {
         g_efa_unit_test_mocks.efadv_query_device = nullptr;
-        EfaUnitTestBase::TearDown();
+        EfaUnitTestWithDevice::TearDown();
     }
 };
 
 TEST_F(EfaUnitTestDevice, test_efa_device_construct_error_handling) {
+    SetUpDevice();
+    
     int ibv_err = 4242;
     struct ibv_device **ibv_device_list;
     char efa_device_buf[1024] = {0};
     
     ibv_device_list = ibv_get_device_list(&g_efa_selected_device_cnt);
-    if (ibv_device_list == nullptr) {
-        GTEST_SKIP() << "No devices available";
-        return;
-    }
+    ASSERT_NE(ibv_device_list, nullptr);
     
     g_mock_efadv_ret = ibv_err;
     g_efa_unit_test_mocks.efadv_query_device = mock_efadv_query_device;

@@ -3,10 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
-#include <dlfcn.h>
 #include "efa_device.h"
-#include "ofi_util.h"
 
 // Control variables
 bool g_mock_efa_device_list_initialize = false;
@@ -69,29 +66,6 @@ void efa_mock_setup_device_list(struct ibv_context *ctx,
     g_efa_selected_device_cnt = 1;
     g_efa_ibv_gid_list = mock_gid_list;
     g_efa_ibv_gid_cnt = 1;
-    
-    // Access util_prov via dlsym since weak symbols don't work
-    void *handle = dlopen(NULL, RTLD_NOW);
-    if (handle) {
-        struct util_prov *prov = (struct util_prov*)dlsym(handle, "efa_util_prov");
-        if (prov) {
-            fprintf(stderr, "DEBUG: Found efa_util_prov via dlsym\n");
-            // Clear old info
-            if (prov->info) {
-                fprintf(stderr, "DEBUG: Freeing old info\n");
-                fi_freeinfo((struct fi_info*)prov->info);
-            }
-            
-            // Set new info
-            prov->info = fi_dupinfo(mock_device_list[0].rdm_info);
-            fprintf(stderr, "DEBUG: Set new info, prov->info = %p\n", prov->info);
-        } else {
-            fprintf(stderr, "DEBUG: dlsym failed: %s\n", dlerror());
-        }
-        dlclose(handle);
-    } else {
-        fprintf(stderr, "DEBUG: dlopen failed: %s\n", dlerror());
-    }
 }
 
 
