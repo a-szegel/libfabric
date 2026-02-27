@@ -264,6 +264,8 @@ prov_efa_test_efa_unit_tests_gtest_SOURCES = \
 	prov/efa/test/unittest/efa_unit_test_mocks.cpp \
 	prov/efa/test/unittest/efa_unit_test_wrappers.c \
 	prov/efa/test/unittest/efa_unit_test_helpers.c \
+	prov/efa/test/unittest/efa_unit_test_device_mock.cpp \
+	prov/efa/test/unittest/efa_unit_test_fixture.cpp \
 	prov/efa/test/unittest/efa_unit_test_av.cpp \
 	prov/efa/test/unittest/efa_unit_test_cntr.cpp \
 	prov/efa/test/unittest/efa_unit_test_cq.cpp \

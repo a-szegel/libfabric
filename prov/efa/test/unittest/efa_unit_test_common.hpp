@@ -92,6 +92,24 @@ protected:
     }
 };
 
+// Forward declaration
+class efa_device_simulator;
+struct efa_mock_device_config;
+
+// Test fixture with device simulator
+class EfaUnitTestWithDevice : public EfaUnitTestBase {
+protected:
+    efa_device_simulator *simulator = nullptr;
+    
+    // Setup device with default config
+    void SetUpDevice();
+    
+    // Setup device with custom config
+    void SetUpDevice(const efa_mock_device_config &config);
+    
+    void TearDown() override;
+};
+
 // C wrapper function declarations
 extern "C" {
     int efa_unit_test_device_construct_gid_wrapper(void *efa_device_ptr, struct ibv_device *ibv_device);
