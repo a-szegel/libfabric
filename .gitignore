@@ -101,3 +101,10 @@ prov/efa/docs/doxygen/latex
 # Rust
 /target
 /Cargo.lock
+
+# Code coverage files
+*.gcno
+*.gcda
+*.gcov
+/coverage/
+*.info

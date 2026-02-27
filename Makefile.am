@@ -518,6 +518,22 @@ EXTRA_DIST += \
 	$(windows_files) \
         $(prov_extra_dist)
 
+# Code coverage targets
+.PHONY: coverage coverage-clean
+
+coverage:
+	@if [ ! -f prov/efa/test/efa_unit_test ]; then \
+		echo "ERROR: Unit tests not built. Run 'make' first."; \
+		exit 1; \
+	fi
+	@mkdir -p coverage
+	@./scripts/generate_coverage.sh coverage
+
+coverage-clean:
+	@find . -name "*.gcda" -delete
+	@rm -rf coverage/
+	@echo "Coverage data cleaned."
+
 # a workaround for http://debbugs.gnu.org/cgi/bugreport.cgi?bug=18744, this
 # bug was fixed in automake 1.15, but lesser automake is supported by us.
 am__is_gnu_make = { \
