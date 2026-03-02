@@ -1,0 +1,82 @@
+diff --git a/prov/efa/src/efa_rma.c b/prov/efa/src/efa_rma.c
+index 1234567..abcdefg 100644
+--- a/prov/efa/src/efa_rma.c
++++ b/prov/efa/src/efa_rma.c
+@@ -1,6 +1,49 @@
+ /* SPDX-License-Identifier: BSD-2-Clause OR GPL-2.0-only */
+ /* SPDX-FileCopyrightText: Copyright Amazon.com, Inc. or its affiliates. All rights reserved. */
+ 
++#include <linux/perf_event.h>
++#include <sys/syscall.h>
++#include <unistd.h>
++#include <sys/ioctl.h>
++
++static int perf_cache_miss_fd = -1;
++static uint64_t total_cache_misses = 0;
++static uint64_t total_calls = 0;
++
++static void init_perf_counter(void) {
++    struct perf_event_attr pe = {
++        .type = PERF_TYPE_HARDWARE,
++        .size = sizeof(struct perf_event_attr),
++        .config = PERF_COUNT_HW_CACHE_MISSES,
++        .disabled = 1,
++        .exclude_kernel = 1,
++        .exclude_hv = 1,
++    };
++    
++    perf_cache_miss_fd = syscall(__NR_perf_event_open, &pe, 0, -1, -1, 0);
++    if (perf_cache_miss_fd < 0) {
++        EFA_WARN(FI_LOG_EP_DATA, "Failed to open perf counter: %d\n", errno);
++    }
++}
++
++static inline void perf_start(void) {
++    if (perf_cache_miss_fd >= 0) {
++        ioctl(perf_cache_miss_fd, PERF_EVENT_IOC_RESET, 0);
++        ioctl(perf_cache_miss_fd, PERF_EVENT_IOC_ENABLE, 0);
++    }
++}
++
++static inline void perf_stop(void) {
++    if (perf_cache_miss_fd >= 0) {
++        uint64_t count;
++        ioctl(perf_cache_miss_fd, PERF_EVENT_IOC_DISABLE, 0);
++        read(perf_cache_miss_fd, &count, sizeof(count));
++        total_cache_misses += count;
++        total_calls++;
++        if (total_calls % 1000 == 0)
++            EFA_INFO(FI_LOG_EP_DATA, "RMA write: %lu calls, avg cache misses: %lu\n", total_calls, total_cache_misses / total_calls);
++    }
++}
++
+ #include "efa.h"
+ #include "efa_av.h"
+ #include "efa_rdm_msg.h"
+@@ -177,6 +220,8 @@ static inline ssize_t efa_rma_post_write(struct efa_base_ep *base_ep,
+ 	uintptr_t wr_id;
+ 	int i, err = 0;
+ 
++	perf_start();
++
+ 	if (flags & FI_INJECT) {
+ 		EFA_WARN(FI_LOG_EP_DATA,
+ 			 "FI_INJECT is not supported by efa rma yet.\n");
+@@ -236,6 +281,7 @@ static inline ssize_t efa_rma_post_write(struct efa_base_ep *base_ep,
+ 	efa_tracepoint(post_write, wr_id, (uintptr_t)msg->context);
+ 
+ out_err:
++	perf_stop();
+ 	ofi_genlock_unlock(&base_ep->util_ep.lock);
+ 	return err;
+ }
+@@ -244,6 +290,9 @@ ssize_t efa_rma_writemsg(struct fid_ep *ep_fid, const struct fi_msg_rma *msg,
+ 			 uint64_t flags)
+ {
+ 	struct efa_base_ep *base_ep;
++	
++	if (perf_cache_miss_fd < 0)
++		init_perf_counter();
+ 	int err;
+ 
+ 	base_ep = container_of(ep_fid, struct efa_base_ep, util_ep.ep_fid);

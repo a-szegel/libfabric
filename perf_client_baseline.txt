@@ -1,0 +1,17 @@
+Warning: Permanently added 'p5en-odcr-queue-dy-p5en48xlarge-7' (ED25519) to the list of known hosts.
+bytes   iters   total       time     MB/sec    usec/xfer   Mxfers/sec
+1       1       2           0.00s      0.00    1570.50       0.00
+
+ Performance counter stats for '/home/szegel/libfabric/fabtests/install/bin/fi_rma_pingpong -p efa -f efa-direct -S 1 -w 0 -I 1 -E p5en-odcr-queue-dy-p5en48xlarge-6':
+
+            302060      cache-references                                                      
+             88058      cache-misses                     #   29.15% of all cache refs         
+          61029986      L1-dcache-loads                                                       
+            218002      L1-dcache-load-misses            #    0.36% of all L1-dcache accesses 
+
+       1.244861851 seconds time elapsed
+
+       0.021199000 seconds user
+       0.130468000 seconds sys
+
+

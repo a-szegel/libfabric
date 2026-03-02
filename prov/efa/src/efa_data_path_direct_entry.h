@@ -38,6 +38,10 @@
 #if HAVE_EFA_DATA_PATH_DIRECT
 
 #include <rdma/ib_user_verbs.h>
+#include <linux/perf_event.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
 #include "efa_tp.h"
 
 #include "efa_data_path_direct_internal.h"
@@ -588,10 +592,33 @@ efa_data_path_direct_post_write(
 		uint32_t qkey)
 {
 	struct efa_data_path_direct_sq *sq = &qp->data_path_direct_qp.sq;
-	struct efa_io_tx_wqe local_wqe = {0}; /* Stack variable - can be in registers */
+	struct efa_io_tx_wqe local_wqe __attribute__((aligned(64))) = {0}; /* Stack variable - cache aligned */
 	struct efa_io_tx_meta_desc *meta_desc = &local_wqe.meta;
 	struct efa_io_remote_mem_addr *remote_mem = &local_wqe.data.rdma_req.remote_mem;
 	int err;
+
+	// PERF INSTRUMENTATION
+	static __thread int perf_fd = -1;
+	static __thread uint64_t total_misses = 0;
+	static __thread uint64_t total_calls = 0;
+	
+	if (perf_fd < 0) {
+		struct perf_event_attr pe = {
+			.type = PERF_TYPE_HARDWARE,
+			.size = sizeof(struct perf_event_attr),
+			.config = PERF_COUNT_HW_CACHE_MISSES,
+			.disabled = 1,
+			.exclude_kernel = 1,
+		};
+		perf_fd = syscall(__NR_perf_event_open, &pe, 0, -1, -1, 0);
+	}
+	
+	uint64_t count = 0;
+	if (perf_fd >= 0) {
+		ioctl(perf_fd, PERF_EVENT_IOC_RESET, 0);
+		ioctl(perf_fd, PERF_EVENT_IOC_ENABLE, 0);
+	}
+	// END PERF
 
 	/* Validate SGE count for RDMA operations */
 	if (OFI_UNLIKELY(sge_count > EFA_IO_TX_DESC_NUM_RDMA_BUFS)) {
@@ -658,6 +685,18 @@ efa_data_path_direct_post_write(
 	/* Ring doorbell if required */
 	if (!(flags & FI_MORE))
 		efa_data_path_direct_send_wr_ring_db(sq);
+
+	// PERF: Stop and report
+	if (perf_fd >= 0) {
+		ioctl(perf_fd, PERF_EVENT_IOC_DISABLE, 0);
+		read(perf_fd, &count, sizeof(count));
+		total_misses += count;
+		total_calls++;
+		if (total_calls <= 10 || total_calls % 1000 == 0) {
+			fprintf(stderr, "[PERF] RMA write #%lu: cache misses=%lu, avg=%.2f\n", 
+					total_calls, count, (double)total_misses / total_calls);
+		}
+	}
 
 	return 0;
 }
