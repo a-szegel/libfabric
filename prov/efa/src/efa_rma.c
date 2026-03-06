@@ -73,6 +73,8 @@ static inline ssize_t efa_rma_post_read(struct efa_base_ep *base_ep,
 
 	/* Handle 0-byte read with bounce buffer */
 	if (total_len == 0) {
+		if (!domain->zero_byte_bounce_buf)
+			return -FI_EOPNOTSUPP;
 		sge_list[0].addr = (uint64_t)domain->zero_byte_bounce_buf;
 		sge_list[0].length = 0;
 		sge_list[0].lkey = domain->zero_byte_bounce_buf_mr->ibv_mr->lkey;
@@ -222,6 +224,8 @@ static inline ssize_t efa_rma_post_write(struct efa_base_ep *base_ep,
 
 	/* Handle 0-byte write with bounce buffer */
 	if (total_len == 0) {
+		if (!domain->zero_byte_bounce_buf)
+			return -FI_EOPNOTSUPP;
 		sge_list[0].addr = (uint64_t)domain->zero_byte_bounce_buf;
 		sge_list[0].length = 0;
 		sge_list[0].lkey = domain->zero_byte_bounce_buf_mr->ibv_mr->lkey;
@@ -367,6 +371,9 @@ ssize_t efa_rma_inject_write(struct fid_ep *ep_fid, const void *buf, size_t len,
 
 	wr_id = (uintptr_t) efa_fill_context(NULL, dest_addr, FI_INJECT, FI_RMA | FI_WRITE);
 
+	if (!domain->zero_byte_bounce_buf)
+		return -FI_EOPNOTSUPP;
+
 	sge.addr = (uint64_t)domain->zero_byte_bounce_buf;
 	sge.length = 0;
 	sge.lkey = domain->zero_byte_bounce_buf_mr->ibv_mr->lkey;
@@ -408,6 +415,9 @@ static ssize_t efa_rma_inject_writedata(struct fid_ep *ep, const void *buf, size
 	ofi_genlock_lock(&base_ep->util_ep.lock);
 
 	wr_id = (uintptr_t) efa_fill_context(NULL, dest_addr, FI_INJECT | FI_REMOTE_CQ_DATA, FI_RMA | FI_WRITE);
+
+	if (!domain->zero_byte_bounce_buf)
+		return -FI_EOPNOTSUPP;
 
 	sge.addr = (uint64_t)domain->zero_byte_bounce_buf;
 	sge.length = 0;

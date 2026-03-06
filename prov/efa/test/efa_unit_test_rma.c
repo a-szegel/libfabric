@@ -10,15 +10,19 @@ extern struct fi_ops_rma efa_rma_ops;
 static void test_efa_rma_prep(struct efa_resource *resource, fi_addr_t *addr)
 {
 	struct efa_ep_addr raw_addr;
-	struct efa_base_ep *base_ep;
 	size_t raw_addr_len = sizeof(raw_addr);
 	int ret;
 
-	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_DIRECT_FABRIC_NAME);
+	resource->hints = efa_unit_test_alloc_hints(FI_EP_RDM, EFA_DIRECT_FABRIC_NAME);
+	assert_non_null(resource->hints);
+	if (efa_device_support_rdma_read() && efa_device_support_rdma_write()) {
+		resource->hints->caps |= FI_RMA;
+		resource->hints->mode |= FI_RX_CQ_DATA;
+	}
+	efa_unit_test_resource_construct_with_hints(resource, FI_EP_RDM,
+						    FI_VERSION(2, 0),
+						    resource->hints, true, true);
 
-	base_ep = container_of(resource->ep, struct efa_base_ep, util_ep.ep_fid);
-	/* Add rma caps explicitly to ep->info to allow local test */
-	base_ep->info->caps |= FI_RMA;
 	/* Set up the mock operations */
 	g_efa_unit_test_mocks.efa_qp_post_recv = &efa_mock_efa_qp_post_recv_return_mock;
 	/* Mock general QP post functions to save work request IDs */
@@ -47,6 +51,13 @@ void test_efa_rma_read(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &src_addr);
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_read(resource->ep, NULL, 0, NULL, src_addr, remote_addr, remote_key, NULL);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
+
 	efa_unit_test_buff_construct(&local_buff, resource, 4096 /* buff_size */);
 
 	desc = fi_mr_desc(local_buff.mr);
@@ -72,6 +83,13 @@ void test_efa_rma_readv(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &src_addr);
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_readv(resource->ep, NULL, NULL, 0, src_addr, remote_addr, remote_key, NULL);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
+
 	efa_unit_test_buff_construct(&local_buff, resource, 4096 /* buff_size */);
 
 	iov.iov_base = local_buff.buff;
@@ -99,6 +117,14 @@ void test_efa_rma_readmsg(struct efa_resource **state)
 	int ret;
 
 	test_efa_rma_prep(resource, &src_addr);
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		efa_unit_test_construct_msg_rma(&msg, &iov, NULL, 0, src_addr, &rma_iov, 1, NULL, 0);
+		ret = fi_readmsg(resource->ep, &msg, 0);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
+
 	efa_unit_test_buff_construct(&local_buff, resource, 4096 /* buff_size */);
 
 	iov.iov_base = local_buff.buff;
@@ -129,6 +155,13 @@ void test_efa_rma_write(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &dest_addr);
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_write(resource->ep, NULL, 0, NULL, dest_addr, remote_addr, remote_key, NULL);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
+
 	efa_unit_test_buff_construct(&local_buff, resource, 4096 /* buff_size */);
 
 	desc = fi_mr_desc(local_buff.mr);
@@ -154,6 +187,13 @@ void test_efa_rma_writev(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &dest_addr);
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_writev(resource->ep, NULL, NULL, 0, dest_addr, remote_addr, remote_key, NULL);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
+
 	efa_unit_test_buff_construct(&local_buff, resource, 4096 /* buff_size */);
 
 	iov.iov_base = local_buff.buff;
@@ -181,6 +221,14 @@ void test_efa_rma_writemsg(struct efa_resource **state)
 	int ret;
 
 	test_efa_rma_prep(resource, &dest_addr);
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		efa_unit_test_construct_msg_rma(&msg, &iov, NULL, 0, dest_addr, &rma_iov, 1, NULL, 0);
+		ret = fi_writemsg(resource->ep, &msg, 0);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
+
 	efa_unit_test_buff_construct(&local_buff, resource, 4096 /* buff_size */);
 
 	iov.iov_base = local_buff.buff;
@@ -211,6 +259,13 @@ void test_efa_rma_writedata(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &dest_addr);
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_writedata(resource->ep, NULL, 0, NULL, 0, dest_addr, remote_addr, remote_key, NULL);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
+
 	efa_unit_test_buff_construct(&local_buff, resource, 4096 /* buff_size */);
 
 	desc = fi_mr_desc(local_buff.mr);
@@ -235,6 +290,13 @@ void test_efa_rma_inject_write(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &dest_addr);
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_inject_write(resource->ep, NULL, 0, dest_addr, remote_addr, remote_key);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
+
 	efa_unit_test_buff_construct(&local_buff, resource, 32 /* buff_size */);
 
 	ret = fi_inject_write(resource->ep, local_buff.buff, local_buff.size,
@@ -254,6 +316,13 @@ void test_efa_rma_inject_writedata(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &dest_addr);
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_inject_writedata(resource->ep, NULL, 0, 0, dest_addr, remote_addr, remote_key);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
+
 	efa_unit_test_buff_construct(&local_buff, resource, 32 /* buff_size */);
 
 	ret = fi_inject_writedata(resource->ep, local_buff.buff,
@@ -276,6 +345,14 @@ void test_efa_rma_writemsg_with_inject(struct efa_resource **state)
 	int ret;
 
 	test_efa_rma_prep(resource, &dest_addr);
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		efa_unit_test_construct_msg_rma(&msg, &iov, NULL, 0, dest_addr, &rma_iov, 1, NULL, 0);
+		ret = fi_writemsg(resource->ep, &msg, FI_INJECT);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
+
 	efa_unit_test_buff_construct(&local_buff, resource, 4096 /* buff_size */);
 
 	iov.iov_base = local_buff.buff;
@@ -303,7 +380,12 @@ void test_efa_rma_read_0_byte(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &src_addr);
-	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) { skip(); return; }
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_read(resource->ep, NULL, 0, NULL, src_addr, remote_addr, remote_key, NULL);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
 
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 0);
 	ret = fi_read(resource->ep, NULL, 0, NULL, src_addr, remote_addr, remote_key, NULL);
@@ -321,7 +403,12 @@ void test_efa_rma_readv_0_byte(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &src_addr);
-	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) { skip(); return; }
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_readv(resource->ep, &iov, NULL, 0, src_addr, remote_addr, remote_key, NULL);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
 
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 0);
 	ret = fi_readv(resource->ep, &iov, NULL, 0, src_addr, remote_addr, remote_key, NULL);
@@ -339,7 +426,13 @@ void test_efa_rma_readmsg_0_byte(struct efa_resource **state)
 	int ret;
 
 	test_efa_rma_prep(resource, &src_addr);
-	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) { skip(); return; }
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		efa_unit_test_construct_msg_rma(&msg, &iov, NULL, 0, src_addr, &rma_iov, 1, NULL, 0);
+		ret = fi_readmsg(resource->ep, &msg, 0);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
 
 	rma_iov.addr = 0x87654321;
 	rma_iov.key = 123456;
@@ -360,7 +453,12 @@ void test_efa_rma_write_0_byte(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &dest_addr);
-	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) { skip(); return; }
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_write(resource->ep, NULL, 0, NULL, dest_addr, remote_addr, remote_key, NULL);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
 
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 0);
 	ret = fi_write(resource->ep, NULL, 0, NULL, dest_addr, remote_addr, remote_key, NULL);
@@ -378,7 +476,12 @@ void test_efa_rma_writev_0_byte(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &dest_addr);
-	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) { skip(); return; }
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_writev(resource->ep, &iov, NULL, 0, dest_addr, remote_addr, remote_key, NULL);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
 
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 0);
 	ret = fi_writev(resource->ep, &iov, NULL, 0, dest_addr, remote_addr, remote_key, NULL);
@@ -396,7 +499,13 @@ void test_efa_rma_writemsg_0_byte(struct efa_resource **state)
 	int ret;
 
 	test_efa_rma_prep(resource, &dest_addr);
-	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) { skip(); return; }
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		efa_unit_test_construct_msg_rma(&msg, &iov, NULL, 0, dest_addr, &rma_iov, 1, NULL, 0);
+		ret = fi_writemsg(resource->ep, &msg, 0);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
 
 	rma_iov.addr = 0x87654321;
 	rma_iov.key = 123456;
@@ -417,7 +526,12 @@ void test_efa_rma_writedata_0_byte(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &dest_addr);
-	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) { skip(); return; }
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_writedata(resource->ep, NULL, 0, NULL, 0, dest_addr, remote_addr, remote_key, NULL);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
 
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 0);
 	ret = fi_writedata(resource->ep, NULL, 0, NULL, 0, dest_addr, remote_addr, remote_key, NULL);
@@ -434,7 +548,12 @@ void test_efa_rma_inject_write_0_byte(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &dest_addr);
-	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) { skip(); return; }
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_inject_write(resource->ep, NULL, 0, dest_addr, remote_addr, remote_key);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
 
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 0);
 	ret = fi_inject_write(resource->ep, NULL, 0, dest_addr, remote_addr, remote_key);
@@ -451,7 +570,12 @@ void test_efa_rma_inject_writedata_0_byte(struct efa_resource **state)
 	uint64_t remote_key = 123456;
 
 	test_efa_rma_prep(resource, &dest_addr);
-	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) { skip(); return; }
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		ret = fi_inject_writedata(resource->ep, NULL, 0, 0, dest_addr, remote_addr, remote_key);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
 
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 0);
 	ret = fi_inject_writedata(resource->ep, NULL, 0, 0, dest_addr, remote_addr, remote_key);
@@ -469,7 +593,13 @@ void test_efa_rma_write_0_byte_with_inject_flag(struct efa_resource **state)
 	int ret;
 
 	test_efa_rma_prep(resource, &dest_addr);
-	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) { skip(); return; }
+
+	if (!efa_device_support_rdma_read() || !efa_device_support_rdma_write()) {
+		efa_unit_test_construct_msg_rma(&msg, &iov, NULL, 0, dest_addr, &rma_iov, 1, NULL, 0);
+		ret = fi_writemsg(resource->ep, &msg, FI_INJECT);
+		assert_int_equal(ret, -FI_EOPNOTSUPP);
+		return;
+	}
 
 	rma_iov.addr = 0x87654321;
 	rma_iov.key = 123456;
