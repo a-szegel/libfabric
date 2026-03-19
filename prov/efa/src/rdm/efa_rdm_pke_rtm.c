@@ -282,7 +282,7 @@ ssize_t efa_rdm_pke_proc_msgrtm(struct efa_rdm_pke *pkt_entry)
 
 	rtm_hdr = (struct efa_rdm_rtm_base_hdr *)pkt_entry->wiredata;
 	if (rtm_hdr->flags & EFA_RDM_REQ_READ_NACK) {
-		rxe = efa_rdm_rxe_map_lookup(&pkt_entry->efa_proto_to_rx(peer)->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry));
+		rxe = efa_rdm_rxe_map_lookup(&pkt_entry->peer->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry));
 		rxe->internal_flags |= EFA_PROTO_OPE_READ_NACK;
 	} else {
 		rxe = efa_rdm_msg_alloc_rxe_for_msgrtm(ep, &pkt_entry);
@@ -330,7 +330,7 @@ static ssize_t efa_rdm_pke_proc_tagrtm(struct efa_rdm_pke *pkt_entry)
 
 	rtm_hdr = (struct efa_rdm_rtm_base_hdr *) pkt_entry->wiredata;
 	if (rtm_hdr->flags & EFA_RDM_REQ_READ_NACK) {
-		rxe = efa_rdm_rxe_map_lookup(&pkt_entry->efa_proto_to_rx(peer)->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry));
+		rxe = efa_rdm_rxe_map_lookup(&pkt_entry->peer->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry));
 		rxe->internal_flags |= EFA_PROTO_OPE_READ_NACK;
 	} else {
 		rxe = efa_rdm_msg_alloc_rxe_for_tagrtm(ep, &pkt_entry);
@@ -451,7 +451,7 @@ void efa_rdm_pke_handle_rtm_rta_recv(struct efa_rdm_pke *pkt_entry)
 		struct efa_proto_ope_base *rxe;
 		struct efa_rdm_pke *unexp_pkt_entry;
 
-		rxe = efa_rdm_rxe_map_lookup(&efa_proto_to_rx(peer)->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry));
+		rxe = efa_rdm_rxe_map_lookup(&peer->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry));
 		if (rxe) {
 			if (rxe->state == EFA_PROTO_RXE_MATCHED) {
 				pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
@@ -922,7 +922,7 @@ ssize_t efa_rdm_pke_proc_matched_mulreq_rtm(struct efa_rdm_pke *pkt_entry)
 					return err;
 			} else {
 				msg_id = efa_rdm_pke_get_rtm_msg_id(cur);
-				efa_rdm_rxe_map_remove(&cur->efa_proto_to_rx(peer)->rxe_map, msg_id,
+				efa_rdm_rxe_map_remove(&cur->peer->rxe_map, msg_id,
 						       rxe);
 			}
 		}

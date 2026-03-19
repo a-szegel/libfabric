@@ -223,7 +223,7 @@ send_nack:
 	}
 
 	if (efa_rdm_pkt_type_is_rtm(pkt_type)) {
-		efa_rdm_rxe_map_insert(&pkt_entry->efa_proto_to_rx(peer)->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry), rxe);
+		efa_rdm_rxe_map_insert(&pkt_entry->peer->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry), rxe);
 	}
 
 	return efa_proto_ope_post_send_or_queue(rxe, EFA_RDM_READ_NACK_PKT);

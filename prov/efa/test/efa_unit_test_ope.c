@@ -502,7 +502,7 @@ void test_efa_rdm_rxe_map(struct efa_resource **state)
 	assert_non_null(rxe);
 
 	/* rxe has not been inserted to any rxe_map yet */
-	assert_null(rxe->rxe_map);
+	assert_null(efa_proto_to_rx(rxe)->rxe_map);
 
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
 				  base_ep.util_ep.ep_fid);
@@ -513,8 +513,8 @@ void test_efa_rdm_rxe_map(struct efa_resource **state)
 	peer = efa_rdm_ep_get_peer(efa_rdm_ep, 0);
 
 	efa_rdm_rxe_map_insert(&peer->rxe_map, rxe->msg_id, rxe);
-	assert_true(rxe->rxe_map == &peer->rxe_map);
-	assert_true(rxe == efa_rdm_rxe_map_lookup(rxe->rxe_map, rxe->msg_id));
+	assert_true(efa_proto_to_rx(rxe)->rxe_map == &peer->rxe_map);
+	assert_true(rxe == efa_rdm_rxe_map_lookup(efa_proto_to_rx(rxe)->rxe_map, rxe->msg_id));
 
 	efa_proto_rx_release(rxe);
 

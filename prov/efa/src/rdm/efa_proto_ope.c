@@ -116,9 +116,9 @@ efa_proto_ope_base_init(struct efa_proto_ope_base *base,
 
 static inline void efa_proto_tx_base_init(struct efa_proto_tx_base *tx)
 {
-	efa_proto_to_tx(tx)->bytes_acked = 0;
-	efa_proto_to_tx(tx)->bytes_sent = 0;
-	efa_proto_to_tx(tx)->local_read_pkt_entry = NULL;
+	tx->bytes_acked = 0;
+	tx->bytes_sent = 0;
+	tx->local_read_pkt_entry = NULL;
 }
 
 void efa_proto_tx_msg_init(struct efa_proto_tx_msg *entry,
@@ -218,15 +218,15 @@ void efa_proto_tx_atomic_init(struct efa_proto_tx_atomic *entry,
 
 static inline void efa_proto_rx_base_init(struct efa_proto_rx_base *rx)
 {
-	efa_proto_to_rx(rx)->bytes_received = 0;
-	efa_proto_to_rx(rx)efa_proto_to_rx()->bytes_received_via_mulreq = 0;
-	efa_proto_to_rx(rx)->bytes_copied = 0;
-	efa_proto_to_rx(rx)->bytes_queued_blocking_copy = 0;
-	efa_proto_to_rx(rx)->ignore = 0;
-	efa_proto_to_rx(rx)->unexp_pkt = NULL;
-	efa_proto_to_rx(rx)->rxe_map = NULL;
-	efa_proto_to_rx(rx)->peer_rxe = NULL;
-	efa_proto_to_rx(rx)->cuda_copy_method = EFA_PROTO_CUDA_COPY_UNSPEC;
+	rx->bytes_received = 0;
+	rx->bytes_received_via_mulreq = 0;
+	rx->bytes_copied = 0;
+	rx->bytes_queued_blocking_copy = 0;
+	rx->ignore = 0;
+	rx->unexp_pkt = NULL;
+	rx->rxe_map = NULL;
+	rx->peer_rxe = NULL;
+	rx->cuda_copy_method = EFA_PROTO_CUDA_COPY_UNSPEC;
 }
 
 void efa_proto_rx_msg_init(struct efa_proto_rx_msg *entry,
@@ -361,13 +361,13 @@ void efa_proto_ope_base_release(struct efa_proto_ope_base *base)
 
 void efa_proto_rx_base_release(struct efa_proto_rx_base *rx)
 {
-	if (efa_proto_to_rx(rx)->rxe_map)
-		efa_rdm_rxe_map_remove(efa_proto_to_rx(rx)->rxe_map, rx->base.msg_id,
+	if (rx->rxe_map)
+		efa_rdm_rxe_map_remove(rx->rxe_map, rx->base.msg_id,
 				       EFA_PROTO_OPE_FROM_BASE(&rx->base));
 
-	if (efa_proto_to_rx(rx)->peer_rxe) {
-		efa_rdm_ep_get_peer_srx(rx->base.ep)->owner_ops->free_entry(efa_proto_to_rx(rx)->peer_rxe);
-		efa_proto_to_rx(rx)->peer_rxe = NULL;
+	if (rx->peer_rxe) {
+		efa_rdm_ep_get_peer_srx(rx->base.ep)->owner_ops->free_entry(rx->peer_rxe);
+		rx->peer_rxe = NULL;
 	}
 
 	efa_proto_ope_base_release(&rx->base);
