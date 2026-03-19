@@ -178,9 +178,9 @@ void efa_proto_tx_rma_write_init(struct efa_proto_tx_rma_write *entry,
 	efa_proto_tx_base_init(&entry->tx);
 
 	entry->tx.base.cq_entry.flags = FI_RMA | FI_WRITE;
-	efa_proto_to_tx_rma_write(entry)->bytes_write_completed = 0;
-	efa_proto_to_tx_rma_write(entry)->bytes_write_submitted = 0;
-	efa_proto_to_tx_rma_write(entry)->bytes_write_total_len = 0;
+	entry->bytes_write_completed = 0;
+	entry->bytes_write_submitted = 0;
+	entry->bytes_write_total_len = 0;
 }
 
 void efa_proto_tx_atomic_init(struct efa_proto_tx_atomic *entry,
@@ -617,7 +617,7 @@ int efa_proto_tx_prepare_to_be_read(struct efa_proto_ope_base *txe, struct fi_rm
 static inline
 void efa_proto_tx_set_runt_size(struct efa_rdm_ep *ep, struct efa_proto_ope_base *txe)
 {
-	assert(txe->type == EFA_PROTO_TXE);
+	assert(efa_proto_is_tx(txe));
 
 	if (efa_proto_to_tx_msg(txe)->bytes_runt > 0)
 		return;
@@ -847,7 +847,7 @@ void efa_proto_rx_handle_error(struct efa_proto_ope_base *rxe, int err, int prov
 	int write_cq_err;
 	char err_msg[EFA_ERROR_MSG_BUFFER_LENGTH] = {0};
 
-	assert(rxe->type == EFA_PROTO_RXE);
+	assert(efa_proto_is_rx(rxe));
 
 	memset(&err_entry, 0, sizeof(err_entry));
 
@@ -1238,7 +1238,7 @@ void efa_proto_tx_report_completion(struct efa_proto_ope_base *txe)
 	struct util_cq *tx_cq = txe->ep->base_ep.util_ep.tx_cq;
 	int ret;
 
-	assert(txe->type == EFA_PROTO_TXE);
+	assert(efa_proto_is_tx(txe));
 	if (efa_proto_tx_should_update_cq(txe)) {
 		EFA_DBG(FI_LOG_CQ,
 		       "Writing send completion for txe to peer: %" PRIu64
@@ -1324,7 +1324,7 @@ void efa_proto_ope_handle_send_completed(struct efa_proto_ope_base *ope)
 		 * The entry is allocated for emulated read, so no need to write tx completion.
 		 * EFA does not support FI_RMA_EVENT, so no need to write rx completion.
 		 */
-		assert(ope->type == EFA_PROTO_RXE);
+		assert(efa_proto_is_rx(ope));
 		rxe = ope;
 		efa_proto_rx_release(rxe);
 		return;
@@ -1341,7 +1341,7 @@ void efa_proto_ope_handle_send_completed(struct efa_proto_ope_base *ope)
 		efa_proto_tx_report_completion(ope);
 	}
 
-	assert(ope->type == EFA_PROTO_TXE);
+	assert(efa_proto_is_tx(ope));
 	efa_proto_tx_release(ope);
 }
 
@@ -1404,7 +1404,7 @@ void efa_proto_ope_handle_recv_completed(struct efa_proto_ope_base *ope)
 		 * on the requester side, so we need to find the corresponding txe and
 		 * complete it.
 		 */
-		assert(ope->type == EFA_PROTO_TXE);
+		assert(efa_proto_is_tx(ope));
 		txe = ope; /* Intentionally assigned for easier understanding */
 
 		assert(txe->state == EFA_PROTO_TXE_REQ);
@@ -1414,7 +1414,7 @@ void efa_proto_ope_handle_recv_completed(struct efa_proto_ope_base *ope)
 			efa_cntr_report_tx_completion(&txe->ep->base_ep.util_ep, txe->cq_entry.flags);
 		}
 	} else {
-		assert(ope->type == EFA_PROTO_RXE);
+		assert(efa_proto_is_rx(ope));
 		rxe = ope; /* Intentionally assigned for easier understanding */
 
 		assert(rxe->op == ofi_op_msg || rxe->op == ofi_op_tagged);
@@ -1434,7 +1434,7 @@ void efa_proto_ope_handle_recv_completed(struct efa_proto_ope_base *ope)
 	 * the send completion of the ctrl packet.
 	 */
 	if (ope->internal_flags & EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED) {
-		assert(ope->type == EFA_PROTO_RXE);
+		assert(efa_proto_is_rx(ope));
 		rxe = ope; /* Intentionally assigned for easier understanding */
 		err = efa_proto_ope_post_send_or_queue(rxe, EFA_RDM_RECEIPT_PKT);
 		if (OFI_UNLIKELY(err)) {
@@ -1462,10 +1462,10 @@ void efa_proto_ope_handle_recv_completed(struct efa_proto_ope_base *ope)
 		return;
 	}
 
-	if (ope->type == EFA_PROTO_TXE) {
+	if (efa_proto_is_tx(ope)) {
 		efa_proto_tx_release(ope);
 	} else {
-		assert(ope->type == EFA_PROTO_RXE);
+		assert(efa_proto_is_rx(ope));
 		efa_proto_rx_release(ope);
 	}
 }
@@ -1477,11 +1477,11 @@ void efa_proto_ope_handle_recv_completed(struct efa_proto_ope_base *ope)
  *
  * First, it can be because user directly initiated a read requst
  * (by calling fi_readxxx() API). In this case the ope argument
- * will be a txe (ope->type == EFA_PROTO_TXE)
+ * will be a txe (efa_proto_is_tx(ope))
  *
  * Second, it can be part of a read-base message protocol, such as
  * the longread message protocol. In this case, the ope argument
- * will be a rxe (ope->type == EFA_PROTO_RXE)
+ * will be a rxe (efa_proto_is_rx(ope))
  *
  * @param[in,out]		ep		endpoint
  * @param[in,out]		ope	information of the operation the needs to post a read
@@ -1493,7 +1493,7 @@ int efa_proto_ope_prepare_to_post_read(struct efa_proto_ope_base *ope)
 	int err;
 	size_t total_iov_len, total_rma_iov_len;
 
-	if (ope->type == EFA_PROTO_RXE) {
+	if (efa_proto_is_rx(ope)) {
 		/* Often times, application will provide a receiving buffer that is larger
 		 * then the incoming message size. For read based message transfer, the
 		 * receiving buffer need to be registered. Thus truncating rxe->iov to
@@ -1512,7 +1512,7 @@ int efa_proto_ope_prepare_to_post_read(struct efa_proto_ope_base *ope)
 	total_iov_len = ofi_total_iov_len(ope->iov, ope->iov_count);
 	total_rma_iov_len = ofi_total_rma_iov_len(ope->rma_iov, ope->rma_iov_count);
 
-	if (ope->type == EFA_PROTO_TXE)
+	if (efa_proto_is_tx(ope))
 		(*efa_proto_ope_bytes_read_offset_ptr(ope)) = 0;
 	else
 		(*efa_proto_ope_bytes_read_offset_ptr(ope)) = (*efa_proto_ope_bytes_runt_ptr(ope));
@@ -1549,7 +1549,7 @@ ssize_t efa_proto_tx_prepare_local_read_pkt_entry(struct efa_proto_ope_base *txe
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_pke *pkt_entry_copy;
 
-	assert(txe->type == EFA_PROTO_TXE);
+	assert(efa_proto_is_tx(txe));
 	assert(txe->rma_iov_count > 0 && txe->rma_iov_count <= efa_rdm_ep_domain(txe->ep)->info->tx_attr->rma_iov_limit);
 
 	pkt_entry = efa_proto_to_tx(txe)->local_read_pkt_entry;
@@ -1599,7 +1599,7 @@ void efa_proto_ope_prepare_to_post_write(struct efa_proto_ope_base *ope)
 {
 	size_t local_iov_len;
 
-	assert(ope->type == EFA_PROTO_TXE);
+	assert(efa_proto_is_tx(ope));
 
 	local_iov_len = ofi_total_iov_len(ope->iov, ope->iov_count);
 #ifndef NDEBUG
@@ -1674,7 +1674,7 @@ int efa_proto_ope_post_read(struct efa_proto_ope_base *ope)
 
 	assert((*efa_proto_ope_bytes_read_submitted_ptr(ope)) < (*efa_proto_ope_bytes_read_total_len_ptr(ope)));
 
-	if (ope->type == EFA_PROTO_TXE &&
+	if (efa_proto_is_tx(ope) &&
 	    ope->op == ofi_op_read_req &&
 	    ope->peer == NULL) {
 		err = efa_proto_tx_prepare_local_read_pkt_entry(ope);
@@ -2260,8 +2260,8 @@ int efa_proto_ope_process_queued(struct efa_proto_ope_base *ope, uint32_t flag)
 		if (ret == -FI_EAGAIN)
 			return ret;
 
-		assert(ope->type == EFA_PROTO_TXE || ope->type == EFA_PROTO_RXE);
-		if (ope->type == EFA_PROTO_TXE)
+		assert(efa_proto_is_tx(ope) || efa_proto_is_rx(ope));
+		if (efa_proto_is_tx(ope))
 			efa_proto_tx_handle_error(ope, -ret, FI_EFA_ERR_PKT_POST);
 		else
 			efa_proto_rx_handle_error(ope, -ret, FI_EFA_ERR_PKT_POST);

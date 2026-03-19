@@ -158,11 +158,11 @@ ssize_t efa_rdm_pke_init_cts(struct efa_rdm_pke *pkt_entry,
 	 * message protocols sends CTS using rxe.
 	 * This check ensures appropriate tx_id and rx_id are
 	 * assigned for the respective protocols */
-	if (ope->type == EFA_PROTO_TXE){
+	if (efa_proto_is_tx(ope)){
 		cts_hdr->send_id = ope->rx_id;
 		cts_hdr->recv_id = ope->tx_id;
 	} else {
-		assert(ope->type == EFA_PROTO_RXE);
+		assert(efa_proto_is_rx(ope));
 		cts_hdr->send_id = ope->tx_id;
 		cts_hdr->recv_id = ope->rx_id;
 	}
@@ -236,10 +236,10 @@ int efa_rdm_pke_init_ctsdata(struct efa_rdm_pke *pkt_entry,
 	 * message protocols sends data using txe.
 	 * This check ensures appropriate recv_id is 
 	 * assigned for the respective protocols */
-	if (ope->type == EFA_PROTO_RXE) {
+	if (efa_proto_is_rx(ope)) {
 		data_hdr->recv_id = ope->tx_id;
 	} else {
-		assert(ope->type == EFA_PROTO_TXE);
+		assert(efa_proto_is_tx(ope));
 		data_hdr->recv_id = ope->rx_id;
 		if (ope->internal_flags & EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED)
 			pkt_entry->flags |= EFA_RDM_PKE_DC_LONGCTS_DATA;
@@ -509,7 +509,7 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 	assert(rma_context_pkt->context_type == EFA_RDM_RDMA_READ_CONTEXT);
 
 	x_entry_type = EFA_PROTO_OPE_FROM_BASE(context_pkt_entry->ope)->type;
-	if (x_entry_type == EFA_PROTO_TXE) {
+	if (efa_proto_is_tx(context_pkt_entry->ope)) {
 		txe = EFA_PROTO_OPE_FROM_BASE(context_pkt_entry->ope);
 		assert(txe->op == ofi_op_read_req);
 		efa_proto_to_tx_msg(txe)->bytes_read_completed += rma_context_pkt->seg_size;
@@ -532,7 +532,7 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 			efa_proto_tx_release(txe);
 		}
 	} else {
-		assert(x_entry_type == EFA_PROTO_RXE);
+		assert(efa_proto_is_rx(context_pkt_entry->ope));
 		rxe = EFA_PROTO_OPE_FROM_BASE(context_pkt_entry->ope);
 		efa_proto_to_rx_msg(rxe)->bytes_read_completed += rma_context_pkt->seg_size;
 		assert(efa_proto_to_rx_msg(rxe)->bytes_read_completed <= efa_proto_to_rx_msg(rxe)->bytes_read_total_len);

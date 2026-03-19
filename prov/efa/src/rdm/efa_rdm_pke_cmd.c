@@ -423,8 +423,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 		return;
 	}
 
-	switch (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type) {
-	case EFA_PROTO_TXE:
+	if (efa_proto_is_tx(pkt_entry->ope)) {
 		txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 		if (efa_rdm_pkt_type_of(pkt_entry) == EFA_RDM_HANDSHAKE_PKT) {
 			switch (prov_errno) {
@@ -501,7 +500,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			efa_rdm_pke_release_tx(pkt_entry);
 		}
 		break;
-	case EFA_PROTO_RXE:
+	} else if (efa_proto_is_rx(pkt_entry->ope)) {
 		if (prov_errno == EFA_IO_COMP_STATUS_REMOTE_ERROR_RNR) {
 			/*
 			 * This packet is associated with a recv operation, (such packets
@@ -514,13 +513,11 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			efa_proto_rx_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
 			efa_rdm_pke_release_tx(pkt_entry);
 		}
-		break;
-	default:
-		EFA_WARN(FI_LOG_CQ, "Unknown x_entry type: %d\n", EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type);
+	} else {
+		EFA_WARN(FI_LOG_CQ, "Unknown x_entry type: %d\n", pkt_entry->ope->type);
 		assert(0 && "unknown x_entry state");
 		efa_base_ep_write_eq_error(&ep->base_ep, err, prov_errno);
 		efa_rdm_pke_release_tx(pkt_entry);
-		break;
 	}
 }
 
@@ -715,9 +712,9 @@ void efa_rdm_pke_handle_rx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 		return;
 	}
 
-	if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type == EFA_PROTO_TXE) {
+	if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)efa_proto_is_tx()) {
 		efa_proto_tx_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
-	} else if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type == EFA_PROTO_RXE) {
+	} else if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)efa_proto_is_rx()) {
 		efa_proto_rx_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
 	} else {
 		EFA_WARN(FI_LOG_CQ, "unknown RDM operation entry type encountered: %d\n",

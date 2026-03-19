@@ -62,8 +62,8 @@ void test_efa_rdm_pke_handle_longcts_rtm_send_completion(struct efa_resource **s
     assert_int_equal(pkt_entry->payload_size, 0);
 
     /* Mimic the case when CTSDATA pkts have completed all data and released the txe */
-    txe->bytes_acked = txe->total_len;
-    txe->bytes_sent = txe->total_len;
+    efa_proto_to_tx(txe)->bytes_acked = txe->total_len;
+    efa_proto_to_tx(txe)->bytes_sent = txe->total_len;
     efa_proto_tx_release(txe);
 
     efa_rdm_pke_handle_longcts_rtm_send_completion(pkt_entry);
@@ -197,8 +197,8 @@ void test_efa_rdm_pke_alloc_rtw_rxe(struct efa_resource **state)
 	rxe = efa_rdm_pke_alloc_rtw_rxe(pke);
 
 	assert_true(rxe->internal_flags & EFA_PROTO_OPE_INTERNAL);
-	assert_int_equal(rxe->bytes_received, 0);
-	assert_int_equal(rxe->bytes_copied, 0);
+	assert_int_equal(efa_proto_to_rx(rxe)->bytes_received, 0);
+	assert_int_equal(efa_proto_to_rx(rxe)->bytes_copied, 0);
 
 	efa_proto_rx_release(rxe);
 	efa_rdm_pke_release_rx(pke);
@@ -246,8 +246,8 @@ void test_efa_rdm_pke_alloc_rtr_rxe(struct efa_resource **state)
 	rxe = efa_rdm_pke_alloc_rtw_rxe(pke);
 
 	assert_true(rxe->internal_flags & EFA_PROTO_OPE_INTERNAL);
-	assert_int_equal(rxe->bytes_received, 0);
-	assert_int_equal(rxe->bytes_copied, 0);
+	assert_int_equal(efa_proto_to_rx(rxe)->bytes_received, 0);
+	assert_int_equal(efa_proto_to_rx(rxe)->bytes_copied, 0);
 
 	efa_proto_rx_release(rxe);
 	efa_rdm_pke_release_rx(pke);
@@ -481,8 +481,8 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_first_packet_error(struct efa_reso
 	rxe->iov[0].iov_len = sizeof buf;
 	rxe->cq_entry.len = 1024;
 	rxe->total_len = 1024;
-	rxe->bytes_received = 0;
-	rxe->bytes_received_via_mulreq = 0;
+	efa_proto_to_rx(rxe)->bytes_received = 0;
+	efa_proto_to_rx(rxe)->bytes_received_via_mulreq = 0;
 	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	g_efa_unit_test_mocks.efa_rdm_pke_copy_payload_to_ope = &efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock;
@@ -530,8 +530,8 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_second_packet_error(struct efa_res
 	rxe->iov[0].iov_len = sizeof buf;
 	rxe->cq_entry.len = 2048;
 	rxe->total_len = 2048;
-	rxe->bytes_received = 0;
-	rxe->bytes_received_via_mulreq = 0; 
+	efa_proto_to_rx(rxe)->bytes_received = 0;
+	efa_proto_to_rx(rxe)->bytes_received_via_mulreq = 0; 
 	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	g_efa_unit_test_mocks.efa_rdm_pke_copy_payload_to_ope = &efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock;

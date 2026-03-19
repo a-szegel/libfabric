@@ -995,7 +995,7 @@ static inline void progress_queues_closing_ep(struct efa_rdm_ep *ep)
 				break;
 			default:
 				/* Release all other queued OPEs */
-				if (ope->type == EFA_PROTO_TXE)
+				if (efa_proto_is_tx(ope))
 					efa_proto_tx_release(ope);
 				else
 					efa_proto_rx_release(ope);

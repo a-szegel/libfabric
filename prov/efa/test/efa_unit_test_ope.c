@@ -609,7 +609,7 @@ void test_efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_resource **state)
 	pkt_entry->payload = pkt_entry->wiredata + 16;
 	pkt_entry->pkt_size = 32;
 	assert_non_null(pkt_entry);
-	txe->local_read_pkt_entry = pkt_entry;
+	efa_proto_to_tx(txe)->local_read_pkt_entry = pkt_entry;
 	txe->rma_iov_count = 1;
 
 	assert_int_equal(efa_proto_tx_prepare_local_read_pkt_entry(txe), 0);
@@ -1155,7 +1155,7 @@ void test_efa_rdm_atomic_compare_desc_persistence(struct efa_resource **state)
 	 * This forces the operation to be queued when handshake is not complete.
 	 * The old buggy code would store a pointer to compare_desc_array,
 	 * which becomes dangling when this function returns.
-	 * The fix copies the array contents into txe->atomic_ex.compare_desc[].
+	 * The fix copies the array contents into efa_proto_to_tx_atomic(txe)->atomic_ex.compare_desc[].
 	 */
 	ret = fi_compare_atomicmsg(resource->ep, &msg, &compare_ioc, compare_desc_array, 1,
 				   &result_ioc, result_desc_array, 1, FI_DELIVERY_COMPLETE);
@@ -1173,7 +1173,7 @@ void test_efa_rdm_atomic_compare_desc_persistence(struct efa_resource **state)
 			   struct efa_proto_ope_base, queued_entry);
 
 	/* Verify compare_desc was copied, not just pointer stored */
-	assert_ptr_equal(txe->atomic_ex.compare_desc[0], original_desc_value);
+	assert_ptr_equal(efa_proto_to_tx_atomic(txe)->atomic_ex.compare_desc[0], original_desc_value);
 
 	efa_unit_test_buff_destruct(&send_buff);
 	efa_unit_test_buff_destruct(&result_buff);

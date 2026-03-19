@@ -352,7 +352,7 @@ void efa_rdm_ep_record_tx_op_submitted(struct efa_rdm_ep *ep, struct efa_rdm_pke
 	switch (efa_rdm_pkt_type_of(pkt_entry)) {
 	case EFA_RDM_RECEIPT_PKT:
 	case EFA_RDM_EOR_PKT:
-		assert(ope->type == EFA_PROTO_RXE);
+		assert(efa_proto_is_rx(ope));
 		dlist_insert_tail(&efa_proto_to_rx(ope)->ack_list_entry, &ope->ep->proto_ope_posted_ack_list);
 	default:
 		break;
@@ -467,7 +467,7 @@ void efa_rdm_ep_record_tx_op_completed(struct efa_rdm_ep *ep, struct efa_rdm_pke
 		switch(efa_rdm_pkt_type_of(pkt_entry)) {
 		case EFA_RDM_RECEIPT_PKT:
 		case EFA_RDM_EOR_PKT:
-			assert(ope->type == EFA_PROTO_RXE);
+			assert(efa_proto_is_rx(ope));
 			dlist_remove(&efa_proto_to_rx(ope)->ack_list_entry);
 		default:
 			break;
@@ -1053,7 +1053,7 @@ int efa_rdm_ep_enforce_handshake_for_txe(struct efa_rdm_ep *ep, struct efa_proto
 {
 	int ret;
 
-	assert(txe->type == EFA_PROTO_TXE);
+	assert(efa_proto_is_tx(txe));
 	assert(!(txe->peer->flags & EFA_RDM_PEER_HANDSHAKE_RECEIVED));
 
 	ret = efa_rdm_ep_trigger_handshake(ep, txe->peer);

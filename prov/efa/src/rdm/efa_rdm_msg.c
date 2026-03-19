@@ -1074,7 +1074,7 @@ ssize_t efa_rdm_msg_trecvmsg(struct fid_ep *ep_fid, const struct fi_msg_tagged *
 	 */
 
 	efa_rdm_msg_construct(&msg, tmsg->msg_iov, tmsg->desc, tmsg->iov_count, tmsg->addr, tmsg->context, tmsg->data);
-	return efa_rdm_msg_generic_recv(ep, &msg, tmsg->tag, efa_proto_to_rx(tmsg)->ignore,
+	return efa_rdm_msg_generic_recv(ep, &msg, tmsg->tag, tmsg->ignore,
 				   ofi_op_tagged, flags | ep->base_ep.util_ep.rx_msg_flags);
 }
 

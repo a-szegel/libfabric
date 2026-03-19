@@ -908,9 +908,9 @@ ssize_t efa_rdm_pke_proc_matched_mulreq_rtm(struct efa_rdm_pke *pkt_entry)
 		 * bytes_received must be calculated before it.
 		 */
 		efa_proto_to_rx(rxe)->bytes_received += cur->payload_size;
-		efa_proto_to_rx(rxe)efa_proto_to_rx()->bytes_received_via_mulreq += cur->payload_size;
+		efa_proto_to_rx(rxe)->bytes_received_via_mulreq += cur->payload_size;
 		if (efa_proto_ope_mulreq_total_data_size(rxe, pkt_type) ==
-		    efa_proto_to_rx(rxe)efa_proto_to_rx()->bytes_received_via_mulreq) {
+		    efa_proto_to_rx(rxe)->bytes_received_via_mulreq) {
 			if (rxe->internal_flags & EFA_PROTO_OPE_READ_NACK) {
 				EFA_INFO(FI_LOG_EP_CTRL,
 					 "Receiver sending long read NACK "
