@@ -4,7 +4,7 @@
 #ifndef _EFA_RDM_PKE_NONREQ_H
 #define _EFA_RDM_PKE_NONREQ_H
 
-#include "efa_proto_ope_legacy.h"
+#include "efa_proto_ope.h"
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_pke_utils.h"
 

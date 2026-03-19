@@ -15,14 +15,13 @@
 
 #include "efa_rdm_msg.h"
 #include "efa_rdm_rma.h"
-#include "efa_proto_ope_legacy.h"
+#include "efa_proto_ope.h"
 #include "efa_rdm_pke_cmd.h"
 #include "efa_rdm_pke_rtm.h"
 #include "efa_rdm_pke_nonreq.h"
 #include "efa_rdm_pke_req.h"
 #include "efa_rdm_tracepoint.h"
 #include "efa_rdm_pke_print.h"
-#include "efa_proto_ope.h"
 
 /**
  * @brief allocate a packet entry

@@ -9,7 +9,7 @@
 #if HAVE_LTTNG
 
 #include "efa_tp_def.h"
-#include "rdm/efa_proto_ope_legacy.h"
+#include "rdm/efa_proto_ope.h"
 
 #include <lttng/tracef.h>
 #include <lttng/tracelog.h>

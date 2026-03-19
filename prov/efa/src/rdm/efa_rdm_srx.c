@@ -6,9 +6,8 @@
 #include "efa_rdm_msg.h"
 #include "efa_rdm_pke_rtm.h"
 #include "efa_rdm_pke_req.h"
-#include "efa_proto_ope_legacy.h"
-#include "efa_rdm_tracepoint.h"
 #include "efa_proto_ope.h"
+#include "efa_rdm_tracepoint.h"
 
 /**
  * @brief update an rxe for a peer rx entry.

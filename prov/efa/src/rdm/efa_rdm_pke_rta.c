@@ -9,13 +9,12 @@
 #include "efa_errno.h"
 #include "efa_base_ep.h"
 #include "efa_rdm_ep.h"
-#include "efa_proto_ope_legacy.h"
+#include "efa_proto_ope.h"
 #include "efa_rdm_pke.h"
 #include "efa_rdm_rma.h"
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_pke_rta.h"
 #include "efa_rdm_pke_req.h"
-#include "efa_proto_ope.h"
 
 /**
  * @brief initialize the common elements of WRITE_RTA, FETCH_RTA and COMPARE_RTA

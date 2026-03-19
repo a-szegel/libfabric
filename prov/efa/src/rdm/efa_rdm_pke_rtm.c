@@ -11,7 +11,7 @@
 #include "efa_rdm_ep.h"
 #include "efa_rdm_msg.h"
 #include "efa_rdm_rma.h"
-#include "efa_proto_ope_legacy.h"
+#include "efa_proto_ope.h"
 #include "efa_rdm_rxe_map.h"
 #include "efa_rdm_pke.h"
 #include "efa_rdm_pke_rtm.h"
@@ -20,7 +20,6 @@
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_tracepoint.h"
 #include "efa_rdm_pke_req.h"
-#include "efa_proto_ope.h"
 
 /**
  * @brief the total length of the message corresponds to a RTM packet

@@ -10,11 +10,10 @@
 #include "efa_base_ep.h"
 #include "efa_rdm_ep.h"
 #include "efa_rdm_rma.h"
-#include "efa_proto_ope_legacy.h"
+#include "efa_proto_ope.h"
 #include "efa_rdm_pke.h"
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_pke_req.h"
-#include "efa_proto_ope.h"
 
 void efa_rdm_pke_init_rtr_common(struct efa_rdm_pke *pkt_entry,
 				 int pkt_type,

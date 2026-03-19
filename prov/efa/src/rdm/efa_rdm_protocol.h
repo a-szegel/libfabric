@@ -399,7 +399,7 @@ struct efa_rdm_receipt_hdr {
 #define EFA_RDM_REQ_RMA			BIT_ULL(4)
 #define EFA_RDM_REQ_ATOMIC		BIT_ULL(5)
 
-/* Same as EFA_PROTO_OPE_READ_NACK in efa_proto_ope_legacy.h */
+/* Same as EFA_PROTO_OPE_READ_NACK in efa_proto_ope.h */
 #define EFA_RDM_REQ_READ_NACK	BIT_ULL(13)
 
 /*

@@ -5,7 +5,7 @@
 #define EFA_RDM_PEER_H
 
 #include "ofi_recvwin.h"
-#include "efa_proto_ope_legacy.h"
+#include "efa_proto_ope.h"
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_rxe_map.h"
 

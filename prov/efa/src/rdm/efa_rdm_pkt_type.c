@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include "efa_mr.h"
-#include "efa_proto_ope_legacy.h"
+#include "efa_proto_ope.h"
 #include "efa_rdm_peer.h"
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_pkt_type.h"
