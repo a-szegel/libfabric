@@ -308,7 +308,6 @@ struct efa_proto_ope_base *efa_proto_ep_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 		txe->tag = tag;
 	}
 
-	dlist_insert_tail(&txe->ep_entry, &efa_rdm_ep->txe_list);
 	return txe;
 }
 

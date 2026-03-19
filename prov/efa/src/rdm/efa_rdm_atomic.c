@@ -83,7 +83,6 @@ efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 			   msg_atomic->rma_iov_count,
 			   datatype_size);
 
-	dlist_insert_tail(&txe->ep_entry, &efa_rdm_ep->txe_list);
 	return txe;
 }
 
