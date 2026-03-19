@@ -92,9 +92,9 @@ ssize_t __real_efa_rdm_pke_proc_matched_rtm(struct efa_rdm_pke *pkt_entry);
 
 ssize_t efa_mock_efa_rdm_pke_proc_matched_rtm_no_op(struct efa_rdm_pke *pkt_entry);
 
-ssize_t __real_efa_rdm_ope_post_send(struct efa_rdm_ope *ope, int pkt_type);
+ssize_t __real_efa_proto_op_post_send(struct efa_rdm_ope *ope, int pkt_type);
 
-ssize_t efa_mock_efa_rdm_ope_post_send_return_mock(struct efa_rdm_ope *ope, int pkt_type);
+ssize_t efa_mock_efa_proto_op_post_send_return_mock(struct efa_rdm_ope *ope, int pkt_type);
 
 
 /* EFA data path ops real functions */
@@ -194,7 +194,7 @@ struct efa_unit_test_mocks
 
 	ssize_t (*efa_rdm_pke_proc_matched_rtm)(struct efa_rdm_pke *pkt_entry);
 
-	ssize_t (*efa_rdm_ope_post_send)(struct efa_rdm_ope *ope, int pkt_type);
+	ssize_t (*efa_proto_op_post_send)(struct efa_rdm_ope *ope, int pkt_type);
 
 	bool (*efa_device_support_unsolicited_write_recv)(void);
 

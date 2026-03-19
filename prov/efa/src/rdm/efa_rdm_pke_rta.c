@@ -93,14 +93,14 @@ struct efa_rdm_ope *efa_rdm_pke_alloc_rta_rxe(struct efa_rdm_pke *pkt_entry, int
 	struct efa_rdm_ope *rxe;
 	struct efa_rdm_rta_hdr *rta_hdr;
 
-	rxe = efa_rdm_ep_alloc_rxe(pkt_entry->ep, pkt_entry->peer, op);
+	rxe = efa_proto_ep_alloc_rxe(pkt_entry->ep, pkt_entry->peer, op);
 	if (OFI_UNLIKELY(!rxe)) {
 		EFA_WARN(FI_LOG_CQ,
 			"RX entries exhausted.\n");
 		return NULL;
 	}
 
-	rxe->internal_flags |= EFA_RDM_OPE_INTERNAL;
+	rxe->internal_flags |= EFA_PROTO_OPE_INTERNAL;
 
 	if (op == ofi_op_atomic)
 		return rxe;
@@ -129,7 +129,7 @@ struct efa_rdm_ope *efa_rdm_pke_alloc_rta_rxe(struct efa_rdm_pke *pkt_entry, int
 	if (!rxe->atomrsp_data) {
 		EFA_WARN(FI_LOG_CQ,
 			"atomic repsonse buffer pool exhausted.\n");
-		efa_rdm_rxe_release(rxe);
+		efa_proto_rx_release(rxe);
 		return NULL;
 	}
 
@@ -162,7 +162,7 @@ ssize_t efa_rdm_pke_init_write_rta(struct efa_rdm_pke *pkt_entry,
  */
 void efa_rdm_pke_handle_write_rta_send_completion(struct efa_rdm_pke *pkt_entry)
 {
-	efa_rdm_ope_handle_send_completed(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope));
+	efa_proto_op_handle_send_completed(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope));
 }
 
 static
@@ -197,10 +197,10 @@ int efa_rdm_write_atomic_hmem(struct efa_mr *efa_mr, struct iovec *dst, char *da
  */
 int efa_rdm_pke_proc_write_rta(struct efa_rdm_pke *pkt_entry)
 {
-	struct iovec iov[EFA_RDM_IOV_LIMIT];
+	struct iovec iov[EFA_PROTO_IOV_LIMIT];
 	struct efa_mr *efa_mr;
 	struct efa_rdm_rta_hdr *rta_hdr;
-	void *desc[EFA_RDM_IOV_LIMIT];
+	void *desc[EFA_PROTO_IOV_LIMIT];
 	char *data;
 	int iov_count, op, dt, i, err;
 	size_t dtsize, offset, hdr_size;
@@ -262,7 +262,7 @@ ssize_t efa_rdm_pke_init_dc_write_rta(struct efa_rdm_pke *pkt_entry,
 {
 	struct efa_rdm_rta_hdr *rta_hdr;
 
-	txe->internal_flags |= EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
+	txe->internal_flags |= EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED;
 	efa_rdm_pke_init_rta_common(pkt_entry, EFA_RDM_DC_WRITE_RTA_PKT, txe);
 	rta_hdr = efa_rdm_pke_get_rta_hdr(pkt_entry);
 	rta_hdr->send_id = txe->tx_id;
@@ -290,7 +290,7 @@ int efa_rdm_pke_proc_dc_write_rta(struct efa_rdm_pke *pkt_entry)
 
 	rta_hdr = (struct efa_rdm_rta_hdr *)pkt_entry->wiredata;
 	rxe->tx_id = rta_hdr->send_id;
-	rxe->internal_flags |= EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
+	rxe->internal_flags |= EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED;
 
 	ret = efa_rdm_pke_proc_write_rta(pkt_entry);
 	if (OFI_UNLIKELY(ret)) {
@@ -298,12 +298,12 @@ int efa_rdm_pke_proc_dc_write_rta(struct efa_rdm_pke *pkt_entry)
 		return ret;
 	}
 
-	err = efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_RECEIPT_PKT);
+	err = efa_proto_op_post_send_or_queue(rxe, EFA_RDM_RECEIPT_PKT);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ,
 			"Posting of receipt packet failed! err=%s\n",
 			fi_strerror(err));
-		efa_rdm_rxe_handle_error(rxe, -err, FI_EFA_ERR_PKT_POST);
+		efa_proto_rx_handle_error(rxe, -err, FI_EFA_ERR_PKT_POST);
 		return err;
 	}
 
@@ -416,9 +416,9 @@ int efa_rdm_pke_proc_fetch_rta(struct efa_rdm_pke *pkt_entry)
 		offset += rxe->iov[i].iov_len;
 	}
 
-	err = efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_ATOMRSP_PKT);
+	err = efa_proto_op_post_send_or_queue(rxe, EFA_RDM_ATOMRSP_PKT);
 	if (OFI_UNLIKELY(err))
-		efa_rdm_rxe_handle_error(rxe, -err, FI_EFA_ERR_PKT_POST);
+		efa_proto_rx_handle_error(rxe, -err, FI_EFA_ERR_PKT_POST);
 
 	efa_rdm_pke_release_rx(pkt_entry);
 	return 0;
@@ -523,7 +523,7 @@ int efa_rdm_pke_proc_compare_rta(struct efa_rdm_pke *pkt_entry)
 	dtsize = ofi_datatype_size(rxe->atomic_hdr.datatype);
 	if (OFI_UNLIKELY(!dtsize)) {
 		efa_base_ep_write_eq_error(&ep->base_ep, errno, FI_EFA_ERR_INVALID_DATATYPE);
-		efa_rdm_rxe_release(rxe);
+		efa_proto_rx_release(rxe);
 		efa_rdm_pke_release_rx(pkt_entry);
 		return -errno;
 	}
@@ -551,11 +551,11 @@ int efa_rdm_pke_proc_compare_rta(struct efa_rdm_pke *pkt_entry)
 		}
 	}
 
-	err = efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_ATOMRSP_PKT);
+	err = efa_proto_op_post_send_or_queue(rxe, EFA_RDM_ATOMRSP_PKT);
 	if (OFI_UNLIKELY(err)) {
 		efa_base_ep_write_eq_error(&ep->base_ep, err, FI_EFA_ERR_PKT_POST);
 		ofi_buf_free(rxe->atomrsp_data);
-		efa_rdm_rxe_release(rxe);
+		efa_proto_rx_release(rxe);
 		efa_rdm_pke_release_rx(pkt_entry);
 		return err;
 	}

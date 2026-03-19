@@ -66,7 +66,7 @@ static int efa_rdm_srx_start(struct fi_peer_rx_entry *peer_rxe)
 			   pkt_entry->payload_size, rxe->msg_id,
 			   (size_t) rxe->cq_entry.op_context, rxe->total_len);
 
-	rxe->state = EFA_RDM_RXE_MATCHED;
+	rxe->state = EFA_PROTO_RXE_MATCHED;
 
 	/**
 	 * Since the rxe is now matched, we need to clean the unexp_pkt
@@ -80,10 +80,10 @@ static int efa_rdm_srx_start(struct fi_peer_rx_entry *peer_rxe)
 		 * emulated protocols */
 		if (ret == -FI_ENOMR)
 			return 0;
-		efa_rdm_rxe_handle_error(rxe, -ret,
+		efa_proto_rx_handle_error(rxe, -ret,
 			rxe->op == ofi_op_msg ? FI_EFA_ERR_PKT_PROC_MSGRTM : FI_EFA_ERR_PKT_PROC_TAGRTM);
 		efa_rdm_pke_release_rx(pkt_entry);
-		efa_rdm_rxe_release(rxe);
+		efa_proto_rx_release(rxe);
 	}
 
 	return 0;
@@ -115,7 +115,7 @@ static int efa_rdm_srx_discard(struct fi_peer_rx_entry *peer_rxe)
 		rxe, rxe->unexp_pkt);
 	efa_rdm_pke_release_rx_list(rxe->unexp_pkt);
 	rxe->unexp_pkt = NULL;
-	efa_rdm_rxe_release_internal(rxe);
+	efa_proto_rx_release_internal(rxe);
 	return FI_SUCCESS;
 }
 
@@ -164,7 +164,7 @@ int efa_rdm_peer_srx_construct(struct efa_rdm_ep *ep)
 {
 	int ret;
 	ret = util_ep_srx_context(&efa_rdm_ep_domain(ep)->util_domain,
-				ep->base_ep.info->rx_attr->size, EFA_RDM_IOV_LIMIT,
+				ep->base_ep.info->rx_attr->size, EFA_PROTO_IOV_LIMIT,
 				ep->min_multi_recv_size,
 				&efa_rdm_srx_update_mr,
 				&efa_rdm_ep_domain(ep)->srx_lock,

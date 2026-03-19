@@ -104,7 +104,7 @@ ssize_t efa_rdm_pke_init_rtm_with_payload(struct efa_rdm_pke *pkt_entry,
 	rtm_hdr->flags |= EFA_RDM_REQ_MSG;
 	rtm_hdr->msg_id = txe->msg_id;
 
-	if (txe->internal_flags & EFA_RDM_OPE_READ_NACK)
+	if (txe->internal_flags & EFA_PROTO_OPE_READ_NACK)
 		rtm_hdr->flags |= EFA_RDM_REQ_READ_NACK;
 
 	/* If this RTM packet is sent after the runting read protocol has failed
@@ -112,7 +112,7 @@ ssize_t efa_rdm_pke_init_rtm_with_payload(struct efa_rdm_pke *pkt_entry,
 	send any data with the RTM packet. This is because the runting read RTM
 	packets have already delivered some of the data and the long CTS RTM
 	packet does not have a seg_offset field */
-	if (txe->internal_flags & EFA_RDM_OPE_READ_NACK) {
+	if (txe->internal_flags & EFA_PROTO_OPE_READ_NACK) {
 		data_size = 0;
 	} else if (data_size == -1) {
 		data_size = MIN(txe->total_len - segment_offset,
@@ -193,7 +193,7 @@ ssize_t efa_rdm_pke_proc_matched_rtm(struct efa_rdm_pke *pkt_entry)
 #endif
 
 	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
-	assert(rxe && rxe->state == EFA_RDM_RXE_MATCHED);
+	assert(rxe && rxe->state == EFA_PROTO_RXE_MATCHED);
 
 	efa_rdm_tracepoint(rx_pke_proc_matched_msg_begin, (size_t) pkt_entry, pkt_entry->payload_size, rxe->msg_id, (size_t) rxe->cq_entry.op_context, rxe->total_len);
 	if (!rxe->peer) {
@@ -216,7 +216,7 @@ ssize_t efa_rdm_pke_proc_matched_rtm(struct efa_rdm_pke *pkt_entry)
 
 	if (pkt_type > EFA_RDM_DC_REQ_PKT_BEGIN &&
 	    pkt_type < EFA_RDM_DC_REQ_PKT_END)
-		rxe->internal_flags |= EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
+		rxe->internal_flags |= EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED;
 
 	if (pkt_type == EFA_RDM_LONGCTS_MSGRTM_PKT ||
 	    pkt_type == EFA_RDM_LONGCTS_TAGRTM_PKT)
@@ -257,11 +257,11 @@ ssize_t efa_rdm_pke_proc_matched_rtm(struct efa_rdm_pke *pkt_entry)
 		return ret;
 	}
 #if ENABLE_DEBUG
-	dlist_insert_tail(&rxe->pending_recv_entry, &ep->ope_recv_list);
+	dlist_insert_tail(&rxe->pending_recv_entry, &ep->proto_op_recv_list);
 	ep->pending_recv_counter++;
 #endif
-	rxe->state = EFA_RDM_RXE_RECV;
-	ret = efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_CTS_PKT);
+	rxe->state = EFA_PROTO_RXE_RECV;
+	ret = efa_proto_op_post_send_or_queue(rxe, EFA_RDM_CTS_PKT);
 
 	return ret;
 }
@@ -284,7 +284,7 @@ ssize_t efa_rdm_pke_proc_msgrtm(struct efa_rdm_pke *pkt_entry)
 	rtm_hdr = (struct efa_rdm_rtm_base_hdr *)pkt_entry->wiredata;
 	if (rtm_hdr->flags & EFA_RDM_REQ_READ_NACK) {
 		rxe = efa_rdm_rxe_map_lookup(&pkt_entry->peer->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry));
-		rxe->internal_flags |= EFA_RDM_OPE_READ_NACK;
+		rxe->internal_flags |= EFA_PROTO_OPE_READ_NACK;
 	} else {
 		rxe = efa_rdm_msg_alloc_rxe_for_msgrtm(ep, &pkt_entry);
 		if (OFI_UNLIKELY(!rxe)) {
@@ -298,15 +298,15 @@ ssize_t efa_rdm_pke_proc_msgrtm(struct efa_rdm_pke *pkt_entry)
 
 	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
-	if (rxe->state == EFA_RDM_RXE_MATCHED) {
+	if (rxe->state == EFA_PROTO_RXE_MATCHED) {
 		err = efa_rdm_pke_proc_matched_rtm(pkt_entry);
 		if (OFI_UNLIKELY(err)) {
-			efa_rdm_rxe_handle_error(rxe, -err, FI_EFA_ERR_PKT_PROC_MSGRTM);
+			efa_proto_rx_handle_error(rxe, -err, FI_EFA_ERR_PKT_PROC_MSGRTM);
 			efa_rdm_pke_release_rx(pkt_entry);
-			efa_rdm_rxe_release(rxe);
+			efa_proto_rx_release(rxe);
 			return err;
 		}
-	} else if (rxe->state == EFA_RDM_RXE_UNEXP) {
+	} else if (rxe->state == EFA_PROTO_RXE_UNEXP) {
 		peer_srx = util_get_peer_srx(ep->peer_srx_ep);
 		return peer_srx->owner_ops->queue_msg(rxe->peer_rxe);
 	}
@@ -332,7 +332,7 @@ static ssize_t efa_rdm_pke_proc_tagrtm(struct efa_rdm_pke *pkt_entry)
 	rtm_hdr = (struct efa_rdm_rtm_base_hdr *) pkt_entry->wiredata;
 	if (rtm_hdr->flags & EFA_RDM_REQ_READ_NACK) {
 		rxe = efa_rdm_rxe_map_lookup(&pkt_entry->peer->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry));
-		rxe->internal_flags |= EFA_RDM_OPE_READ_NACK;
+		rxe->internal_flags |= EFA_PROTO_OPE_READ_NACK;
 	} else {
 		rxe = efa_rdm_msg_alloc_rxe_for_tagrtm(ep, &pkt_entry);
 		if (OFI_UNLIKELY(!rxe)) {
@@ -346,17 +346,17 @@ static ssize_t efa_rdm_pke_proc_tagrtm(struct efa_rdm_pke *pkt_entry)
 
 	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
-	if (rxe->state == EFA_RDM_RXE_MATCHED) {
+	if (rxe->state == EFA_PROTO_RXE_MATCHED) {
 		err = efa_rdm_pke_proc_matched_rtm(pkt_entry);
 		if (OFI_UNLIKELY(err)) {
 			if (err == -FI_ENOMR)
 				return err;
-			efa_rdm_rxe_handle_error(rxe, -err, FI_EFA_ERR_PKT_PROC_TAGRTM);
+			efa_proto_rx_handle_error(rxe, -err, FI_EFA_ERR_PKT_PROC_TAGRTM);
 			efa_rdm_pke_release_rx(pkt_entry);
-			efa_rdm_rxe_release(rxe);
+			efa_proto_rx_release(rxe);
 			return err;
 		}
-	} else if (rxe->state == EFA_RDM_RXE_UNEXP) {
+	} else if (rxe->state == EFA_PROTO_RXE_UNEXP) {
 		peer_srx = util_get_peer_srx(ep->peer_srx_ep);
 		return peer_srx->owner_ops->queue_tag(rxe->peer_rxe);
 	}
@@ -454,7 +454,7 @@ void efa_rdm_pke_handle_rtm_rta_recv(struct efa_rdm_pke *pkt_entry)
 
 		rxe = efa_rdm_rxe_map_lookup(&peer->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry));
 		if (rxe) {
-			if (rxe->state == EFA_RDM_RXE_MATCHED) {
+			if (rxe->state == EFA_PROTO_RXE_MATCHED) {
 				pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 				efa_rdm_pke_proc_matched_mulreq_rtm(pkt_entry);
 			} else {
@@ -610,7 +610,7 @@ ssize_t efa_rdm_pke_init_dc_eager_msgrtm(struct efa_rdm_pke *pkt_entry,
 	struct efa_rdm_dc_eager_msgrtm_hdr *dc_eager_msgrtm_hdr;
 	int ret;
 
-	txe->internal_flags |= EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
+	txe->internal_flags |= EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED;
 	ret = efa_rdm_pke_init_rtm_with_payload(pkt_entry, EFA_RDM_DC_EAGER_MSGRTM_PKT, txe, 0, -1);
 	if (ret)
 		return ret;
@@ -632,7 +632,7 @@ ssize_t efa_rdm_pke_init_dc_eager_tagrtm(struct efa_rdm_pke *pkt_entry,
 	struct efa_rdm_dc_eager_tagrtm_hdr *dc_eager_tagrtm_hdr;
 	int ret;
 
-	txe->internal_flags |= EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
+	txe->internal_flags |= EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED;
 	ret = efa_rdm_pke_init_rtm_with_payload(pkt_entry, EFA_RDM_DC_EAGER_TAGRTM_PKT, txe, 0, -1);
 	if (ret)
 		return ret;
@@ -660,7 +660,7 @@ void efa_rdm_pke_handle_eager_rtm_send_completion(struct efa_rdm_pke *pkt_entry)
 
 	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	assert(txe->total_len == pkt_entry->payload_size);
-	efa_rdm_ope_handle_send_completed(txe);
+	efa_proto_op_handle_send_completed(txe);
 }
 
 /**
@@ -709,7 +709,7 @@ ssize_t efa_rdm_pke_init_medium_msgrtm(struct efa_rdm_pke *pkt_entry,
 	struct efa_rdm_medium_rtm_base_hdr *rtm_hdr;
 	int ret;
 
-	efa_rdm_ope_try_fill_desc(txe, 0, FI_SEND);
+	efa_proto_op_try_fill_desc(txe, 0, FI_SEND);
 
 	ret = efa_rdm_pke_init_rtm_with_payload(pkt_entry, EFA_RDM_MEDIUM_MSGRTM_PKT,
 						txe, segment_offset, data_size);
@@ -738,7 +738,7 @@ ssize_t efa_rdm_pke_init_medium_tagrtm(struct efa_rdm_pke *pkt_entry,
 	struct efa_rdm_medium_rtm_base_hdr *rtm_hdr;
 	int ret;
 
-	efa_rdm_ope_try_fill_desc(txe, 0, FI_SEND);
+	efa_proto_op_try_fill_desc(txe, 0, FI_SEND);
 
 	ret = efa_rdm_pke_init_rtm_with_payload(pkt_entry, EFA_RDM_MEDIUM_TAGRTM_PKT,
 						txe, segment_offset, data_size);
@@ -772,9 +772,9 @@ ssize_t efa_rdm_pke_init_dc_medium_msgrtm(struct efa_rdm_pke *pkt_entry,
 	struct efa_rdm_dc_medium_msgrtm_hdr *dc_medium_msgrtm_hdr;
 	int ret;
 
-	txe->internal_flags |= EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
+	txe->internal_flags |= EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED;
 
-	efa_rdm_ope_try_fill_desc(txe, 0, FI_SEND);
+	efa_proto_op_try_fill_desc(txe, 0, FI_SEND);
 
 	ret = efa_rdm_pke_init_rtm_with_payload(pkt_entry, EFA_RDM_DC_MEDIUM_MSGRTM_PKT,
 						txe, segment_offset, data_size);
@@ -804,9 +804,9 @@ ssize_t efa_rdm_pke_init_dc_medium_tagrtm(struct efa_rdm_pke *pkt_entry,
 	struct efa_rdm_dc_medium_tagrtm_hdr *dc_medium_tagrtm_hdr;
 	int ret;
 
-	txe->internal_flags |= EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
+	txe->internal_flags |= EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED;
 
-	efa_rdm_ope_try_fill_desc(txe, 0, FI_SEND);
+	efa_proto_op_try_fill_desc(txe, 0, FI_SEND);
 
 	ret = efa_rdm_pke_init_rtm_with_payload(pkt_entry, EFA_RDM_DC_MEDIUM_TAGRTM_PKT,
 						txe, segment_offset, data_size);
@@ -853,7 +853,7 @@ void efa_rdm_pke_handle_medium_rtm_send_completion(struct efa_rdm_pke *pkt_entry
 	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	txe->bytes_acked += pkt_entry->payload_size;
 	if (txe->total_len == txe->bytes_acked)
-		efa_rdm_ope_handle_send_completed(txe);
+		efa_proto_op_handle_send_completed(txe);
 }
 
 /**
@@ -910,14 +910,14 @@ ssize_t efa_rdm_pke_proc_matched_mulreq_rtm(struct efa_rdm_pke *pkt_entry)
 		 */
 		rxe->bytes_received += cur->payload_size;
 		rxe->bytes_received_via_mulreq += cur->payload_size;
-		if (efa_rdm_ope_mulreq_total_data_size(rxe, pkt_type) ==
+		if (efa_proto_op_mulreq_total_data_size(rxe, pkt_type) ==
 		    rxe->bytes_received_via_mulreq) {
-			if (rxe->internal_flags & EFA_RDM_OPE_READ_NACK) {
+			if (rxe->internal_flags & EFA_PROTO_OPE_READ_NACK) {
 				EFA_INFO(FI_LOG_EP_CTRL,
 					 "Receiver sending long read NACK "
 					 "packet because memory registration "
 					 "limit was reached on the receiver\n");
-				err = efa_rdm_ope_post_send_or_queue(
+				err = efa_proto_op_post_send_or_queue(
 					rxe, EFA_RDM_READ_NACK_PKT);
 				if (err)
 					return err;
@@ -1031,7 +1031,7 @@ ssize_t efa_rdm_pke_init_longcts_tagrtm(struct efa_rdm_pke *pkt_entry,
 ssize_t efa_rdm_pke_init_dc_longcts_msgrtm(struct efa_rdm_pke *pkt_entry,
 					   struct efa_rdm_ope *txe)
 {
-	txe->internal_flags |= EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
+	txe->internal_flags |= EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED;
 	return efa_rdm_pke_init_longcts_rtm_common(pkt_entry,
 						   EFA_RDM_DC_LONGCTS_MSGRTM_PKT,
 						   txe);
@@ -1049,7 +1049,7 @@ ssize_t efa_rdm_pke_init_dc_longcts_tagrtm(struct efa_rdm_pke *pkt_entry,
 	struct efa_rdm_base_hdr *base_hdr;
 	int ret;
 
-	txe->internal_flags |= EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
+	txe->internal_flags |= EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED;
 	ret = efa_rdm_pke_init_longcts_rtm_common(pkt_entry,
 						  EFA_RDM_DC_LONGCTS_TAGRTM_PKT,
 						  txe);
@@ -1077,7 +1077,7 @@ void efa_rdm_pke_handle_longcts_rtm_sent(struct efa_rdm_pke *pkt_entry)
 	assert(txe->bytes_sent < txe->total_len);
 
 	if (efa_is_cache_available(efa_rdm_ep_domain(pkt_entry->ep)))
-		efa_rdm_ope_try_fill_desc(txe, 0, FI_SEND);
+		efa_proto_op_try_fill_desc(txe, 0, FI_SEND);
 }
 
 /**
@@ -1106,7 +1106,7 @@ void efa_rdm_pke_handle_longcts_rtm_send_completion(struct efa_rdm_pke *pkt_entr
 	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	txe->bytes_acked += pkt_entry->payload_size;
 	if (txe->total_len == txe->bytes_acked)
-		efa_rdm_ope_handle_send_completed(txe);
+		efa_proto_op_handle_send_completed(txe);
 }
 
 /**
@@ -1137,7 +1137,7 @@ ssize_t efa_rdm_pke_init_longread_rtm(struct efa_rdm_pke *pkt_entry,
 
 	hdr_size = efa_rdm_pke_get_req_hdr_size(pkt_entry);
 	read_iov = (struct fi_rma_iov *)(pkt_entry->wiredata + hdr_size);
-	err = efa_rdm_txe_prepare_to_be_read(txe, read_iov);
+	err = efa_proto_tx_prepare_to_be_read(txe, read_iov);
 	if (OFI_UNLIKELY(err))
 		return err;
 
@@ -1267,7 +1267,7 @@ ssize_t efa_rdm_pke_init_runtread_rtm(struct efa_rdm_pke *pkt_entry,
 
 	hdr_size = efa_rdm_pke_get_req_hdr_size(pkt_entry);
 	read_iov = (struct fi_rma_iov *)(pkt_entry->wiredata + hdr_size);
-	err = efa_rdm_txe_prepare_to_be_read(txe, read_iov);
+	err = efa_proto_tx_prepare_to_be_read(txe, read_iov);
 	if (OFI_UNLIKELY(err))
 		return err;
 
@@ -1374,5 +1374,5 @@ void efa_rdm_pke_handle_runtread_rtm_send_completion(struct efa_rdm_pke *pkt_ent
 	assert(peer->num_runt_bytes_in_flight >= pkt_data_size);
 	peer->num_runt_bytes_in_flight -= pkt_data_size;
 	if (txe->total_len == txe->bytes_acked)
-		efa_rdm_ope_handle_send_completed(txe);
+		efa_proto_op_handle_send_completed(txe);
 }

@@ -395,7 +395,7 @@ void test_info_max_order_size_rdm_with_atomic_order(struct efa_resource **state)
 	size_t max_atomic_size = g_efa_selected_device_list[0].ibv_port_attr.max_msg_sz
 					- sizeof(struct efa_rdm_rta_hdr)
 					- g_efa_selected_device_list[0].rdm_info->src_addrlen
-					- EFA_RDM_IOV_LIMIT * sizeof(struct fi_rma_iov);
+					- EFA_PROTO_IOV_LIMIT * sizeof(struct fi_rma_iov);
 
 	resource->hints = efa_unit_test_alloc_hints(FI_EP_RDM, EFA_FABRIC_NAME);
 	assert_non_null(resource->hints);

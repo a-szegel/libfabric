@@ -46,7 +46,7 @@ void test_efa_rdm_ope_prepare_to_post_send_impl(struct efa_resource *resource,
 	mock_txe.ep = efa_rdm_ep;
 	mock_txe.peer = &mock_peer;
 
-	err = efa_rdm_ope_prepare_to_post_send(&mock_txe,
+	err = efa_proto_op_prepare_to_post_send(&mock_txe,
 					       EFA_RDM_MEDIUM_MSGRTM_PKT,
 					       &pkt_entry_cnt,
 					       pkt_entry_data_size_vec);
@@ -284,7 +284,7 @@ void test_efa_rdm_ope_post_write_0_byte(struct efa_resource **state)
 	will_return(efa_mock_efa_qp_post_write_return_mock, 0);
 
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 0);
-	err = efa_rdm_ope_post_remote_write(&mock_txe);
+	err = efa_proto_op_post_remote_write(&mock_txe);
 	assert_int_equal(err, 0);
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 1);
 
@@ -335,7 +335,7 @@ void test_efa_rdm_rxe_post_local_read_or_queue_impl(struct efa_resource *resourc
 	assert_non_null(pkt_entry);
 	pkt_entry->payload = pkt_entry->wiredata;
 
-	rxe = efa_rdm_ep_alloc_rxe(efa_rdm_ep, NULL, ofi_op_tagged);
+	rxe = efa_proto_ep_alloc_rxe(efa_rdm_ep, NULL, ofi_op_tagged);
 	cuda_mr.peer.iface = FI_HMEM_CUDA;
 
 	rxe->desc[0] = &cuda_mr;
@@ -347,7 +347,7 @@ void test_efa_rdm_rxe_post_local_read_or_queue_impl(struct efa_resource *resourc
 
 	will_return(efa_mock_efa_rdm_pke_read_return_mock, efa_rdm_pke_read_return);
 
-	assert_int_equal(efa_rdm_rxe_post_local_read_or_queue(rxe, 0, pkt_entry, pkt_entry->payload, 16), efa_rdm_pke_read_return);
+	assert_int_equal(efa_proto_rx_post_local_read_or_queue(rxe, 0, pkt_entry, pkt_entry->payload, 16), efa_rdm_pke_read_return);
 
 	/* Clean up the rx entry no matter what returns */
 	efa_rdm_pke_release_rx(pkt_entry);
@@ -383,7 +383,7 @@ void test_efa_rdm_rxe_post_local_read_or_queue_happy(struct efa_resource **state
 	/* Now we should have a txe allocated */
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list),  1);
 	txe = container_of(efa_rdm_ep->txe_list.next, struct efa_rdm_ope, ep_entry);
-	assert_true(txe->internal_flags & EFA_RDM_OPE_INTERNAL);
+	assert_true(txe->internal_flags & EFA_PROTO_OPE_INTERNAL);
 
 	/* We also have a tx pkt allocated inside efa_rdm_ope_read
 	 * and we need to clean it */
@@ -434,9 +434,9 @@ void test_efa_rdm_txe_handle_error_write_cq(struct efa_resource **state)
 	txe = efa_unit_test_alloc_txe(resource, ofi_op_write);
 	assert_non_null(txe);
 
-	test_efa_rdm_ope_handle_error_impl(resource, efa_rdm_txe_handle_error, txe, true);
+	test_efa_rdm_ope_handle_error_impl(resource, efa_proto_tx_handle_error, txe, true);
 
-	efa_rdm_txe_release(txe);
+	efa_proto_tx_release(txe);
 }
 
 void test_efa_rdm_txe_handle_error_not_write_cq(struct efa_resource **state)
@@ -449,11 +449,11 @@ void test_efa_rdm_txe_handle_error_not_write_cq(struct efa_resource **state)
 	txe = efa_unit_test_alloc_txe(resource, ofi_op_write);
 	assert_non_null(txe);
 
-	txe->internal_flags |= EFA_RDM_OPE_INTERNAL;
+	txe->internal_flags |= EFA_PROTO_OPE_INTERNAL;
 
-	test_efa_rdm_ope_handle_error_impl(resource, efa_rdm_txe_handle_error, txe, false);
+	test_efa_rdm_ope_handle_error_impl(resource, efa_proto_tx_handle_error, txe, false);
 
-	efa_rdm_txe_release(txe);
+	efa_proto_tx_release(txe);
 }
 
 void test_efa_rdm_rxe_handle_error_write_cq(struct efa_resource **state)
@@ -466,9 +466,9 @@ void test_efa_rdm_rxe_handle_error_write_cq(struct efa_resource **state)
 	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_tagged);
 	assert_non_null(rxe);
 
-	test_efa_rdm_ope_handle_error_impl(resource, efa_rdm_rxe_handle_error, rxe, true);
+	test_efa_rdm_ope_handle_error_impl(resource, efa_proto_rx_handle_error, rxe, true);
 
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 }
 
 void test_efa_rdm_rxe_handle_error_not_write_cq(struct efa_resource **state)
@@ -481,11 +481,11 @@ void test_efa_rdm_rxe_handle_error_not_write_cq(struct efa_resource **state)
 	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_tagged);
 	assert_non_null(rxe);
 
-	rxe->internal_flags |= EFA_RDM_OPE_INTERNAL;
+	rxe->internal_flags |= EFA_PROTO_OPE_INTERNAL;
 
-	test_efa_rdm_ope_handle_error_impl(resource, efa_rdm_rxe_handle_error, rxe, false);
+	test_efa_rdm_ope_handle_error_impl(resource, efa_proto_rx_handle_error, rxe, false);
 
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 }
 
 void test_efa_rdm_rxe_map(struct efa_resource **state)
@@ -516,7 +516,7 @@ void test_efa_rdm_rxe_map(struct efa_resource **state)
 	assert_true(rxe->rxe_map == &peer->rxe_map);
 	assert_true(rxe == efa_rdm_rxe_map_lookup(rxe->rxe_map, rxe->msg_id));
 
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 
 	/**
 	 * Now the map_entry_pool should be empty so we can destroy it
@@ -542,13 +542,13 @@ void test_efa_rdm_rxe_list_removal(struct efa_resource **state)
 				  base_ep.util_ep.ep_fid);
 
 	/* insert to lists */
-	rxe->state = EFA_RDM_OPE_SEND;
-	dlist_insert_tail(&rxe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->ope_longcts_send_list);
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->ope_longcts_send_list), 1);
+	rxe->state = EFA_PROTO_OPE_SEND;
+	dlist_insert_tail(&rxe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list), 1);
 
 	/* Lists should be empty after releasing the ope */
-	efa_rdm_rxe_release(rxe);
-	dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->ope_longcts_send_list);
+	efa_proto_rx_release(rxe);
+	dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list);
 }
 
 void test_efa_rdm_txe_list_removal(struct efa_resource **state)
@@ -566,18 +566,18 @@ void test_efa_rdm_txe_list_removal(struct efa_resource **state)
 	assert_non_null(txe);
 
 	/* insert to lists */
-	txe->state = EFA_RDM_OPE_SEND;
-	dlist_insert_tail(&txe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->ope_longcts_send_list);
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->ope_longcts_send_list), 1);
+	txe->state = EFA_PROTO_OPE_SEND;
+	dlist_insert_tail(&txe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list), 1);
 
-	txe->internal_flags |= EFA_RDM_OPE_QUEUED_CTRL;
-	dlist_insert_tail(&txe->queued_entry, &efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list);
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list), 1);
+	txe->internal_flags |= EFA_PROTO_OPE_QUEUED_CTRL;
+	dlist_insert_tail(&txe->queued_entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list), 1);
 
 	/* Lists should be empty after releasing the ope */
-	efa_rdm_txe_release(txe);
-	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->ope_longcts_send_list));
-	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list));
+	efa_proto_tx_release(txe);
+	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list));
+	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list));
 }
 
 void test_efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_resource **state)
@@ -600,7 +600,7 @@ void test_efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_resource **state)
 	assert_int_equal(fi_endpoint(resource->domain, resource->info, &ep, NULL), 0);
 	efa_rdm_ep = container_of(ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
-	txe = efa_rdm_ep_alloc_txe(efa_rdm_ep, NULL, &msg, ofi_op_msg, 0, 0);
+	txe = efa_proto_ep_alloc_txe(efa_rdm_ep, NULL, &msg, ofi_op_msg, 0, 0);
 	assert_non_null(txe);
 
 	/* Use ooo rx pkt because it doesn't have mr so a read_copy pkt clone is enforced. */
@@ -612,7 +612,7 @@ void test_efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_resource **state)
 	txe->local_read_pkt_entry = pkt_entry;
 	txe->rma_iov_count = 1;
 
-	assert_int_equal(efa_rdm_txe_prepare_local_read_pkt_entry(txe), 0);
+	assert_int_equal(efa_proto_tx_prepare_local_read_pkt_entry(txe), 0);
 
 #if ENABLE_DEBUG
 	/* The read copy pkt entry should be inserted to the rx_pkt_list */
@@ -646,22 +646,22 @@ void test_efa_rdm_txe_handle_error_queue_flags_cleanup(struct efa_resource **sta
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
 	/* Set up txe with queued flags */
-	txe->internal_flags |= EFA_RDM_OPE_QUEUED_CTRL;
-	dlist_insert_tail(&txe->queued_entry, &efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list);
+	txe->internal_flags |= EFA_PROTO_OPE_QUEUED_CTRL;
+	dlist_insert_tail(&txe->queued_entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list);
 
 	/* Verify txe is in queued list */
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list), 1);
-	assert_true(txe->internal_flags & EFA_RDM_OPE_QUEUED_CTRL);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list), 1);
+	assert_true(txe->internal_flags & EFA_PROTO_OPE_QUEUED_CTRL);
 
 	/* Handle error - this should clean up queue flags */
-	efa_rdm_txe_handle_error(txe, FI_ENOTCONN, EFA_IO_COMP_STATUS_LOCAL_ERROR_UNREACH_REMOTE);
+	efa_proto_tx_handle_error(txe, FI_ENOTCONN, EFA_IO_COMP_STATUS_LOCAL_ERROR_UNREACH_REMOTE);
 
 	/* Verify queue flags are cleaned up */
-	assert_false(txe->internal_flags & EFA_RDM_OPE_QUEUED_CTRL);
-	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list));
+	assert_false(txe->internal_flags & EFA_PROTO_OPE_QUEUED_CTRL);
+	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list));
 
 	/* Release should not cause duplicate dlist_remove */
-	efa_rdm_txe_release(txe);
+	efa_proto_tx_release(txe);
 }
 
 /**
@@ -681,22 +681,22 @@ void test_efa_rdm_rxe_handle_error_queue_flags_cleanup(struct efa_resource **sta
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
 	/* Set up rxe with queued flags */
-	rxe->internal_flags |= EFA_RDM_OPE_QUEUED_READ;
-	dlist_insert_tail(&rxe->queued_entry, &efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list);
+	rxe->internal_flags |= EFA_PROTO_OPE_QUEUED_READ;
+	dlist_insert_tail(&rxe->queued_entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list);
 
 	/* Verify rxe is in queued list */
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list), 1);
-	assert_true(rxe->internal_flags & EFA_RDM_OPE_QUEUED_READ);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list), 1);
+	assert_true(rxe->internal_flags & EFA_PROTO_OPE_QUEUED_READ);
 
 	/* Handle error - this should clean up queue flags */
-	efa_rdm_rxe_handle_error(rxe, FI_ENOTCONN, EFA_IO_COMP_STATUS_LOCAL_ERROR_UNREACH_REMOTE);
+	efa_proto_rx_handle_error(rxe, FI_ENOTCONN, EFA_IO_COMP_STATUS_LOCAL_ERROR_UNREACH_REMOTE);
 
 	/* Verify queue flags are cleaned up */
-	assert_false(rxe->internal_flags & EFA_RDM_OPE_QUEUED_READ);
-	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list));
+	assert_false(rxe->internal_flags & EFA_PROTO_OPE_QUEUED_READ);
+	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list));
 
 	/* Release should not cause duplicate dlist_remove */
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 }
 
 /**
@@ -717,27 +717,27 @@ void test_efa_rdm_txe_handle_error_duplicate_prevention(struct efa_resource **st
 
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
-	/* Set txe to EFA_RDM_OPE_SEND state and add to longcts_send_list */
-	txe->state = EFA_RDM_OPE_SEND;
-	dlist_insert_tail(&txe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->ope_longcts_send_list);
+	/* Set txe to EFA_PROTO_OPE_SEND state and add to longcts_send_list */
+	txe->state = EFA_PROTO_OPE_SEND;
+	dlist_insert_tail(&txe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list);
 
 	/* Verify txe is in the list */
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->ope_longcts_send_list), 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list), 1);
 
 	/* First error handling call */
-	efa_rdm_txe_handle_error(txe, FI_ENOTCONN, EFA_IO_COMP_STATUS_LOCAL_ERROR_UNREACH_REMOTE);
+	efa_proto_tx_handle_error(txe, FI_ENOTCONN, EFA_IO_COMP_STATUS_LOCAL_ERROR_UNREACH_REMOTE);
 
 	/* Verify txe is removed from list and in error state */
-	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->ope_longcts_send_list));
-	assert_int_equal(txe->state, EFA_RDM_OPE_ERR);
+	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list));
+	assert_int_equal(txe->state, EFA_PROTO_OPE_ERR);
 
 	/* Second error handling call should be a no-op */
-	efa_rdm_txe_handle_error(txe, FI_EAGAIN, EFA_IO_COMP_STATUS_LOCAL_ERROR_BAD_LENGTH);
+	efa_proto_tx_handle_error(txe, FI_EAGAIN, EFA_IO_COMP_STATUS_LOCAL_ERROR_BAD_LENGTH);
 
-	/* State should remain EFA_RDM_OPE_ERR */
-	assert_int_equal(txe->state, EFA_RDM_OPE_ERR);
+	/* State should remain EFA_PROTO_OPE_ERR */
+	assert_int_equal(txe->state, EFA_PROTO_OPE_ERR);
 
-	efa_rdm_txe_release(txe);
+	efa_proto_tx_release(txe);
 }
 
 /**
@@ -756,27 +756,27 @@ void test_efa_rdm_rxe_handle_error_duplicate_prevention(struct efa_resource **st
 
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
-	/* Set rxe to EFA_RDM_OPE_SEND state and add to longcts_send_list */
-	rxe->state = EFA_RDM_OPE_SEND;
-	dlist_insert_tail(&rxe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->ope_longcts_send_list);
+	/* Set rxe to EFA_PROTO_OPE_SEND state and add to longcts_send_list */
+	rxe->state = EFA_PROTO_OPE_SEND;
+	dlist_insert_tail(&rxe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list);
 
 	/* Verify rxe is in the list */
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->ope_longcts_send_list), 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list), 1);
 
 	/* First error handling call */
-	efa_rdm_rxe_handle_error(rxe, FI_ENOTCONN, EFA_IO_COMP_STATUS_LOCAL_ERROR_UNREACH_REMOTE);
+	efa_proto_rx_handle_error(rxe, FI_ENOTCONN, EFA_IO_COMP_STATUS_LOCAL_ERROR_UNREACH_REMOTE);
 
 	/* Verify rxe is removed from list and in error state */
-	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->ope_longcts_send_list));
-	assert_int_equal(rxe->state, EFA_RDM_OPE_ERR);
+	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list));
+	assert_int_equal(rxe->state, EFA_PROTO_OPE_ERR);
 
 	/* Second error handling call should be a no-op */
-	efa_rdm_rxe_handle_error(rxe, FI_EAGAIN, EFA_IO_COMP_STATUS_LOCAL_ERROR_BAD_LENGTH);
+	efa_proto_rx_handle_error(rxe, FI_EAGAIN, EFA_IO_COMP_STATUS_LOCAL_ERROR_BAD_LENGTH);
 
-	/* State should remain EFA_RDM_OPE_ERR */
-	assert_int_equal(rxe->state, EFA_RDM_OPE_ERR);
+	/* State should remain EFA_PROTO_OPE_ERR */
+	assert_int_equal(rxe->state, EFA_PROTO_OPE_ERR);
 
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 }
 
 
@@ -784,7 +784,7 @@ void test_efa_rdm_rxe_handle_error_duplicate_prevention(struct efa_resource **st
  * @brief Common helper for testing RECEIPT/EOR packet tracking functionality
  *
  * This helper function sets up the test environment and mocks for testing
- * RECEIPT or EOR packet posting, tracking in ope_posted_ack_list, and
+ * RECEIPT or EOR packet posting, tracking in proto_op_posted_ack_list, and
  * completion handling with various return codes and error conditions.
  *
  * @param[in] resource Test resource structure
@@ -810,7 +810,7 @@ static void test_efa_rdm_ope_ack_packet_tracking_common(
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
 	/* List should be initially empty */
-	assert_true(dlist_empty(&efa_rdm_ep->ope_posted_ack_list));
+	assert_true(dlist_empty(&efa_rdm_ep->proto_op_posted_ack_list));
 
 	/* Allocate rx entry */
 	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_tagged);
@@ -820,7 +820,7 @@ static void test_efa_rdm_ope_ack_packet_tracking_common(
 	g_efa_unit_test_mocks.efa_qp_post_send = &efa_mock_efa_qp_post_send_return_mock;
 	will_return(efa_mock_efa_qp_post_send_return_mock, post_return_code);
 
-	assert_int_equal(efa_rdm_ope_post_send_or_queue(rxe, pkt_type), -post_return_code);;
+	assert_int_equal(efa_proto_op_post_send_or_queue(rxe, pkt_type), -post_return_code);;
 	if (!post_return_code) {
 		/* Mock cq ops to simulate the send completion of the posted wr */
 		g_efa_unit_test_mocks.efa_ibv_cq_start_poll = &efa_mock_efa_ibv_cq_start_poll_use_saved_send_wr_with_mock_status;
@@ -845,7 +845,7 @@ static void test_efa_rdm_ope_ack_packet_tracking_common(
  * @brief Test RECEIPT/EOR packet tracking via CQ read
  *
  * This test verifies that RECEIPT or EOR packets are correctly added to
- * ope_posted_ack_list when posted and properly removed when completed
+ * proto_op_posted_ack_list when posted and properly removed when completed
  * via fi_cq_read with successful completion status.
  *
  * @param[in] state Test resource state
@@ -863,20 +863,20 @@ void test_efa_rdm_ope_receit_eor_packet_tracking_cq_read_common(struct efa_resou
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
 	/* It should post a RECEIPT packet and add the rxe to the list */
-	assert_false(dlist_empty(&efa_rdm_ep->ope_posted_ack_list));
+	assert_false(dlist_empty(&efa_rdm_ep->proto_op_posted_ack_list));
 
 	/* Poll the cq via cq read */
 	(void) fi_cq_read(resource->cq, NULL, 0);
 
 	/* The cq poll should remove the rxe from the list */
-	assert_true(dlist_empty(&efa_rdm_ep->ope_posted_ack_list));
+	assert_true(dlist_empty(&efa_rdm_ep->proto_op_posted_ack_list));
 }
 
 /**
  * @brief Test packet tracking via wait_send with successful completion
  *
  * This test verifies that RECEIPT or EOR packets are correctly added to
- * ope_posted_ack_list when posted and properly removed when completed
+ * proto_op_posted_ack_list when posted and properly removed when completed
  * via efa_rdm_ep_wait_send with successful completion status.
  */
 static
@@ -891,20 +891,20 @@ void test_efa_rdm_ope_ack_packet_tracking_wait_send_common(struct efa_resource *
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
 	/* It should post a RECEIPT packet and add the rxe to the list */
-	assert_false(dlist_empty(&efa_rdm_ep->ope_posted_ack_list));
+	assert_false(dlist_empty(&efa_rdm_ep->proto_op_posted_ack_list));
 
 	/* Poll the cq via wait_send */
 	efa_rdm_ep_wait_send(efa_rdm_ep);
 
 	/* The cq poll should remove the rxe from the list */
-	assert_true(dlist_empty(&efa_rdm_ep->ope_posted_ack_list));
+	assert_true(dlist_empty(&efa_rdm_ep->proto_op_posted_ack_list));
 }
 
 /**
- * @brief Test that failed packet posting does not add to ope_posted_ack_list
+ * @brief Test that failed packet posting does not add to proto_op_posted_ack_list
  *
  * This test verifies that when RECEIPT or EOR packet posting fails,
- * the operation is not added to the ope_posted_ack_list, ensuring
+ * the operation is not added to the proto_op_posted_ack_list, ensuring
  * proper list management during error conditions.
  */
 static
@@ -919,7 +919,7 @@ void test_efa_rdm_ope_ack_packet_failed_posting_common(struct efa_resource **sta
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
 	/* should NOT add to list due to failure */
-	assert_true(dlist_empty(&efa_rdm_ep->ope_posted_ack_list));
+	assert_true(dlist_empty(&efa_rdm_ep->proto_op_posted_ack_list));
 }
 
 /**
@@ -950,12 +950,12 @@ void test_efa_rdm_ope_ack_packet_tracking_unresponsive_wait_send_common(struct e
 	assert_true(!!(rxe->peer->flags & EFA_RDM_PEER_UNRESP));
 
 	/* Now posting another ctrl packet against the same unresponsive peer */
-	rxe2 = efa_rdm_ep_alloc_rxe(efa_rdm_ep, rxe->peer, ofi_op_tagged);
+	rxe2 = efa_proto_ep_alloc_rxe(efa_rdm_ep, rxe->peer, ofi_op_tagged);
 	assert_non_null(rxe2);
 	will_return(efa_mock_efa_qp_post_send_return_mock, 0);
-	assert_int_equal(efa_rdm_ope_post_send_or_queue(rxe2, pkt_type), 0);
+	assert_int_equal(efa_proto_op_post_send_or_queue(rxe2, pkt_type), 0);
 
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->ope_posted_ack_list), 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->proto_op_posted_ack_list), 1);
 
 	/* Simulate the case where we are NOT getting more unresponsive error for this peer */
 	g_efa_unit_test_mocks.efa_ibv_cq_start_poll = &efa_mock_efa_ibv_cq_start_poll_return_mock;
@@ -963,7 +963,7 @@ void test_efa_rdm_ope_ack_packet_tracking_unresponsive_wait_send_common(struct e
 
 	/* Kick off the second wait_send, which should NOT try to progress more because of the unresp peer */
 	efa_rdm_ep_wait_send(efa_rdm_ep);
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->ope_posted_ack_list), 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->proto_op_posted_ack_list), 1);
 }
 
 
@@ -971,7 +971,7 @@ void test_efa_rdm_ope_ack_packet_tracking_unresponsive_wait_send_common(struct e
  * @brief Test RECEIPT packet tracking via CQ read
  *
  * Verifies that RECEIPT packets are correctly added to and removed from
- * ope_posted_ack_list when posted and completed via fi_cq_read.
+ * proto_op_posted_ack_list when posted and completed via fi_cq_read.
  *
  * @param[in] state cmocka state variable
  */
@@ -984,7 +984,7 @@ void test_efa_rdm_ope_receipt_packet_tracking_cq_read(struct efa_resource **stat
  * @brief Test RECEIPT packet tracking via wait_send
  *
  * Verifies that RECEIPT packets are correctly added to and removed from
- * ope_posted_ack_list when posted and completed via efa_rdm_ep_wait_send.
+ * proto_op_posted_ack_list when posted and completed via efa_rdm_ep_wait_send.
  *
  * @param[in] state cmocka state variable
  */
@@ -997,7 +997,7 @@ void test_efa_rdm_ope_receipt_packet_tracking_wait_send(struct efa_resource **st
  * @brief Test failed RECEIPT packet posting
  *
  * Verifies that failed RECEIPT packet posting does not add operations
- * to the ope_posted_ack_list.
+ * to the proto_op_posted_ack_list.
  *
  * @param[in] state cmocka state variable
  */
@@ -1023,7 +1023,7 @@ void test_efa_rdm_ope_receipt_packet_tracking_unresponsive_wait_send(struct efa_
  * @brief Test EOR packet tracking via CQ read
  *
  * Verifies that EOR packets are correctly added to and removed from
- * ope_posted_ack_list when posted and completed via fi_cq_read.
+ * proto_op_posted_ack_list when posted and completed via fi_cq_read.
  *
  * @param[in] state cmocka state variable
  */
@@ -1036,7 +1036,7 @@ void test_efa_rdm_ope_eor_packet_tracking_cq_read(struct efa_resource **state)
  * @brief Test EOR packet tracking via wait_send
  *
  * Verifies that EOR packets are correctly added to and removed from
- * ope_posted_ack_list when posted and completed via efa_rdm_ep_wait_send.
+ * proto_op_posted_ack_list when posted and completed via efa_rdm_ep_wait_send.
  *
  * @param[in] state cmocka state variable
  */
@@ -1049,7 +1049,7 @@ void test_efa_rdm_ope_eor_packet_tracking_wait_send(struct efa_resource **state)
  * @brief Test failed EOR packet posting
  *
  * Verifies that failed EOR packet posting does not add operations
- * to the ope_posted_ack_list.
+ * to the proto_op_posted_ack_list.
  *
  * @param[in] state cmocka state variable
  */
@@ -1166,10 +1166,10 @@ void test_efa_rdm_atomic_compare_desc_persistence(struct efa_resource **state)
 	/* Destroy stack array to simulate function return */
 	compare_desc_array[0] = (void *)(uintptr_t)0xDEADBEEF;
 
-	/* Retrieve queued txe from ope_queued_list */
+	/* Retrieve queued txe from proto_op_queued_list */
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
-	assert_false(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list));
-	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list.next,
+	assert_false(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list));
+	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list.next,
 			   struct efa_rdm_ope, queued_entry);
 
 	/* Verify compare_desc was copied, not just pointer stored */
@@ -1202,7 +1202,7 @@ static void test_efa_rdm_txe_dc_release_common(struct efa_resource *resource, bo
 	/* Allocate TXE and set up for DC operation */
 	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
 	assert_non_null(txe);
-	txe->internal_flags |= EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
+	txe->internal_flags |= EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED;
 	txe->efa_outstanding_tx_ops = 1;
 
 	/* Create fake DC packet entry */
@@ -1222,14 +1222,14 @@ static void test_efa_rdm_txe_dc_release_common(struct efa_resource *resource, bo
 	receipt_pkt_entry->ep = efa_rdm_ep;
 
 	/* Verify TXE is not ready for release initially */
-	assert_false(efa_rdm_txe_dc_ready_for_release(txe));
+	assert_false(efa_proto_tx_dc_ready_for_release(txe));
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list), 1);
 
 	if (send_first) {
 		/* Send completion first - should not release TXE yet */
 		efa_rdm_pke_handle_send_completion(dc_pkt_entry);
 		assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list), 1);
-		assert_false(efa_rdm_txe_dc_ready_for_release(txe));
+		assert_false(efa_proto_tx_dc_ready_for_release(txe));
 
 		/* Receipt handling - should now release TXE */
 		efa_rdm_pke_handle_receipt_recv(receipt_pkt_entry);
@@ -1237,8 +1237,8 @@ static void test_efa_rdm_txe_dc_release_common(struct efa_resource *resource, bo
 		/* Receipt handling first - should not release TXE yet */
 		efa_rdm_pke_handle_receipt_recv(receipt_pkt_entry);
 		assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list), 1);
-		assert_true(txe->internal_flags & EFA_RDM_TXE_RECEIPT_RECEIVED);
-		assert_false(efa_rdm_txe_dc_ready_for_release(txe));
+		assert_true(txe->internal_flags & EFA_PROTO_TXE_RECEIPT_RECEIVED);
+		assert_false(efa_proto_tx_dc_ready_for_release(txe));
 
 		/* Send completion - should now release TXE */
 		efa_rdm_pke_handle_send_completion(dc_pkt_entry);

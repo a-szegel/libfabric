@@ -6,34 +6,34 @@
 
 #include "efa_rdm_pke.h"
 
-#define EFA_RDM_IOV_LIMIT		(4)
+#define EFA_PROTO_IOV_LIMIT		(4)
 
 /**
  * @brief EFA RDM operation entry (ope) type
  */
-enum efa_rdm_ope_type {
-	EFA_RDM_TXE = 1, /**< this ope is for an TX operation */
-	EFA_RDM_RXE,     /**< this ope is for an RX operation */
+enum efa_proto_ope_type {
+	EFA_PROTO_TXE = 1, /**< this ope is for an TX operation */
+	EFA_PROTO_RXE,     /**< this ope is for an RX operation */
 };
 
 /**
  * @brief EFA RDM operation entry (ope)'s state
  */
 enum efa_rdm_ope_state {
-	EFA_RDM_TXE_REQ = 1,	/**< txe sending REQ packet */
-	EFA_RDM_OPE_SEND,	/**< ope sending data in progress */
-	EFA_RDM_RXE_INIT,	/**< rxe ready to recv RTM */
-	EFA_RDM_RXE_UNEXP,	/**< rxe unexp msg waiting for post recv */
-	EFA_RDM_RXE_MATCHED,	/**< rxe matched with RTM */
-	EFA_RDM_RXE_RECV,	/**< rxe large msg recv data pkts */
-	EFA_RDM_OPE_ERR, /*< ope is in error state */
+	EFA_PROTO_TXE_REQ = 1,	/**< txe sending REQ packet */
+	EFA_PROTO_OPE_SEND,	/**< ope sending data in progress */
+	EFA_PROTO_RXE_INIT,	/**< rxe ready to recv RTM */
+	EFA_PROTO_RXE_UNEXP,	/**< rxe unexp msg waiting for post recv */
+	EFA_PROTO_RXE_MATCHED,	/**< rxe matched with RTM */
+	EFA_PROTO_RXE_RECV,	/**< rxe large msg recv data pkts */
+	EFA_PROTO_OPE_ERR, /*< ope is in error state */
 };
 
 /**
  * @brief basic information of an atomic operation
  * used by all 3 types of atomic operations: fetch, compare and write
  */
-struct efa_rdm_atomic_hdr {
+struct efa_proto_atomic_hdr {
 	/* atomic_op is different from tx_op */
 	uint32_t atomic_op;
 	uint32_t datatype;
@@ -45,22 +45,22 @@ struct efa_rdm_atomic_hdr {
  *     resp stands for response
  *     comp stands for compare
  */
-struct efa_rdm_atomic_ex {
-	struct iovec resp_iov[EFA_RDM_IOV_LIMIT];
+struct efa_proto_atomic_ex {
+	struct iovec resp_iov[EFA_PROTO_IOV_LIMIT];
 	int resp_iov_count;
-	struct iovec comp_iov[EFA_RDM_IOV_LIMIT];
+	struct iovec comp_iov[EFA_PROTO_IOV_LIMIT];
 	int comp_iov_count;
-	void *result_desc[EFA_RDM_IOV_LIMIT];
-	void *compare_desc[EFA_RDM_IOV_LIMIT];
+	void *result_desc[EFA_PROTO_IOV_LIMIT];
+	void *compare_desc[EFA_PROTO_IOV_LIMIT];
 };
 
 /**
  * @brief how to copy data from bounce buffer to CUDA receive buffer
  */
-enum efa_rdm_cuda_copy_method {
-	EFA_RDM_CUDA_COPY_UNSPEC = 0,
-	EFA_RDM_CUDA_COPY_BLOCKING,   /** gdrcopy or cudaMemcpy */
-	EFA_RDM_CUDA_COPY_LOCALREAD   /** device driven copy by using local RDMA read */
+enum efa_proto_cuda_copy_method {
+	EFA_PROTO_CUDA_COPY_UNSPEC = 0,
+	EFA_PROTO_CUDA_COPY_BLOCKING,   /** gdrcopy or cudaMemcpy */
+	EFA_PROTO_CUDA_COPY_LOCALREAD   /** device driven copy by using local RDMA read */
 };
 
 /**
@@ -68,7 +68,7 @@ enum efa_rdm_cuda_copy_method {
  *
  */
 struct efa_rdm_ope {
-	enum efa_rdm_ope_type type;
+	enum efa_proto_ope_type type;
 
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_peer *peer;
@@ -77,8 +77,8 @@ struct efa_rdm_ope {
 	uint32_t rx_id;
 	uint32_t op;
 
-	struct efa_rdm_atomic_hdr atomic_hdr;
-	struct efa_rdm_atomic_ex atomic_ex;
+	struct efa_proto_atomic_hdr atomic_hdr;
+	struct efa_proto_atomic_ex atomic_ex;
 
 	uint32_t msg_id;
 
@@ -97,8 +97,8 @@ struct efa_rdm_ope {
 	/**
 	 * @brief used by EFA provider to check status of an operation entry
 	 * @details
-	 * flags whose name started with EFA_RDM_TXE or EFA_RDM_RXE are
-	 * applied (such as #EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED)
+	 * flags whose name started with EFA_PROTO_TXE or EFA_PROTO_RXE are
+	 * applied (such as #EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED)
 	 * on internal_flags, and is not visible from user.
 	 * This flag is different from #cq_entry.flags, which is
 	 * applied to CQ entry's returned to user.
@@ -106,25 +106,25 @@ struct efa_rdm_ope {
 	uint32_t internal_flags;
 
 	size_t iov_count;
-	struct iovec iov[EFA_RDM_IOV_LIMIT];
-	void *desc[EFA_RDM_IOV_LIMIT];
-	struct fid_mr *mr[EFA_RDM_IOV_LIMIT];
+	struct iovec iov[EFA_PROTO_IOV_LIMIT];
+	void *desc[EFA_PROTO_IOV_LIMIT];
+	struct fid_mr *mr[EFA_PROTO_IOV_LIMIT];
 
 	size_t rma_iov_count;
-	struct fi_rma_iov rma_iov[EFA_RDM_IOV_LIMIT];
+	struct fi_rma_iov rma_iov[EFA_PROTO_IOV_LIMIT];
 
 	struct fi_cq_tagged_entry cq_entry;
 
-	/* entry is linked with ope_longcts_send_list in efa_domain */
+	/* entry is linked with proto_op_longcts_send_list in efa_domain */
 	struct dlist_entry entry;
 
 	/* ep_entry is linked to tx/rxe_list in efa_rdm_ep */
 	struct dlist_entry ep_entry;
 
-	/* ack_list_entry is linked to ope_posted_ack_list in efa_rdm_ep */
+	/* ack_list_entry is linked to proto_op_posted_ack_list in efa_rdm_ep */
 	struct dlist_entry ack_list_entry;
 
-	/* queued_entry is linked with ope_queued_list in efa_domain */
+	/* queued_entry is linked with proto_op_queued_list in efa_domain */
 	struct dlist_entry queued_entry;
 
 	/* Queued packets due to TX queue full or RNR backoff */
@@ -143,7 +143,7 @@ struct efa_rdm_ope {
 	uint64_t bytes_queued_blocking_copy;
 
 #if ENABLE_DEBUG
-	/* linked with ope_recv_list in efa_rdm_ep */
+	/* linked with proto_op_recv_list in efa_rdm_ep */
 	struct dlist_entry pending_recv_entry;
 #endif
 
@@ -151,7 +151,7 @@ struct efa_rdm_ope {
 
 	struct efa_rdm_pke *unexp_pkt;
 	char *atomrsp_data;
-	enum efa_rdm_cuda_copy_method cuda_copy_method;
+	enum efa_proto_cuda_copy_method cuda_copy_method;
 	/* the rxe_map that the rxe is ever inserted */
 	struct efa_rdm_rxe_map *rxe_map;
 	/* end of RX related variables */
@@ -177,17 +177,17 @@ struct efa_rdm_ope {
 	struct efa_rdm_pke *local_read_pkt_entry;
 };
 
-void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
+void efa_proto_tx_construct(struct efa_rdm_ope *txe,
 			   struct efa_rdm_ep *ep,
 		      	   struct efa_rdm_peer *peer,
 			   const struct fi_msg *msg,
 			   uint32_t op, uint64_t flags);
 
-void efa_rdm_txe_release(struct efa_rdm_ope *txe);
+void efa_proto_tx_release(struct efa_rdm_ope *txe);
 
-void efa_rdm_rxe_release(struct efa_rdm_ope *rxe);
+void efa_proto_rx_release(struct efa_rdm_ope *rxe);
 
-void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
+void efa_proto_rx_release_internal(struct efa_rdm_ope *rxe);
 
 /* The follow flags are applied to the internal_flags field
  * of an efa_rdm_ope*/
@@ -199,21 +199,21 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
  * to stop transmitting large message, this flag is also
  * used for fi_discard which has similar behavior.
  */
-#define EFA_RDM_RXE_RECV_CANCEL		BIT_ULL(3)
+#define EFA_PROTO_RXE_RECV_CANCEL		BIT_ULL(3)
 
 /**
  * @brief Flag to tell if the transmission is using FI_DELIVERY_COMPLETE
  * protocols
  */
-#define EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED	BIT_ULL(6)
+#define EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED	BIT_ULL(6)
 
 /**
  * @brief flag to tell if an ope encouter RNR when sending packets
  *
- * If an ope has this flag, it is on the ope_queued_list
+ * If an ope has this flag, it is on the proto_op_queued_list
  * of the endpoint.
  */
-#define EFA_RDM_OPE_QUEUED_RNR BIT_ULL(9)
+#define EFA_PROTO_OPE_QUEUED_RNR BIT_ULL(9)
 
 /**
  * @brief Flag to indicate an rxe has an EOR in flight
@@ -221,7 +221,7 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
  * In flag means the EOR has been sent or queued, and has not got send completion.
  * hence the rxe cannot be released
  */
-#define EFA_RDM_RXE_EOR_IN_FLIGHT BIT_ULL(10)
+#define EFA_PROTO_RXE_EOR_IN_FLIGHT BIT_ULL(10)
 
 /**
  * @brief flag to indicate a txe has already written an cq error entry for RNR
@@ -229,44 +229,44 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
  * This flag is used to prevent writing multiple cq error entries
  * for the same txe
  */
-#define EFA_RDM_TXE_WRITTEN_RNR_CQ_ERR_ENTRY BIT_ULL(10)
+#define EFA_PROTO_TXE_WRITTEN_RNR_CQ_ERR_ENTRY BIT_ULL(10)
 
 /**
  * @brief flag to indicate an ope has queued ctrl packet,
  *
- * If this flag is on, the op_entyr is on the ope_queued_list
+ * If this flag is on, the op_entyr is on the proto_op_queued_list
  * of the endpoint
  */
-#define EFA_RDM_OPE_QUEUED_CTRL BIT_ULL(11)
+#define EFA_PROTO_OPE_QUEUED_CTRL BIT_ULL(11)
 
 /**
  * @brief flag to indicate an ope does not need to report completion to user
  *
  * This flag is used to by emulated injection and #efa_rdm_ep_trigger_handshake
  */
-#define EFA_RDM_TXE_NO_COMPLETION	BIT_ULL(60)
+#define EFA_PROTO_TXE_NO_COMPLETION	BIT_ULL(60)
 /**
  * @brief flag to indicate an ope does not need to increase counter
  *
  * This flag is used to implement #efa_rdm_ep_trigger_handshake
  *
  */
-#define EFA_RDM_TXE_NO_COUNTER		BIT_ULL(61)
+#define EFA_PROTO_TXE_NO_COUNTER		BIT_ULL(61)
 
 /**
  * @brief flag to indicate an ope has queued read requests
  *
- * When this flag is on, the ope is on ope_queued_list
+ * When this flag is on, the ope is on proto_op_queued_list
  * of the endpoint
  */
-#define EFA_RDM_OPE_QUEUED_READ 	BIT_ULL(12)
+#define EFA_PROTO_OPE_QUEUED_READ 	BIT_ULL(12)
 
 /**
  * @brief flag to indicate that the ope corresponds to a long CTS transfer
  * that's used as a fallback for long read protocol
  *
  */
-#define EFA_RDM_OPE_READ_NACK 	BIT_ULL(13)
+#define EFA_PROTO_OPE_READ_NACK 	BIT_ULL(13)
 
 /**
  * @brief flag to indicate that the ope was queued because it hasn't
@@ -275,14 +275,14 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
  * needs to determine the protocol from the peer status when
  * progressing the queued opes.
  */
-#define EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE	BIT_ULL(14)
+#define EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE	BIT_ULL(14)
 
 /**
  * @brief flag to indicate that the ope was created
  * for internal operations, so it should not generate
  * any cq entry or err entry.
  */
-#define EFA_RDM_OPE_INTERNAL			BIT_ULL(15)
+#define EFA_PROTO_OPE_INTERNAL			BIT_ULL(15)
 
 /**
  * @brief flag to indicate that a DC txe has received its receipt packet
@@ -291,30 +291,30 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
  * received acknowledgment from the receiver, preventing premature
  * completion before all TX operations finish.
  */
-#define EFA_RDM_TXE_RECEIPT_RECEIVED		BIT_ULL(16)
+#define EFA_PROTO_TXE_RECEIPT_RECEIVED		BIT_ULL(16)
 
-#define EFA_RDM_OPE_QUEUED_FLAGS (EFA_RDM_OPE_QUEUED_RNR | EFA_RDM_OPE_QUEUED_CTRL | EFA_RDM_OPE_QUEUED_READ | EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE)
+#define EFA_PROTO_OPE_QUEUED_FLAGS (EFA_RDM_OPE_QUEUED_RNR | EFA_RDM_OPE_QUEUED_CTRL | EFA_RDM_OPE_QUEUED_READ | EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE)
 
-void efa_rdm_ope_try_fill_desc(struct efa_rdm_ope *ope, int mr_iov_start, uint64_t access);
+void efa_proto_op_try_fill_desc(struct efa_rdm_ope *ope, int mr_iov_start, uint64_t access);
 
-int efa_rdm_txe_prepare_to_be_read(struct efa_rdm_ope *txe,
+int efa_proto_tx_prepare_to_be_read(struct efa_rdm_ope *txe,
 				    struct fi_rma_iov *read_iov);
 
-size_t efa_rdm_ope_mulreq_total_data_size(struct efa_rdm_ope *ope, int pkt_type);
+size_t efa_proto_op_mulreq_total_data_size(struct efa_rdm_ope *ope, int pkt_type);
 
-size_t efa_rdm_txe_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe, int pkt_type);
+size_t efa_proto_tx_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe, int pkt_type);
 
-void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno);
+void efa_proto_tx_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno);
 
-void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno);
+void efa_proto_rx_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno);
 
-void efa_rdm_txe_report_completion(struct efa_rdm_ope *txe);
+void efa_proto_tx_report_completion(struct efa_rdm_ope *txe);
 
-void efa_rdm_rxe_report_completion(struct efa_rdm_ope *rxe);
+void efa_proto_rx_report_completion(struct efa_rdm_ope *rxe);
 
-void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope);
+void efa_proto_op_handle_recv_completed(struct efa_rdm_ope *ope);
 
-void efa_rdm_ope_handle_send_completed(struct efa_rdm_ope *ope);
+void efa_proto_op_handle_send_completed(struct efa_rdm_ope *ope);
 
 /**
  * @brief Check if a delivery complete (DC) TXE is ready for release
@@ -323,7 +323,7 @@ void efa_rdm_ope_handle_send_completed(struct efa_rdm_ope *ope);
  * For DC packets, this function prevents use-after-free race conditions by
  * ensuring the TXE is only released when both conditions are met:
  * 1. All TX operations have completed (efa_outstanding_tx_ops == 0)
- * 2. Receipt packet has been received (EFA_RDM_TXE_RECEIPT_RECEIVED flag set)
+ * 2. Receipt packet has been received (EFA_PROTO_TXE_RECEIPT_RECEIVED flag set)
  *
  * This dual-condition check ensures proper synchronization between send
  * completions and receipt acknowledgments in the delivery complete protocol.
@@ -331,43 +331,43 @@ void efa_rdm_ope_handle_send_completed(struct efa_rdm_ope *ope);
  * @param[in] txe TX operation entry to check
  * @return true if TXE is ready for release, false otherwise
  */
-static inline bool efa_rdm_txe_dc_ready_for_release(struct efa_rdm_ope *txe)
+static inline bool efa_proto_tx_dc_ready_for_release(struct efa_rdm_ope *txe)
 {
 	return (txe->efa_outstanding_tx_ops == 0) &&
-	       (txe->internal_flags & EFA_RDM_TXE_RECEIPT_RECEIVED);
+	       (txe->internal_flags & EFA_PROTO_TXE_RECEIPT_RECEIVED);
 }
 
-int efa_rdm_ope_prepare_to_post_read(struct efa_rdm_ope *ope);
+int efa_proto_op_prepare_to_post_read(struct efa_rdm_ope *ope);
 
-void efa_rdm_ope_prepare_to_post_write(struct efa_rdm_ope *ope);
+void efa_proto_op_prepare_to_post_write(struct efa_rdm_ope *ope);
 
-int efa_rdm_ope_post_read(struct efa_rdm_ope *ope);
+int efa_proto_op_post_read(struct efa_rdm_ope *ope);
 
-int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope);
+int efa_proto_op_post_remote_write(struct efa_rdm_ope *ope);
 
-int efa_rdm_ope_post_remote_read_or_queue(struct efa_rdm_ope *ope);
+int efa_proto_op_post_remote_read_or_queue(struct efa_rdm_ope *ope);
 
-int efa_rdm_rxe_post_local_read_or_queue(struct efa_rdm_ope *rxe,
+int efa_proto_rx_post_local_read_or_queue(struct efa_rdm_ope *rxe,
 					  size_t rx_data_offset,
 					  struct efa_rdm_pke *pkt_entry,
 					  char *pkt_data, size_t data_size);
 
-ssize_t efa_rdm_ope_prepare_to_post_send(struct efa_rdm_ope *ope,
+ssize_t efa_proto_op_prepare_to_post_send(struct efa_rdm_ope *ope,
 					 int pkt_type,
 					 int *pkt_entry_cnt,
 					 int *pkt_entry_data_size_vec);
 
-ssize_t efa_rdm_ope_post_send(struct efa_rdm_ope *ope, int pkt_type);
+ssize_t efa_proto_op_post_send(struct efa_rdm_ope *ope, int pkt_type);
 
-ssize_t efa_rdm_ope_post_send_fallback(struct efa_rdm_ope *ope,
+ssize_t efa_proto_op_post_send_fallback(struct efa_rdm_ope *ope,
 					   int pkt_type, ssize_t err);
 
-ssize_t efa_rdm_ope_post_send_or_queue(struct efa_rdm_ope *ope, int pkt_type);
+ssize_t efa_proto_op_post_send_or_queue(struct efa_rdm_ope *ope, int pkt_type);
 
-ssize_t efa_rdm_ope_repost_ope_queued_before_handshake(struct efa_rdm_ope *ope);
+ssize_t efa_proto_op_repost_queued_before_handshake(struct efa_rdm_ope *ope);
 
-ssize_t efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe);
+ssize_t efa_proto_tx_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe);
 
-int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope, uint32_t flag);
+int efa_proto_op_process_queued(struct efa_rdm_ope *ope, uint32_t flag);
 
 #endif

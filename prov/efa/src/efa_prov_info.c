@@ -618,7 +618,7 @@ int efa_prov_info_alloc_for_rdm(struct fi_info **prov_info_rdm_ptr,
 		max_atomic_size = device->ibv_port_attr.max_msg_sz
 					- sizeof(struct efa_rdm_rta_hdr)
 					- device->rdm_info->src_addrlen
-					- EFA_RDM_IOV_LIMIT * sizeof(struct fi_rma_iov);
+					- EFA_PROTO_IOV_LIMIT * sizeof(struct fi_rma_iov);
 		prov_info_rdm->ep_attr->max_order_raw_size = max_atomic_size;
 		prov_info_rdm->ep_attr->max_order_war_size = max_atomic_size;
 		prov_info_rdm->ep_attr->max_order_waw_size = max_atomic_size;
@@ -664,7 +664,7 @@ int efa_prov_info_alloc_for_rdm(struct fi_info **prov_info_rdm_ptr,
 		/*
 		 * EFA RDM endpoint support multiple IOV by segmentation.
 		 */
-		prov_info_rdm->tx_attr->iov_limit = EFA_RDM_IOV_LIMIT;
+		prov_info_rdm->tx_attr->iov_limit = EFA_PROTO_IOV_LIMIT;
 
 		if (efa_env.tx_size > 0)
 			prov_info_rdm->tx_attr->size = efa_env.tx_size;
@@ -676,7 +676,7 @@ int efa_prov_info_alloc_for_rdm(struct fi_info **prov_info_rdm_ptr,
 		prov_info_rdm->rx_attr->msg_order = FI_ORDER_SAS | FI_ORDER_ATOMIC_RAR | FI_ORDER_ATOMIC_RAW |
 						    FI_ORDER_ATOMIC_WAR | FI_ORDER_ATOMIC_WAW;
 		prov_info_rdm->rx_attr->op_flags = FI_COMPLETION | FI_MULTI_RECV;
-		prov_info_rdm->rx_attr->iov_limit = EFA_RDM_IOV_LIMIT;
+		prov_info_rdm->rx_attr->iov_limit = EFA_PROTO_IOV_LIMIT;
 
 		if (efa_env.rx_size > 0)
 			prov_info_rdm->rx_attr->size = efa_env.rx_size;

@@ -169,11 +169,11 @@ out:
  * @return		if allocation succeeded, return pointer to rxe
  * 			if allocation failed, return NULL
  */
-struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_peer *peer, uint32_t op)
+struct efa_rdm_ope *efa_proto_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_peer *peer, uint32_t op)
 {
 	struct efa_rdm_ope *rxe;
 
-	rxe = ofi_buf_alloc(ep->ope_pool);
+	rxe = ofi_buf_alloc(ep->proto_op_pool);
 	if (OFI_UNLIKELY(!rxe)) {
 		EFA_WARN(FI_LOG_EP_CTRL, "RX entries exhausted\n");
 		return NULL;
@@ -181,16 +181,16 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_p
 
 	rxe->ep = ep;
 	dlist_insert_tail(&rxe->ep_entry, &ep->rxe_list);
-	rxe->type = EFA_RDM_RXE;
+	rxe->type = EFA_PROTO_RXE;
 	rxe->internal_flags = 0;
 	rxe->fi_flags = 0;
 	rxe->rx_id = ofi_buf_index(rxe);
 	rxe->iov_count = 0;
-	memset(rxe->mr, 0, sizeof(*rxe->mr) * EFA_RDM_IOV_LIMIT);
+	memset(rxe->mr, 0, sizeof(*rxe->mr) * EFA_PROTO_IOV_LIMIT);
 
 	dlist_init(&rxe->queued_pkts);
 
-	rxe->state = EFA_RDM_RXE_INIT;
+	rxe->state = EFA_PROTO_RXE_INIT;
 	if (peer) {
 		rxe->peer = peer;
 		dlist_insert_tail(&rxe->peer_entry, &rxe->peer->rxe_list);
@@ -210,7 +210,7 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_p
 	rxe->bytes_acked = 0;
 	rxe->bytes_sent = 0;
 	rxe->bytes_runt = 0;
-	rxe->cuda_copy_method = EFA_RDM_CUDA_COPY_UNSPEC;
+	rxe->cuda_copy_method = EFA_PROTO_CUDA_COPY_UNSPEC;
 	rxe->efa_outstanding_tx_ops = 0;
 	rxe->window = 0;
 	rxe->op = op;
@@ -272,7 +272,7 @@ int efa_rdm_ep_post_user_recv_buf(struct efa_rdm_ep *ep, struct efa_rdm_ope *rxe
 
 	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 	pkt_entry->peer = rxe->peer;
-	rxe->state = EFA_RDM_RXE_MATCHED;
+	rxe->state = EFA_PROTO_RXE_MATCHED;
 
 	err = ofi_iov_locate(rxe->iov, rxe->iov_count, ep->msg_prefix_size, &rx_iov_index, &rx_iov_offset);
 	if (OFI_UNLIKELY(err)) {
@@ -319,7 +319,7 @@ err_free:
 
 
 /* create a new txe */
-struct efa_rdm_ope *efa_rdm_ep_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
+struct efa_rdm_ope *efa_proto_ep_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 					 struct efa_rdm_peer *peer,
 					 const struct fi_msg *msg,
 					 uint32_t op,
@@ -328,13 +328,13 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 {
 	struct efa_rdm_ope *txe;
 
-	txe = ofi_buf_alloc(efa_rdm_ep->ope_pool);
+	txe = ofi_buf_alloc(efa_rdm_ep->proto_op_pool);
 	if (OFI_UNLIKELY(!txe)) {
 		EFA_DBG(FI_LOG_EP_CTRL, "TX entries exhausted.\n");
 		return NULL;
 	}
 
-	efa_rdm_txe_construct(txe, efa_rdm_ep, peer, msg, op, flags);
+	efa_proto_tx_construct(txe, efa_rdm_ep, peer, msg, op, flags);
 	if (op == ofi_op_tagged) {
 		txe->cq_entry.tag = tag;
 		txe->tag = tag;
@@ -396,8 +396,8 @@ void efa_rdm_ep_record_tx_op_submitted(struct efa_rdm_ep *ep, struct efa_rdm_pke
 	switch (efa_rdm_pkt_type_of(pkt_entry)) {
 	case EFA_RDM_RECEIPT_PKT:
 	case EFA_RDM_EOR_PKT:
-		assert(ope->type == EFA_RDM_RXE);
-		dlist_insert_tail(&ope->ack_list_entry, &ope->ep->ope_posted_ack_list);
+		assert(ope->type == EFA_PROTO_RXE);
+		dlist_insert_tail(&ope->ack_list_entry, &ope->ep->proto_op_posted_ack_list);
 	default:
 		break;
 	}
@@ -451,7 +451,7 @@ void efa_rdm_ep_record_tx_op_submitted(struct efa_rdm_ep *ep, struct efa_rdm_pke
  *
  * Sometimes we need release TX pkt_entry without
  * decreasing the tx_op counter. For example, when
- * efa_rdm_ope_post_send() failed to post a pkt entry.
+ * efa_proto_op_post_send() failed to post a pkt entry.
  *
  * @param[in,out]	ep		endpoint
  * @param[in]		pkt_entry	TX pkt_entry, which contains
@@ -511,7 +511,7 @@ void efa_rdm_ep_record_tx_op_completed(struct efa_rdm_ep *ep, struct efa_rdm_pke
 		switch(efa_rdm_pkt_type_of(pkt_entry)) {
 		case EFA_RDM_RECEIPT_PKT:
 		case EFA_RDM_EOR_PKT:
-			assert(ope->type == EFA_RDM_RXE);
+			assert(ope->type == EFA_PROTO_RXE);
 			dlist_remove(&ope->ack_list_entry);
 		default:
 			break;
@@ -582,9 +582,9 @@ void efa_rdm_ep_queue_rnr_pkt(struct efa_rdm_ep *ep, struct efa_rdm_pke *pkt_ent
 	pkt_entry->flags |= EFA_RDM_PKE_IN_OPE_QUEUED_PKTS;
 	ep->efa_rnr_queued_pkt_cnt += 1;
 	assert(peer);
-	if (!(ope->internal_flags & EFA_RDM_OPE_QUEUED_RNR)) {
-		ope->internal_flags |= EFA_RDM_OPE_QUEUED_RNR;
-		dlist_insert_tail(&ope->queued_entry, &efa_rdm_ep_domain(ep)->ope_queued_list);
+	if (!(ope->internal_flags & EFA_PROTO_OPE_QUEUED_RNR)) {
+		ope->internal_flags |= EFA_PROTO_OPE_QUEUED_RNR;
+		dlist_insert_tail(&ope->queued_entry, &efa_rdm_ep_domain(ep)->proto_op_queued_list);
 	}
 	if (!(pkt_entry->flags & EFA_RDM_PKE_RNR_RETRANSMIT)) {
 		/* This is the first time this packet encountered RNR,
@@ -671,7 +671,7 @@ static ssize_t efa_rdm_ep_handshake_common(struct efa_rdm_ep *ep, struct efa_rdm
 
 	msg.addr = peer->conn->fi_addr;
 
-	txe = efa_rdm_ep_alloc_txe(ep, peer, &msg, ofi_op_write, 0, 0);
+	txe = efa_proto_ep_alloc_txe(ep, peer, &msg, ofi_op_write, 0, 0);
 
 	if (OFI_UNLIKELY(!txe)) {
 		EFA_WARN(FI_LOG_EP_CTRL, "TX entries exhausted.\n");
@@ -681,13 +681,13 @@ static ssize_t efa_rdm_ep_handshake_common(struct efa_rdm_ep *ep, struct efa_rdm
 	/* efa_rdm_ep_alloc_txe() joins ep->base_ep.util_ep.tx_op_flags and passed in flags,
 	 * reset to desired flags (remove things like FI_DELIVERY_COMPLETE, and FI_COMPLETION)
 	 */
-	txe->fi_flags = EFA_RDM_TXE_NO_COMPLETION | EFA_RDM_TXE_NO_COUNTER;
-	txe->internal_flags |= EFA_RDM_OPE_INTERNAL;
+	txe->fi_flags = EFA_PROTO_TXE_NO_COMPLETION | EFA_PROTO_TXE_NO_COUNTER;
+	txe->internal_flags |= EFA_PROTO_OPE_INTERNAL;
 
 	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool, EFA_RDM_PKE_FROM_EFA_TX_POOL);
 	if (OFI_UNLIKELY(!pkt_entry)) {
 		EFA_DBG(FI_LOG_EP_CTRL, "PKE entries exhausted.\n");
-		efa_rdm_txe_release(txe);
+		efa_proto_tx_release(txe);
 		return -FI_EAGAIN;
 	}
 
@@ -720,7 +720,7 @@ static ssize_t efa_rdm_ep_handshake_common(struct efa_rdm_ep *ep, struct efa_rdm
 
 handle_err:
 	efa_rdm_pke_release_tx(pkt_entry);
-	efa_rdm_txe_release(txe);
+	efa_proto_tx_release(txe);
 	return err;
 }
 
@@ -1097,7 +1097,7 @@ int efa_rdm_ep_enforce_handshake_for_txe(struct efa_rdm_ep *ep, struct efa_rdm_o
 {
 	int ret;
 
-	assert(txe->type == EFA_RDM_TXE);
+	assert(txe->type == EFA_PROTO_TXE);
 	assert(!(txe->peer->flags & EFA_RDM_PEER_HANDSHAKE_RECEIVED));
 
 	ret = efa_rdm_ep_trigger_handshake(ep, txe->peer);
@@ -1110,13 +1110,13 @@ int efa_rdm_ep_enforce_handshake_for_txe(struct efa_rdm_ep *ep, struct efa_rdm_o
 	 * of opes queued due to handshake not made
 	 */
 	if ((txe->fi_flags & FI_INJECT) ||
-	    (ep->ope_queued_before_handshake_cnt >= EFA_RDM_MAX_QUEUED_OPE_BEFORE_HANDSHAKE))
+	    (ep->proto_op_queued_before_handshake_cnt >= EFA_RDM_MAX_QUEUED_OPE_BEFORE_HANDSHAKE))
 		return -FI_EAGAIN;
 
-	if (!(txe->internal_flags & EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE)) {
-		txe->internal_flags |= EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE;
-		dlist_insert_tail(&txe->queued_entry, &efa_rdm_ep_domain(ep)->ope_queued_list);
-		ep->ope_queued_before_handshake_cnt++;
+	if (!(txe->internal_flags & EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE)) {
+		txe->internal_flags |= EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE;
+		dlist_insert_tail(&txe->queued_entry, &efa_rdm_ep_domain(ep)->proto_op_queued_list);
+		ep->proto_op_queued_before_handshake_cnt++;
 	}
 	return FI_SUCCESS;
 }

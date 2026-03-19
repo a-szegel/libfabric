@@ -85,7 +85,7 @@ struct efa_rdm_ope *efa_rdm_pke_alloc_rtr_rxe(struct efa_rdm_pke *pkt_entry)
 	struct efa_rdm_ope *rxe;
 	struct efa_rdm_rtr_hdr *rtr_hdr;
 
-	rxe = efa_rdm_ep_alloc_rxe(ep, pkt_entry->peer, ofi_op_read_rsp);
+	rxe = efa_proto_ep_alloc_rxe(ep, pkt_entry->peer, ofi_op_read_rsp);
 	if (OFI_UNLIKELY(!rxe))
 		return NULL;
 
@@ -93,7 +93,7 @@ struct efa_rdm_ope *efa_rdm_pke_alloc_rtr_rxe(struct efa_rdm_pke *pkt_entry)
 	rxe->tx_id = rtr_hdr->recv_id;
 	rxe->window = rtr_hdr->recv_length;
 	rxe->iov_count = rtr_hdr->rma_iov_count;
-	rxe->internal_flags |= EFA_RDM_OPE_INTERNAL;
+	rxe->internal_flags |= EFA_PROTO_OPE_INTERNAL;
 
 	return rxe;
 }
@@ -128,7 +128,7 @@ void efa_rdm_pke_handle_rtr_recv(struct efa_rdm_pke *pkt_entry)
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ, "RMA address verification failed!\n");
 		efa_base_ep_write_eq_error(&ep->base_ep, err, FI_EFA_ERR_RMA_ADDR);
-		efa_rdm_rxe_release(rxe);
+		efa_proto_rx_release(rxe);
 		efa_rdm_pke_release_rx(pkt_entry);
 		return;
 	}
@@ -138,11 +138,11 @@ void efa_rdm_pke_handle_rtr_recv(struct efa_rdm_pke *pkt_entry)
 	rxe->cq_entry.buf = rxe->iov[0].iov_base;
 	rxe->total_len = rxe->cq_entry.len;
 
-	err = efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_READRSP_PKT);
+	err = efa_proto_op_post_send_or_queue(rxe, EFA_RDM_READRSP_PKT);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ, "Posting of readrsp packet failed! err=%ld\n", err);
 		efa_base_ep_write_eq_error(&ep->base_ep, err, FI_EFA_ERR_PKT_POST);
-		efa_rdm_rxe_release(rxe);
+		efa_proto_rx_release(rxe);
 		efa_rdm_pke_release_rx(pkt_entry);
 		return;
 	}

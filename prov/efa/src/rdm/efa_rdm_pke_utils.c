@@ -334,7 +334,7 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 		/* prefer local read over cudaMemcpy (when it is available)
 		 * because local read copy is faster
 		 */
-		err = efa_rdm_rxe_post_local_read_or_queue(rxe,
+		err = efa_proto_rx_post_local_read_or_queue(rxe,
 							   segment_offset,
 							   pke, pke->payload,
 							   pke->payload_size);
@@ -347,7 +347,7 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 
 	/* when both local read and gdrcopy are available, we use a mixed approach */
 
-	if (rxe->cuda_copy_method != EFA_RDM_CUDA_COPY_LOCALREAD) {
+	if (rxe->cuda_copy_method != EFA_PROTO_CUDA_COPY_LOCALREAD) {
 		assert(rxe->bytes_copied + pke->payload_size <= rxe->total_len);
 
 		/* If this packet is the last uncopied piece (or the only piece), copy it right away
@@ -366,21 +366,21 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 		}
 
 		/* If this rxe is already been chosen to use gdrcopy/cudaMemcpy, keep using on it */
-		if (rxe->cuda_copy_method == EFA_RDM_CUDA_COPY_BLOCKING)
+		if (rxe->cuda_copy_method == EFA_PROTO_CUDA_COPY_BLOCKING)
 			return efa_rdm_pke_queued_copy_payload_to_hmem(pke, rxe);
 
 		/* If there are still empty slot for using gdrcopy, use gdrcopy on this rxe */
-		if (rxe->cuda_copy_method == EFA_RDM_CUDA_COPY_UNSPEC && ep->blocking_copy_rxe_num < max_blocking_copy_rxe_num) {
-			rxe->cuda_copy_method = EFA_RDM_CUDA_COPY_BLOCKING;
+		if (rxe->cuda_copy_method == EFA_PROTO_CUDA_COPY_UNSPEC && ep->blocking_copy_rxe_num < max_blocking_copy_rxe_num) {
+			rxe->cuda_copy_method = EFA_PROTO_CUDA_COPY_BLOCKING;
 			ep->blocking_copy_rxe_num += 1;
 			return efa_rdm_pke_queued_copy_payload_to_hmem(pke, rxe);
 		}
 	}
 
-	if (rxe->cuda_copy_method == EFA_RDM_CUDA_COPY_UNSPEC)
-		rxe->cuda_copy_method = EFA_RDM_CUDA_COPY_LOCALREAD;
+	if (rxe->cuda_copy_method == EFA_PROTO_CUDA_COPY_UNSPEC)
+		rxe->cuda_copy_method = EFA_PROTO_CUDA_COPY_LOCALREAD;
 
-	err = efa_rdm_rxe_post_local_read_or_queue(rxe, segment_offset,
+	err = efa_proto_rx_post_local_read_or_queue(rxe, segment_offset,
 						   pke, pke->payload, pke->payload_size);
 	if (err)
 		EFA_WARN(FI_LOG_CQ, "cannot post read to copy data\n");
@@ -452,7 +452,7 @@ ssize_t efa_rdm_pke_copy_payload_to_ope(struct efa_rdm_pke *pke,
 	 *
 	 * 3. message size is 0, thus no data to copy.
 	 */
-	if (OFI_UNLIKELY((ope->internal_flags & EFA_RDM_RXE_RECV_CANCEL) ||
+	if (OFI_UNLIKELY((ope->internal_flags & EFA_PROTO_RXE_RECV_CANCEL) ||
 	    (segment_offset >= ope->cq_entry.len) ||
 	    (pke->payload_size == 0))) {
 		efa_rdm_pke_handle_data_copied(pke);

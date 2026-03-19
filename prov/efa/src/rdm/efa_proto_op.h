@@ -131,9 +131,9 @@ struct efa_proto_op_base {
 	struct fi_cq_tagged_entry cq_entry;		/* 48 (320) */
 
 	/* dlist entries used by all paths */
-	struct dlist_entry entry;		/* 16 (368) — ope_longcts_send_list */
+	struct dlist_entry entry;		/* 16 (368) — proto_op_longcts_send_list */
 	struct dlist_entry ep_entry;		/* 16 (384) — tx/rxe_list in ep */
-	struct dlist_entry queued_entry;	/* 16 (400) — ope_queued_list */
+	struct dlist_entry queued_entry;	/* 16 (400) — proto_op_queued_list */
 	struct dlist_entry queued_pkts;		/* 16 (416) — queued pkt list head */
 	struct dlist_entry peer_entry;		/* 16 (432) — tx/rxe_list in peer */
 

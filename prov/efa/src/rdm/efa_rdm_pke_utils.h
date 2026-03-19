@@ -65,7 +65,7 @@ int efa_rdm_pke_get_ctrl_pkt_type_from_queued_ope(struct efa_rdm_ope *ope)
 {
 	struct efa_rdm_pke *pke;
 
-	if (ope->internal_flags & EFA_RDM_OPE_QUEUED_RNR) {
+	if (ope->internal_flags & EFA_PROTO_OPE_QUEUED_RNR) {
 		assert(!dlist_empty(&ope->queued_pkts));
 		/**
 		 * It should be safe to check the first
@@ -77,7 +77,7 @@ int efa_rdm_pke_get_ctrl_pkt_type_from_queued_ope(struct efa_rdm_ope *ope)
 		pke = container_of(ope->queued_pkts.next, struct efa_rdm_pke,
 				   entry);
 		return efa_rdm_pkt_type_of_pke(pke);
-	} else if (ope->internal_flags & EFA_RDM_OPE_QUEUED_CTRL) {
+	} else if (ope->internal_flags & EFA_PROTO_OPE_QUEUED_CTRL) {
 		return ope->queued_ctrl_type;
 	} else { /* No valid ctrl pkt type */
 		return 0;
@@ -183,7 +183,7 @@ efa_rdm_pke_post_remote_read_or_nack(struct efa_rdm_ep *ep,
 
 	p2p_avail = err;
 	if (p2p_avail) {
-		err = efa_rdm_ope_post_remote_read_or_queue(rxe);
+		err = efa_proto_op_post_remote_read_or_queue(rxe);
 	} else if (ep->homogeneous_peers || efa_rdm_peer_support_read_nack(rxe->peer)) {
 		EFA_INFO(FI_LOG_EP_CTRL,
 			 "Receiver sending long read "
@@ -214,7 +214,7 @@ efa_rdm_pke_post_remote_read_or_nack(struct efa_rdm_ep *ep,
 	return err;
 
 send_nack:
-	rxe->internal_flags |= EFA_RDM_OPE_READ_NACK;
+	rxe->internal_flags |= EFA_PROTO_OPE_READ_NACK;
 	/* Only set the flag for runting read. The NACK
 	 * packet is sent after all runting read
 	 * RTM packets have been received */
@@ -226,7 +226,7 @@ send_nack:
 		efa_rdm_rxe_map_insert(&pkt_entry->peer->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry), rxe);
 	}
 
-	return efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_READ_NACK_PKT);
+	return efa_proto_op_post_send_or_queue(rxe, EFA_RDM_READ_NACK_PKT);
 }
 
 size_t efa_rdm_pke_get_payload_offset(struct efa_rdm_pke *pkt_entry);

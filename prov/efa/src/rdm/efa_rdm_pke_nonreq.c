@@ -158,11 +158,11 @@ ssize_t efa_rdm_pke_init_cts(struct efa_rdm_pke *pkt_entry,
 	 * message protocols sends CTS using rxe.
 	 * This check ensures appropriate tx_id and rx_id are
 	 * assigned for the respective protocols */
-	if (ope->type == EFA_RDM_TXE){
+	if (ope->type == EFA_PROTO_TXE){
 		cts_hdr->send_id = ope->rx_id;
 		cts_hdr->recv_id = ope->tx_id;
 	} else {
-		assert(ope->type == EFA_RDM_RXE);
+		assert(ope->type == EFA_PROTO_RXE);
 		cts_hdr->send_id = ope->tx_id;
 		cts_hdr->recv_id = ope->rx_id;
 	}
@@ -200,7 +200,7 @@ void efa_rdm_pke_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 
 	ep = pkt_entry->ep;
 	cts_pkt = (struct efa_rdm_cts_hdr *)pkt_entry->wiredata;
-	ope = ofi_bufpool_get_ibuf(pkt_entry->ep->ope_pool, cts_pkt->send_id);
+	ope = ofi_bufpool_get_ibuf(pkt_entry->ep->proto_op_pool, cts_pkt->send_id);
 
 	ope->rx_id = cts_pkt->recv_id;
 	ope->window = cts_pkt->recv_length;
@@ -208,9 +208,9 @@ void efa_rdm_pke_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 
 	efa_rdm_pke_release_rx(pkt_entry);
 
-	if (ope->state != EFA_RDM_OPE_SEND) {
-		ope->state = EFA_RDM_OPE_SEND;
-		dlist_insert_tail(&ope->entry, &efa_rdm_ep_domain(ep)->ope_longcts_send_list);
+	if (ope->state != EFA_PROTO_OPE_SEND) {
+		ope->state = EFA_PROTO_OPE_SEND;
+		dlist_insert_tail(&ope->entry, &efa_rdm_ep_domain(ep)->proto_op_longcts_send_list);
 	}
 }
 
@@ -236,12 +236,12 @@ int efa_rdm_pke_init_ctsdata(struct efa_rdm_pke *pkt_entry,
 	 * message protocols sends data using txe.
 	 * This check ensures appropriate recv_id is 
 	 * assigned for the respective protocols */
-	if (ope->type == EFA_RDM_RXE) {
+	if (ope->type == EFA_PROTO_RXE) {
 		data_hdr->recv_id = ope->tx_id;
 	} else {
-		assert(ope->type == EFA_RDM_TXE);
+		assert(ope->type == EFA_PROTO_TXE);
 		data_hdr->recv_id = ope->rx_id;
-		if (ope->internal_flags & EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED)
+		if (ope->internal_flags & EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED)
 			pkt_entry->flags |= EFA_RDM_PKE_DC_LONGCTS_DATA;
 	}
 
@@ -302,7 +302,7 @@ void efa_rdm_pke_handle_ctsdata_send_completion(struct efa_rdm_pke *pkt_entry)
 	ope->bytes_acked += efa_rdm_pke_get_ctsdata_hdr(pkt_entry)->seg_length;
 
 	if (ope->total_len == ope->bytes_acked)
-		efa_rdm_ope_handle_send_completed(ope);
+		efa_proto_op_handle_send_completed(ope);
 }
 
 void efa_rdm_pke_proc_ctsdata(struct efa_rdm_pke *pkt_entry,
@@ -336,17 +336,17 @@ void efa_rdm_pke_proc_ctsdata(struct efa_rdm_pke *pkt_entry,
 	err = efa_rdm_pke_copy_payload_to_ope(pkt_entry, ope);
 	if (err) {
 		efa_rdm_pke_release_rx(pkt_entry);
-		efa_rdm_rxe_handle_error(ope, -err, FI_EFA_ERR_RXE_COPY);
+		efa_proto_rx_handle_error(ope, -err, FI_EFA_ERR_RXE_COPY);
 	}
 
 	if (all_received)
 		return;
 
 	if (!ope->window) {
-		err = efa_rdm_ope_post_send_or_queue(ope, EFA_RDM_CTS_PKT);
+		err = efa_proto_op_post_send_or_queue(ope, EFA_RDM_CTS_PKT);
 		if (err) {
 			EFA_WARN(FI_LOG_CQ, "post CTS packet failed!\n");
-			efa_rdm_rxe_handle_error(ope, -err, FI_EFA_ERR_PKT_POST);
+			efa_proto_rx_handle_error(ope, -err, FI_EFA_ERR_PKT_POST);
 		}
 	}
 }
@@ -359,7 +359,7 @@ void efa_rdm_pke_handle_ctsdata_recv(struct efa_rdm_pke *pkt_entry)
 
 	data_hdr = efa_rdm_pke_get_ctsdata_hdr(pkt_entry);
 
-	ope = ofi_bufpool_get_ibuf(pkt_entry->ep->ope_pool,
+	ope = ofi_bufpool_get_ibuf(pkt_entry->ep->proto_op_pool,
 				   data_hdr->recv_id);
 
 	hdr_size = sizeof(struct efa_rdm_ctsdata_hdr);
@@ -409,10 +409,10 @@ void efa_rdm_pke_handle_readrsp_sent(struct efa_rdm_pke *pkt_entry)
 	assert(rxe->window >= 0);
 	if (rxe->bytes_sent < rxe->total_len) {
 		if (efa_is_cache_available(efa_rdm_ep_domain(pkt_entry->ep)))
-			efa_rdm_ope_try_fill_desc(rxe, 0, FI_SEND);
+			efa_proto_op_try_fill_desc(rxe, 0, FI_SEND);
 
-		rxe->state = EFA_RDM_OPE_SEND;
-		dlist_insert_tail(&rxe->entry, &efa_rdm_ep_domain(pkt_entry->ep)->ope_longcts_send_list);
+		rxe->state = EFA_PROTO_OPE_SEND;
+		dlist_insert_tail(&rxe->entry, &efa_rdm_ep_domain(pkt_entry->ep)->proto_op_longcts_send_list);
 	}
 }
 
@@ -427,7 +427,7 @@ void efa_rdm_pke_handle_readrsp_send_completion(struct efa_rdm_pke *pkt_entry)
 	assert(rxe->cq_entry.flags & FI_READ);
 	rxe->bytes_acked += readrsp_hdr->seg_length;
 	if (rxe->total_len == rxe->bytes_acked)
-		efa_rdm_ope_handle_send_completed(rxe);
+		efa_proto_op_handle_send_completed(rxe);
 }
 
 void efa_rdm_pke_handle_readrsp_recv(struct efa_rdm_pke *pkt_entry)
@@ -438,7 +438,7 @@ void efa_rdm_pke_handle_readrsp_recv(struct efa_rdm_pke *pkt_entry)
 
 	readrsp_pkt = (struct efa_rdm_readrsp_pkt *)pkt_entry->wiredata;
 	readrsp_hdr = &readrsp_pkt->hdr;
-	txe = ofi_bufpool_get_ibuf(pkt_entry->ep->ope_pool, readrsp_hdr->recv_id);
+	txe = ofi_bufpool_get_ibuf(pkt_entry->ep->proto_op_pool, readrsp_hdr->recv_id);
 	assert(txe->cq_entry.flags & FI_READ);
 	txe->rx_id = readrsp_hdr->send_id;
 	efa_rdm_pke_proc_ctsdata(pkt_entry, txe,
@@ -497,7 +497,7 @@ void efa_rdm_pke_init_read_context(struct efa_rdm_pke *pkt_entry,
 static
 void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entry)
 {
-	enum efa_rdm_ope_type x_entry_type;
+	enum efa_proto_ope_type x_entry_type;
 	struct efa_rdm_ope *txe;
 	struct efa_rdm_ope *rxe;
 	struct efa_rdm_pke *data_pkt_entry;
@@ -509,7 +509,7 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 	assert(rma_context_pkt->context_type == EFA_RDM_RDMA_READ_CONTEXT);
 
 	x_entry_type = EFA_PROTO_OPE_FROM_BASE(context_pkt_entry->ope)->type;
-	if (x_entry_type == EFA_RDM_TXE) {
+	if (x_entry_type == EFA_PROTO_TXE) {
 		txe = EFA_PROTO_OPE_FROM_BASE(context_pkt_entry->ope);
 		assert(txe->op == ofi_op_read_req);
 		txe->bytes_read_completed += rma_context_pkt->seg_size;
@@ -526,13 +526,13 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 				efa_rdm_pke_handle_data_copied(data_pkt_entry);
 			} else {
 				assert(txe && txe->cq_entry.flags & FI_READ);
-				efa_rdm_txe_report_completion(txe);
+				efa_proto_tx_report_completion(txe);
 			}
 
-			efa_rdm_txe_release(txe);
+			efa_proto_tx_release(txe);
 		}
 	} else {
-		assert(x_entry_type == EFA_RDM_RXE);
+		assert(x_entry_type == EFA_PROTO_RXE);
 		rxe = EFA_PROTO_OPE_FROM_BASE(context_pkt_entry->ope);
 		rxe->bytes_read_completed += rma_context_pkt->seg_size;
 		assert(rxe->bytes_read_completed <= rxe->bytes_read_total_len);
@@ -540,20 +540,20 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 			efa_rdm_tracepoint(read_completed,
 				    rxe->msg_id, (size_t) rxe->cq_entry.op_context,
 				    rxe->total_len, (size_t) rxe);
-			err = efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_EOR_PKT);
+			err = efa_proto_op_post_send_or_queue(rxe, EFA_RDM_EOR_PKT);
 			if (OFI_UNLIKELY(err)) {
 				EFA_WARN(FI_LOG_CQ,
 					"Posting of EOR failed! err=%s(%d)\n",
 					fi_strerror(-err), -err);
-				efa_rdm_rxe_handle_error(rxe, -err, FI_EFA_ERR_PKT_POST);
-				efa_rdm_rxe_release(rxe);
+				efa_proto_rx_handle_error(rxe, -err, FI_EFA_ERR_PKT_POST);
+				efa_proto_rx_release(rxe);
 			}
 
-			rxe->internal_flags |= EFA_RDM_RXE_EOR_IN_FLIGHT;
+			rxe->internal_flags |= EFA_PROTO_RXE_EOR_IN_FLIGHT;
 			rxe->bytes_received += rxe->bytes_read_completed;
 			rxe->bytes_copied += rxe->bytes_read_completed;
 			if (rxe->bytes_copied == rxe->total_len) {
-				efa_rdm_ope_handle_recv_completed(rxe);
+				efa_proto_op_handle_recv_completed(rxe);
 			} else if(rxe->bytes_copied + rxe->bytes_queued_blocking_copy == rxe->total_len) {
 				efa_rdm_ep_flush_queued_blocking_copy_to_hmem(context_pkt_entry->ep);
 			}
@@ -595,10 +595,10 @@ void efa_rdm_pke_handle_rma_completion(struct efa_rdm_pke *context_pkt_entry)
 		txe->bytes_write_completed += rma_context_pkt->seg_size;
 		if (txe->bytes_write_completed == txe->bytes_write_total_len) {
 			if (txe->fi_flags & FI_COMPLETION)
-				efa_rdm_txe_report_completion(txe);
+				efa_proto_tx_report_completion(txe);
 			else
 				efa_cntr_report_tx_completion(&context_pkt_entry->ep->base_ep.util_ep, txe->cq_entry.flags);
-			efa_rdm_txe_release(txe);
+			efa_proto_tx_release(txe);
 		}
 		break;
 	case EFA_RDM_RDMA_READ_CONTEXT:
@@ -640,9 +640,9 @@ void efa_rdm_pke_handle_eor_send_completion(struct efa_rdm_pke *pkt_entry)
 	assert(rxe && rxe->rx_id == efa_rdm_pke_get_eor_hdr(pkt_entry)->recv_id);
 
 	if (rxe->bytes_copied == rxe->total_len) {
-		efa_rdm_rxe_release(rxe);
+		efa_proto_rx_release(rxe);
 	} else {
-		rxe->internal_flags &= ~EFA_RDM_RXE_EOR_IN_FLIGHT;
+		rxe->internal_flags &= ~EFA_PROTO_RXE_EOR_IN_FLIGHT;
 	}
 }
 
@@ -679,12 +679,12 @@ void efa_rdm_pke_handle_eor_recv(struct efa_rdm_pke *pkt_entry)
 	eor_hdr = (struct efa_rdm_eor_hdr *)pkt_entry->wiredata;
 
 	/* pre-post buf used here, so can NOT track back to txe with x_entry */
-	txe = ofi_bufpool_get_ibuf(pkt_entry->ep->ope_pool, eor_hdr->send_id);
+	txe = ofi_bufpool_get_ibuf(pkt_entry->ep->proto_op_pool, eor_hdr->send_id);
 
 	txe->bytes_acked += txe->total_len - txe->bytes_runt;
 	if (txe->bytes_acked == txe->total_len) {
-		efa_rdm_txe_report_completion(txe);
-		efa_rdm_txe_release(txe);
+		efa_proto_tx_report_completion(txe);
+		efa_proto_tx_release(txe);
 	}
 
 	efa_rdm_pke_release_rx(pkt_entry);
@@ -704,10 +704,10 @@ void efa_rdm_pke_handle_read_nack_recv(struct efa_rdm_pke *pkt_entry)
 
 	nack_hdr = (struct efa_rdm_read_nack_hdr *) pkt_entry->wiredata;
 
-	txe = ofi_bufpool_get_ibuf(pkt_entry->ep->ope_pool, nack_hdr->send_id);
+	txe = ofi_bufpool_get_ibuf(pkt_entry->ep->proto_op_pool, nack_hdr->send_id);
 
 	efa_rdm_pke_release_rx(pkt_entry);
-	txe->internal_flags |= EFA_RDM_OPE_READ_NACK;
+	txe->internal_flags |= EFA_PROTO_OPE_READ_NACK;
 
 	delivery_complete_requested = txe->fi_flags & FI_DELIVERY_COMPLETE;
 
@@ -715,7 +715,7 @@ void efa_rdm_pke_handle_read_nack_recv(struct efa_rdm_pke *pkt_entry)
 		EFA_INFO(FI_LOG_EP_CTRL,
 			 "Sender fallback to emulated long CTS write "
 			 "protocol because p2p is not available\n");
-		efa_rdm_ope_post_send_or_queue(
+		efa_proto_op_post_send_or_queue(
 			txe, delivery_complete_requested ?
 			     EFA_RDM_DC_LONGCTS_RTW_PKT :
 			     EFA_RDM_LONGCTS_RTW_PKT);
@@ -724,7 +724,7 @@ void efa_rdm_pke_handle_read_nack_recv(struct efa_rdm_pke *pkt_entry)
 			 "Sender fallback to long CTS tagged "
 			 "protocol because memory registration limit "
 			 "was reached on the receiver\n");
-		efa_rdm_ope_post_send_or_queue(
+		efa_proto_op_post_send_or_queue(
 			txe, delivery_complete_requested ?
 			     EFA_RDM_DC_LONGCTS_TAGRTM_PKT :
 			     EFA_RDM_LONGCTS_TAGRTM_PKT);
@@ -733,7 +733,7 @@ void efa_rdm_pke_handle_read_nack_recv(struct efa_rdm_pke *pkt_entry)
 			 "Sender fallback to long CTS untagged "
 			 "protocol because memory registration limit "
 			 "was reached on the receiver\n");
-		efa_rdm_ope_post_send_or_queue(
+		efa_proto_op_post_send_or_queue(
 			txe, delivery_complete_requested ?
 			     EFA_RDM_DC_LONGCTS_MSGRTM_PKT :
 			     EFA_RDM_LONGCTS_MSGRTM_PKT);
@@ -766,7 +766,7 @@ void efa_rdm_pke_handle_receipt_send_completion(struct efa_rdm_pke *pkt_entry)
 	struct efa_rdm_ope *rxe;
 
 	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 }
 
 void efa_rdm_pke_handle_receipt_recv(struct efa_rdm_pke *pkt_entry)
@@ -776,7 +776,7 @@ void efa_rdm_pke_handle_receipt_recv(struct efa_rdm_pke *pkt_entry)
 
 	receipt_hdr = efa_rdm_pke_get_receipt_hdr(pkt_entry);
 	/* Retrieve the txe that will be written into TX CQ*/
-	txe = ofi_bufpool_get_ibuf(pkt_entry->ep->ope_pool,
+	txe = ofi_bufpool_get_ibuf(pkt_entry->ep->proto_op_pool,
 				   receipt_hdr->tx_id);
 	if (!txe) {
 		EFA_WARN(FI_LOG_CQ,
@@ -785,14 +785,14 @@ void efa_rdm_pke_handle_receipt_recv(struct efa_rdm_pke *pkt_entry)
 	}
 
 	/* Write send completion immediately to preserve DC semantics */
-	efa_rdm_txe_report_completion(txe);
+	efa_proto_tx_report_completion(txe);
 
 	/* Set receipt received flag for DC operations */
-	txe->internal_flags |= EFA_RDM_TXE_RECEIPT_RECEIVED;
+	txe->internal_flags |= EFA_PROTO_TXE_RECEIPT_RECEIVED;
 
 	/* Only release txe if both conditions are met */
-	if (efa_rdm_txe_dc_ready_for_release(txe))
-		efa_rdm_txe_release(txe);
+	if (efa_proto_tx_dc_ready_for_release(txe))
+		efa_proto_tx_release(txe);
 
 	efa_rdm_pke_release_rx(pkt_entry);
 }
@@ -835,7 +835,7 @@ void efa_rdm_pke_handle_atomrsp_send_completion(struct efa_rdm_pke *pkt_entry)
 	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	ofi_buf_free(rxe->atomrsp_data);
 	rxe->atomrsp_data = NULL;
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 }
 
 void efa_rdm_pke_handle_atomrsp_recv(struct efa_rdm_pke *pkt_entry)
@@ -847,7 +847,7 @@ void efa_rdm_pke_handle_atomrsp_recv(struct efa_rdm_pke *pkt_entry)
 
 	atomrsp_pkt = (struct efa_rdm_atomrsp_pkt *)pkt_entry->wiredata;
 	atomrsp_hdr = &atomrsp_pkt->hdr;
-	txe = ofi_bufpool_get_ibuf(pkt_entry->ep->ope_pool, atomrsp_hdr->recv_id);
+	txe = ofi_bufpool_get_ibuf(pkt_entry->ep->proto_op_pool, atomrsp_hdr->recv_id);
 
 	ret = efa_copy_to_hmem_iov(txe->atomic_ex.result_desc, txe->atomic_ex.resp_iov,
 	                           txe->atomic_ex.resp_iov_count, atomrsp_pkt->data,
@@ -858,10 +858,10 @@ void efa_rdm_pke_handle_atomrsp_recv(struct efa_rdm_pke *pkt_entry)
 	}
 
 	if (txe->fi_flags & FI_COMPLETION)
-		efa_rdm_txe_report_completion(txe);
+		efa_proto_tx_report_completion(txe);
 	else
 		efa_cntr_report_tx_completion(&pkt_entry->ep->base_ep.util_ep, txe->cq_entry.flags);
 
-	efa_rdm_txe_release(txe);
+	efa_proto_tx_release(txe);
 	efa_rdm_pke_release_rx(pkt_entry);
 }

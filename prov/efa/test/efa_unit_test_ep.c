@@ -459,14 +459,14 @@ void test_efa_rdm_ep_dc_atomic_queue_before_handshake(struct efa_resource **stat
 	assert_true(dlist_empty(&efa_rdm_ep->txe_list));
 	err = fi_atomicmsg(resource->ep, &msg, FI_DELIVERY_COMPLETE);
 	/* DC has been reuquested, but ep do not know whether peer supports it, therefore
-	 * the ope has been queued to domain->ope_queued_list
+	 * the ope has been queued to domain->proto_op_queued_list
 	 */
 	assert_int_equal(err, 0);
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list),  1);
-	assert_int_equal(efa_unit_test_get_dlist_length(&(efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list)), 1);
-	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list.next, struct efa_rdm_ope, queued_entry);
+	assert_int_equal(efa_unit_test_get_dlist_length(&(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list)), 1);
+	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list.next, struct efa_rdm_ope, queued_entry);
 	assert_true((txe->op == ofi_op_atomic));
-	assert_true(txe->internal_flags & EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE);
+	assert_true(txe->internal_flags & EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE);
 }
 
 /**
@@ -520,14 +520,14 @@ void test_efa_rdm_ep_dc_send_queue_before_handshake(struct efa_resource **state)
 	assert_true(dlist_empty(&efa_rdm_ep->txe_list));
 	err = fi_sendmsg(resource->ep, &msg, FI_DELIVERY_COMPLETE);
 	/* DC has been reuquested, but ep do not know whether peer supports it, therefore
-	 * the ope has been queued to domain->ope_queued_list
+	 * the ope has been queued to domain->proto_op_queued_list
 	 */
 	assert_int_equal(err, 0);
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list),  1);
-	assert_int_equal(efa_unit_test_get_dlist_length(&(efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list)), 1);
-	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list.next, struct efa_rdm_ope, queued_entry);
+	assert_int_equal(efa_unit_test_get_dlist_length(&(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list)), 1);
+	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list.next, struct efa_rdm_ope, queued_entry);
 	assert_true((txe->op == ofi_op_msg));
-	assert_true(txe->internal_flags & EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE);
+	assert_true(txe->internal_flags & EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE);
 }
 
 /**
@@ -586,7 +586,7 @@ void test_efa_rdm_ep_dc_send_queue_limit_before_handshake(struct efa_resource **
 		assert_int_equal(err, 0);
 	}
 
-	assert_true(efa_rdm_ep->ope_queued_before_handshake_cnt == EFA_RDM_MAX_QUEUED_OPE_BEFORE_HANDSHAKE);
+	assert_true(efa_rdm_ep->proto_op_queued_before_handshake_cnt == EFA_RDM_MAX_QUEUED_OPE_BEFORE_HANDSHAKE);
 	err = fi_sendmsg(resource->ep, &msg, FI_DELIVERY_COMPLETE);
 	assert_int_equal(err, -FI_EAGAIN);
 }
@@ -664,10 +664,10 @@ void test_efa_rdm_ep_rma_queue_before_handshake(struct efa_resource **state, int
 	}
 	assert_int_equal(err, 0);
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list),  1);
-	assert_int_equal(efa_unit_test_get_dlist_length(&(efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list)), 1);
-	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->ope_queued_list.next, struct efa_rdm_ope, queued_entry);
+	assert_int_equal(efa_unit_test_get_dlist_length(&(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list)), 1);
+	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list.next, struct efa_rdm_ope, queued_entry);
 	assert_true((txe->op == op));
-	assert_true(txe->internal_flags & EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE);
+	assert_true(txe->internal_flags & EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE);
 }
 
 void test_efa_rdm_ep_write_queue_before_handshake(struct efa_resource **state)
@@ -732,11 +732,11 @@ void test_efa_rdm_ep_trigger_handshake(struct efa_resource **state)
 
 	txe = container_of(efa_rdm_ep->txe_list.next, struct efa_rdm_ope, ep_entry);
 
-	assert_true(txe->fi_flags & EFA_RDM_TXE_NO_COMPLETION);
-	assert_true(txe->fi_flags & EFA_RDM_TXE_NO_COUNTER);
-	assert_true(txe->internal_flags & EFA_RDM_OPE_INTERNAL);
+	assert_true(txe->fi_flags & EFA_PROTO_TXE_NO_COMPLETION);
+	assert_true(txe->fi_flags & EFA_PROTO_TXE_NO_COUNTER);
+	assert_true(txe->internal_flags & EFA_PROTO_OPE_INTERNAL);
 
-	efa_rdm_txe_release(txe);
+	efa_proto_tx_release(txe);
 	efa_rdm_ep->efa_outstanding_tx_ops = 0;
 }
 
@@ -2097,7 +2097,7 @@ void test_efa_rdm_ep_outstanding_tx_ops_decremented_with_error_completion(struct
 	/* Allocate a TX operation entry */
 	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
 	assert_non_null(txe);
-	txe->internal_flags |= EFA_RDM_OPE_INTERNAL;
+	txe->internal_flags |= EFA_PROTO_OPE_INTERNAL;
 	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(txe);
 	pkt_entry->peer = peer;
 

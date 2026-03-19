@@ -94,13 +94,13 @@ void efa_rdm_peer_destruct(struct efa_rdm_peer *peer, struct efa_rdm_ep *ep)
 	dlist_foreach_container_safe(&peer->txe_list,
 				     struct efa_rdm_ope,
 				     txe, peer_entry, tmp) {
-		efa_rdm_txe_release(txe);
+		efa_proto_tx_release(txe);
 	}
 
 	dlist_foreach_container_safe(&peer->rxe_list,
 				     struct efa_rdm_ope,
 				     rxe, peer_entry, tmp) {
-		efa_rdm_rxe_release(rxe);
+		efa_proto_rx_release(rxe);
 	}
 
 	if (peer->flags & EFA_RDM_PEER_HANDSHAKE_QUEUED)

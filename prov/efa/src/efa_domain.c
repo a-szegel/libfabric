@@ -134,8 +134,8 @@ static int efa_domain_init_rdm(struct efa_domain *efa_domain, struct fi_info *in
 				  efa_env.cq_size);
 	efa_domain->num_read_msg_in_flight = 0;
 
-	dlist_init(&efa_domain->ope_queued_list);
-	dlist_init(&efa_domain->ope_longcts_send_list);
+	dlist_init(&efa_domain->proto_op_queued_list);
+	dlist_init(&efa_domain->proto_op_longcts_send_list);
 	dlist_init(&efa_domain->peer_backoff_list);
 	dlist_init(&efa_domain->handshake_queued_peer_list);
 
@@ -825,7 +825,7 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 	/*
 	 * Repost pkts for all queued op entries
 	 */
-	dlist_foreach_container_safe(&domain->ope_queued_list,
+	dlist_foreach_container_safe(&domain->proto_op_queued_list,
 				     struct efa_rdm_ope,
 				     ope, queued_entry, tmp) {
 
@@ -833,19 +833,19 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 		if (peer && (peer->flags & EFA_RDM_PEER_IN_BACKOFF))
 			continue;
 
-		if (efa_rdm_ope_process_queued_ope(ope, EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE))
+		if (efa_proto_op_process_queued(ope, EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE))
 			continue;
-		if (efa_rdm_ope_process_queued_ope(ope, EFA_RDM_OPE_QUEUED_RNR))
+		if (efa_proto_op_process_queued(ope, EFA_PROTO_OPE_QUEUED_RNR))
 			continue;
-		if (efa_rdm_ope_process_queued_ope(ope, EFA_RDM_OPE_QUEUED_CTRL))
+		if (efa_proto_op_process_queued(ope, EFA_PROTO_OPE_QUEUED_CTRL))
 			continue;
-		if (efa_rdm_ope_process_queued_ope(ope, EFA_RDM_OPE_QUEUED_READ))
+		if (efa_proto_op_process_queued(ope, EFA_PROTO_OPE_QUEUED_READ))
 			continue;
 	}
 	/*
 	 * Send data packets until window or data queue is exhausted.
 	 */
-	dlist_foreach_container(&domain->ope_longcts_send_list, struct efa_rdm_ope,
+	dlist_foreach_container(&domain->proto_op_longcts_send_list, struct efa_rdm_ope,
 				ope, entry) {
 		peer = ope->peer;
 		assert(peer);
@@ -877,12 +877,12 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 			continue;
 
 		if (ope->window > 0) {
-			ret = efa_rdm_ope_post_send(ope, EFA_RDM_CTSDATA_PKT);
+			ret = efa_proto_op_post_send(ope, EFA_RDM_CTSDATA_PKT);
 			if (OFI_UNLIKELY(ret)) {
 				if (ret == -FI_EAGAIN)
 					continue;
 
-				efa_rdm_txe_handle_error(ope, -ret, FI_EFA_ERR_PKT_POST);
+				efa_proto_tx_handle_error(ope, -ret, FI_EFA_ERR_PKT_POST);
 				continue;
 			}
 		}

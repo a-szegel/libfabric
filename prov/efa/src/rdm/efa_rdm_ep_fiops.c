@@ -246,7 +246,7 @@ int efa_rdm_ep_create_buffer_pools(struct efa_rdm_ep *ep)
 	if (ret)
 		goto err_free;
 
-	ret = ofi_bufpool_create(&ep->ope_pool,
+	ret = ofi_bufpool_create(&ep->proto_op_pool,
 				 sizeof(union efa_proto_op_entry),
 				 EFA_RDM_BUFPOOL_ALIGNMENT,
 				 0, /* no limit for max_cnt */
@@ -254,7 +254,7 @@ int efa_rdm_ep_create_buffer_pools(struct efa_rdm_ep *ep)
 	if (ret)
 		goto err_free;
 
-	ret = ofi_bufpool_grow(ep->ope_pool);
+	ret = ofi_bufpool_grow(ep->proto_op_pool);
 	if (ret)
 		goto err_free;
 
@@ -314,8 +314,8 @@ err_free:
 	if (ep->map_entry_pool)
 		ofi_bufpool_destroy(ep->map_entry_pool);
 
-	if (ep->ope_pool)
-		ofi_bufpool_destroy(ep->ope_pool);
+	if (ep->proto_op_pool)
+		ofi_bufpool_destroy(ep->proto_op_pool);
 
 	if (ep->overflow_pke_pool)
 		ofi_bufpool_destroy(ep->overflow_pke_pool);
@@ -361,13 +361,13 @@ void efa_rdm_ep_init_linked_lists(struct efa_rdm_ep *ep)
 {
 	dlist_init(&ep->rx_posted_buf_list);
 #if ENABLE_DEBUG
-	dlist_init(&ep->ope_recv_list);
+	dlist_init(&ep->proto_op_recv_list);
 	dlist_init(&ep->rx_pkt_list);
 	dlist_init(&ep->tx_pkt_list);
 #endif
 	dlist_init(&ep->rxe_list);
 	dlist_init(&ep->txe_list);
-	dlist_init(&ep->ope_posted_ack_list);
+	dlist_init(&ep->proto_op_posted_ack_list);
 }
 
 /**
@@ -848,7 +848,7 @@ static void efa_rdm_ep_destroy_buffer_pools(struct efa_rdm_ep *efa_rdm_ep)
 					ep_entry);
 		EFA_INFO(FI_LOG_EP_CTRL,
 			"Closing ep with unreleased rxe\n");
-		efa_rdm_rxe_release(rxe);
+		efa_proto_rx_release(rxe);
 	}
 
 	dlist_foreach_safe(&efa_rdm_ep->txe_list, entry, tmp) {
@@ -857,7 +857,7 @@ static void efa_rdm_ep_destroy_buffer_pools(struct efa_rdm_ep *efa_rdm_ep)
 		EFA_INFO(FI_LOG_EP_CTRL,
 			"Closing ep with unreleased txe: %p\n",
 			txe);
-		efa_rdm_txe_release(txe);
+		efa_proto_tx_release(txe);
 	}
 
 	/* Clean up any remaining peers before destroying buffer pools */
@@ -889,8 +889,8 @@ static void efa_rdm_ep_destroy_buffer_pools(struct efa_rdm_ep *efa_rdm_ep)
 		ofi_buf_free(peer_map_entry);
 	}
 
-	if (efa_rdm_ep->ope_pool)
-		ofi_bufpool_destroy(efa_rdm_ep->ope_pool);
+	if (efa_rdm_ep->proto_op_pool)
+		ofi_bufpool_destroy(efa_rdm_ep->proto_op_pool);
 
 	if (efa_rdm_ep->overflow_pke_pool)
 		ofi_bufpool_destroy(efa_rdm_ep->overflow_pke_pool);
@@ -940,7 +940,7 @@ static void efa_rdm_ep_destroy_buffer_pools(struct efa_rdm_ep *efa_rdm_ep)
 /**
  * @brief check if endpoint should wait for send operations to complete
  *
- * This function checks if there are any operations in the ope_posted_ack_list
+ * This function checks if there are any operations in the proto_op_posted_ack_list
  * that are from responsive peers. If all remaining operations are from unresponsive
  * peers, the endpoint should not wait for them to complete.
  *
@@ -953,7 +953,7 @@ bool efa_rdm_ep_close_should_wait_send(struct efa_rdm_ep *efa_rdm_ep)
 	struct efa_rdm_ope *ope;
 	struct dlist_entry *entry;
 
-	dlist_foreach(&efa_rdm_ep->ope_posted_ack_list, entry) {
+	dlist_foreach(&efa_rdm_ep->proto_op_posted_ack_list, entry) {
 		ope = container_of(entry, struct efa_rdm_ope, ack_list_entry);
 		if (ope->peer && !(ope->peer->flags & EFA_RDM_PEER_UNRESP)) {
 			return true;
@@ -982,23 +982,23 @@ static inline void progress_queues_closing_ep(struct efa_rdm_ep *ep)
 		}
 	}
 
-	dlist_foreach_container_safe(&domain->ope_queued_list,
+	dlist_foreach_container_safe(&domain->proto_op_queued_list,
 			struct efa_rdm_ope, ope, queued_entry, tmp) {
 		if (ope->ep == ep) {
 			switch (efa_rdm_pke_get_ctrl_pkt_type_from_queued_ope(ope)) {
 			case EFA_RDM_RECEIPT_PKT:
 			case EFA_RDM_EOR_PKT:
-				if (efa_rdm_ope_process_queued_ope(ope, EFA_RDM_OPE_QUEUED_RNR))
+				if (efa_proto_op_process_queued(ope, EFA_PROTO_OPE_QUEUED_RNR))
 					continue;
-				if (efa_rdm_ope_process_queued_ope(ope, EFA_RDM_OPE_QUEUED_CTRL))
+				if (efa_proto_op_process_queued(ope, EFA_PROTO_OPE_QUEUED_CTRL))
 					continue;
 				break;
 			default:
 				/* Release all other queued OPEs */
-				if (ope->type == EFA_RDM_TXE)
-					efa_rdm_txe_release(ope);
+				if (ope->type == EFA_PROTO_TXE)
+					efa_proto_tx_release(ope);
 				else
-					efa_rdm_rxe_release(ope);
+					efa_proto_rx_release(ope);
 				break;
 			}
 		}
@@ -1137,8 +1137,8 @@ static int efa_rdm_ep_close(struct fid *fid)
 		dlist_foreach_safe (&efa_rdm_ep->rxe_list, entry, tmp) {
 			rxe = container_of(entry, struct efa_rdm_ope, ep_entry);
 			EFA_INFO(FI_LOG_EP_CTRL, "Closing ep with unreleased rxe\n");
-			if (rxe->state != EFA_RDM_RXE_UNEXP)
-				efa_rdm_rxe_release(rxe);
+			if (rxe->state != EFA_PROTO_RXE_UNEXP)
+				efa_proto_rx_release(rxe);
 		}
 		ofi_genlock_unlock(&domain->srx_lock);
 		/*

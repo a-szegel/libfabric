@@ -7,7 +7,7 @@
  *
  * These functions are wired in during Task 11 (the atomic switchover from
  * struct efa_rdm_ope to the new hierarchy).  Until then they coexist with
- * the old efa_rdm_txe_construct / efa_rdm_rxe_release functions.
+ * the old efa_proto_tx_construct / efa_proto_rx_release functions.
  */
 
 #include <assert.h>
@@ -341,9 +341,9 @@ void efa_proto_op_base_release(struct efa_proto_op_base *base)
 				     pkt_entry, entry, tmp)
 		efa_rdm_pke_release_tx(pkt_entry);
 
-	if (base->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS) {
+	if (base->internal_flags & EFA_PROTO_OPE_QUEUED_FLAGS) {
 		dlist_remove(&base->queued_entry);
-		base->internal_flags &= ~EFA_RDM_OPE_QUEUED_FLAGS;
+		base->internal_flags &= ~EFA_PROTO_OPE_QUEUED_FLAGS;
 	}
 
 #ifdef ENABLE_EFA_POISONING

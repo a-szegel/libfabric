@@ -114,7 +114,7 @@ int efa_rdm_pke_fill_data(struct efa_rdm_pke *pkt_entry,
 		 * is sent to continue a runting read transfer after the
 		 * receiver has run out of memory registrations */
 		assert(data_offset == 0 ||
-		       ope->internal_flags & EFA_RDM_OPE_READ_NACK);
+		       ope->internal_flags & EFA_PROTO_OPE_READ_NACK);
 		assert(data_size == -1);
 		ret = efa_rdm_pke_init_longcts_msgrtm(pkt_entry, ope);
 		break;
@@ -123,7 +123,7 @@ int efa_rdm_pke_fill_data(struct efa_rdm_pke *pkt_entry,
 		 * is sent to continue a runting read transfer after the
 		 * receiver has run out of memory registrations */
 		assert(data_offset == 0 ||
-		       ope->internal_flags & EFA_RDM_OPE_READ_NACK);
+		       ope->internal_flags & EFA_PROTO_OPE_READ_NACK);
 		assert(data_size == -1);
 		ret = efa_rdm_pke_init_longcts_tagrtm(pkt_entry, ope);
 		break;
@@ -196,7 +196,7 @@ int efa_rdm_pke_fill_data(struct efa_rdm_pke *pkt_entry,
 		 * is sent to continue a runting read transfer after the
 		 * receiver has run out of memory registrations */
 		assert(data_offset == 0 ||
-		       ope->internal_flags & EFA_RDM_OPE_READ_NACK);
+		       ope->internal_flags & EFA_PROTO_OPE_READ_NACK);
 		assert(data_size == -1);
 		ret = efa_rdm_pke_init_dc_longcts_msgrtm(pkt_entry, ope);
 		break;
@@ -205,7 +205,7 @@ int efa_rdm_pke_fill_data(struct efa_rdm_pke *pkt_entry,
 		 * is sent to continue a runting read transfer after the
 		 * receiver has run out of memory registrations */
 		assert(data_offset == 0 ||
-		       ope->internal_flags & EFA_RDM_OPE_READ_NACK);
+		       ope->internal_flags & EFA_PROTO_OPE_READ_NACK);
 		assert(data_size == -1);
 		ret = efa_rdm_pke_init_dc_longcts_tagrtm(pkt_entry, ope);
 		break;
@@ -353,13 +353,13 @@ void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry)
 	efa_rdm_pke_release_rx(pkt_entry);
 
 	if (ope->total_len == ope->bytes_copied) {
-		if (ope->cuda_copy_method == EFA_RDM_CUDA_COPY_BLOCKING) {
+		if (ope->cuda_copy_method == EFA_PROTO_CUDA_COPY_BLOCKING) {
 			assert(ep->blocking_copy_rxe_num > 0);
-			ope->cuda_copy_method = EFA_RDM_CUDA_COPY_UNSPEC;
+			ope->cuda_copy_method = EFA_PROTO_CUDA_COPY_UNSPEC;
 			ep->blocking_copy_rxe_num -= 1;
 		}
 
-		efa_rdm_ope_handle_recv_completed(ope);
+		efa_proto_op_handle_recv_completed(ope);
 	}
 }
 
@@ -424,7 +424,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 	}
 
 	switch (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type) {
-	case EFA_RDM_TXE:
+	case EFA_PROTO_TXE:
 		txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 		if (efa_rdm_pkt_type_of(pkt_entry) == EFA_RDM_HANDSHAKE_PKT) {
 			switch (prov_errno) {
@@ -465,7 +465,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 				}
 			}
 			efa_rdm_pke_release_tx(pkt_entry);
-			efa_rdm_txe_release(txe);
+			efa_proto_tx_release(txe);
 
 			break;
 		}
@@ -480,14 +480,14 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 				 * might encounter RNR from device multiple times, but it
 				 * should only write cq err entry once
 				 */
-				if (!(txe->internal_flags & EFA_RDM_TXE_WRITTEN_RNR_CQ_ERR_ENTRY)) {
-					txe->internal_flags |= EFA_RDM_TXE_WRITTEN_RNR_CQ_ERR_ENTRY;
-					efa_rdm_txe_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
+				if (!(txe->internal_flags & EFA_PROTO_TXE_WRITTEN_RNR_CQ_ERR_ENTRY)) {
+					txe->internal_flags |= EFA_PROTO_TXE_WRITTEN_RNR_CQ_ERR_ENTRY;
+					efa_proto_tx_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
 				}
 
 				efa_rdm_pke_release_tx(pkt_entry);
 				if (!txe->efa_outstanding_tx_ops)
-					efa_rdm_txe_release(txe);
+					efa_proto_tx_release(txe);
 			} else {
 				/*
 				 * This packet is associated with a send operation, (such
@@ -497,11 +497,11 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 				efa_rdm_ep_queue_rnr_pkt(ep, pkt_entry);
 			}
 		} else {
-			efa_rdm_txe_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
+			efa_proto_tx_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
 			efa_rdm_pke_release_tx(pkt_entry);
 		}
 		break;
-	case EFA_RDM_RXE:
+	case EFA_PROTO_RXE:
 		if (prov_errno == EFA_IO_COMP_STATUS_REMOTE_ERROR_RNR) {
 			/*
 			 * This packet is associated with a recv operation, (such packets
@@ -511,7 +511,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			 */
 			efa_rdm_ep_queue_rnr_pkt(ep, pkt_entry);
 		} else {
-			efa_rdm_rxe_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
+			efa_proto_rx_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
 			efa_rdm_pke_release_tx(pkt_entry);
 		}
 		break;
@@ -571,7 +571,7 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 				   EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->msg_id,
 				   (size_t) EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->cq_entry.op_context,
 				   EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->total_len);
-		efa_rdm_txe_release(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope));
+		efa_proto_tx_release(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope));
 		break;
 	case EFA_RDM_CTS_PKT:
 		break;
@@ -625,7 +625,7 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 	case EFA_RDM_SHORT_RTR_PKT:
 	case EFA_RDM_LONGCTS_RTR_PKT:
 		/* Unlike other protocol, for emulated read, txe
-		 * is released in efa_rdm_ope_handle_recv_completed().
+		 * is released in efa_proto_op_handle_recv_completed().
 	         * Therefore there is nothing to be done here.
 		 */
 		break;
@@ -654,8 +654,8 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		 * Only release TXE when both TX ops complete and receipt is received.
 		 */
 		assert(pkt_entry->ope);
-		if (efa_rdm_txe_dc_ready_for_release(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)))
-			efa_rdm_txe_release(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope));
+		if (efa_proto_tx_dc_ready_for_release(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)))
+			efa_proto_tx_release(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope));
 		break;
 	case EFA_RDM_READ_NACK_PKT:
 		/* no action needed for NACK packet */
@@ -715,10 +715,10 @@ void efa_rdm_pke_handle_rx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 		return;
 	}
 
-	if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type == EFA_RDM_TXE) {
-		efa_rdm_txe_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
-	} else if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type == EFA_RDM_RXE) {
-		efa_rdm_rxe_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
+	if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type == EFA_PROTO_TXE) {
+		efa_proto_tx_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
+	} else if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type == EFA_PROTO_RXE) {
+		efa_proto_rx_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
 	} else {
 		EFA_WARN(FI_LOG_CQ, "unknown RDM operation entry type encountered: %d\n",
 			EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type);
@@ -746,8 +746,8 @@ void efa_rdm_pke_proc_received_no_hdr(struct efa_rdm_pke *pkt_entry, bool has_im
 	rxe->total_len = pkt_entry->pkt_size;
 	rxe->cq_entry.len = pkt_entry->pkt_size;
 
-	efa_rdm_rxe_report_completion(rxe);
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_report_completion(rxe);
+	efa_proto_rx_release(rxe);
 	efa_rdm_pke_release_rx(pkt_entry);
 }
 
