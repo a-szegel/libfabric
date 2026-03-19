@@ -17,7 +17,7 @@
 
 void efa_rdm_pke_init_rtr_common(struct efa_rdm_pke *pkt_entry,
 				 int pkt_type,
-				 struct efa_proto_ope *txe,
+				 struct efa_proto_ope_base *txe,
 				 int window)
 {
 	struct efa_rdm_rtr_hdr *rtr_hdr;
@@ -48,7 +48,7 @@ void efa_rdm_pke_init_rtr_common(struct efa_rdm_pke *pkt_entry,
  *
 */
 ssize_t efa_rdm_pke_init_short_rtr(struct efa_rdm_pke *pkt_entry,
-				   struct efa_proto_ope *txe)
+				   struct efa_proto_ope_base *txe)
 {
 	efa_rdm_pke_init_rtr_common(pkt_entry,
 				    EFA_RDM_SHORT_RTR_PKT,
@@ -58,12 +58,12 @@ ssize_t efa_rdm_pke_init_short_rtr(struct efa_rdm_pke *pkt_entry,
 }
 
 ssize_t efa_rdm_pke_init_longcts_rtr(struct efa_rdm_pke *pkt_entry,
-				     struct efa_proto_ope *txe)
+				     struct efa_proto_ope_base *txe)
 {
 	efa_rdm_pke_init_rtr_common(pkt_entry,
 				    EFA_RDM_LONGCTS_RTR_PKT,
 				    txe,
-				    txe->window);
+				    efa_proto_to_tx_msg(txe)->window);
 	return 0;
 }
 
@@ -78,10 +78,10 @@ ssize_t efa_rdm_pke_init_longcts_rtr(struct efa_rdm_pke *pkt_entry,
  * pointer to the newly allocated RX entry.
  * NULL when OP entry pool has been exhausted.
  */
-struct efa_proto_ope *efa_rdm_pke_alloc_rtr_rxe(struct efa_rdm_pke *pkt_entry)
+struct efa_proto_ope_base *efa_rdm_pke_alloc_rtr_rxe(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ep *ep = pkt_entry->ep;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_rtr_hdr *rtr_hdr;
 
 	rxe = efa_proto_ep_alloc_rxe(ep, pkt_entry->peer, ofi_op_read_rsp);
@@ -90,7 +90,7 @@ struct efa_proto_ope *efa_rdm_pke_alloc_rtr_rxe(struct efa_rdm_pke *pkt_entry)
 
 	rtr_hdr = (struct efa_rdm_rtr_hdr *)pkt_entry->wiredata;
 	rxe->tx_id = rtr_hdr->recv_id;
-	rxe->window = rtr_hdr->recv_length;
+	efa_proto_to_rx_msg(rxe)->window = rtr_hdr->recv_length;
 	rxe->iov_count = rtr_hdr->rma_iov_count;
 	rxe->internal_flags |= EFA_PROTO_OPE_INTERNAL;
 
@@ -107,7 +107,7 @@ void efa_rdm_pke_handle_rtr_recv(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_rtr_hdr *rtr_hdr;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	ssize_t err;
 
 	ep = pkt_entry->ep;

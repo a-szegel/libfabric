@@ -35,17 +35,19 @@ static void efa_rdm_atomic_init_shm_msg(struct efa_rdm_ep *ep, struct fi_msg_ato
 }
 
 static
-struct efa_proto_ope *
+struct efa_proto_ope_base *
 efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 		      	 struct efa_rdm_peer *peer,
 			 const struct fi_msg_atomic *msg_atomic,
 			 const struct efa_proto_atomic_ex *atomic_ex,
 			 uint32_t op, uint64_t flags)
 {
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
+	struct efa_proto_tx_atomic *tx_atomic;
 	struct fi_msg msg;
 	struct iovec iov[EFA_PROTO_IOV_LIMIT];
 	size_t datatype_size;
+	struct efa_proto_atomic_hdr hdr;
 
 	datatype_size = ofi_datatype_size(msg_atomic->datatype);
 	if (OFI_UNLIKELY(!datatype_size)) {
@@ -58,8 +60,6 @@ efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 		return NULL;
 	}
 
-	dlist_insert_tail(&txe->ep_entry, &efa_rdm_ep->txe_list);
-
 	ofi_ioc_to_iov(msg_atomic->msg_iov, iov, msg_atomic->iov_count, datatype_size);
 	msg.addr = msg_atomic->addr;
 	msg.msg_iov = iov;
@@ -67,7 +67,13 @@ efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 	msg.iov_count = msg_atomic->iov_count;
 	msg.data = msg_atomic->data;
 	msg.desc = msg_atomic->desc;
-	efa_proto_tx_construct(txe, efa_rdm_ep, peer, &msg, op, flags);
+
+	hdr.atomic_op = msg_atomic->op;
+	hdr.datatype = msg_atomic->datatype;
+
+	tx_atomic = (struct efa_proto_tx_atomic *)txe;
+	efa_proto_tx_atomic_init(tx_atomic, efa_rdm_ep, peer, &msg,
+				 op, flags, &hdr, atomic_ex);
 
 	assert(msg_atomic->rma_iov_count > 0);
 	assert(msg_atomic->rma_iov);
@@ -77,14 +83,7 @@ efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 			   msg_atomic->rma_iov_count,
 			   datatype_size);
 
-	txe->atomic_hdr.atomic_op = msg_atomic->op;
-	txe->atomic_hdr.datatype = msg_atomic->datatype;
-
-	if (op == ofi_op_atomic_fetch || op == ofi_op_atomic_compare) {
-		assert(atomic_ex);
-		memcpy(&txe->atomic_ex, atomic_ex, sizeof(struct efa_proto_atomic_ex));
-	}
-
+	dlist_insert_tail(&txe->ep_entry, &efa_rdm_ep->txe_list);
 	return txe;
 }
 
@@ -95,7 +94,7 @@ efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
  * @param txe tx entry
  * @return ssize_t 0 on success, negative integer on failure
  */
-ssize_t efa_proto_atomic_post_atomic(struct efa_rdm_ep *efa_rdm_ep, struct efa_proto_ope *txe)
+ssize_t efa_proto_atomic_post_atomic(struct efa_rdm_ep *efa_rdm_ep, struct efa_proto_ope_base *txe)
 {
 	bool delivery_complete_requested;
 	static int req_pkt_type_list[] = {
@@ -145,7 +144,7 @@ ssize_t efa_rdm_atomic_generic_efa(struct efa_rdm_ep *efa_rdm_ep,
 			       const struct efa_proto_atomic_ex *atomic_ex,
 			       uint32_t op, uint64_t flags)
 {
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 	ssize_t err;
 	struct util_srx_ctx *srx_ctx;
 

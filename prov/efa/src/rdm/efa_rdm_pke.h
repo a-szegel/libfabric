@@ -280,7 +280,7 @@ static_assert(sizeof (struct efa_rdm_pke) == EFA_RDM_PKE_ALIGNMENT, "efa_rdm_pke
 
 struct efa_rdm_ep;
 
-struct efa_proto_ope;
+struct efa_proto_ope_base;
 
 struct efa_proto_ope_base;
 

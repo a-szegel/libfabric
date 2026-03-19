@@ -31,7 +31,7 @@
  */
 static inline
 ssize_t efa_rdm_pke_init_rtw_common(struct efa_rdm_pke *pkt_entry,
-				    struct efa_proto_ope *txe,
+				    struct efa_proto_ope_base *txe,
 				    struct efa_rma_iov *rma_iov)
 {
 	size_t hdr_size;
@@ -60,9 +60,9 @@ ssize_t efa_rdm_pke_init_rtw_common(struct efa_rdm_pke *pkt_entry,
  * pointer to the newly allocated RX entry.
  * NULL when OP entry pool has been exhausted.
  */
-struct efa_proto_ope *efa_rdm_pke_alloc_rtw_rxe(struct efa_rdm_pke *pkt_entry)
+struct efa_proto_ope_base *efa_rdm_pke_alloc_rtw_rxe(struct efa_rdm_pke *pkt_entry)
 {
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_base_hdr *base_hdr;
 
 	rxe = efa_proto_ep_alloc_rxe(pkt_entry->ep, pkt_entry->peer, ofi_op_write);
@@ -90,7 +90,7 @@ struct efa_proto_ope *efa_rdm_pke_alloc_rtw_rxe(struct efa_rdm_pke *pkt_entry)
  * negative libfabric error code on failure
  */
 ssize_t efa_rdm_pke_init_eager_rtw(struct efa_rdm_pke *pkt_entry,
-				   struct efa_proto_ope *txe)
+				   struct efa_proto_ope_base *txe)
 {
 	struct efa_rdm_eager_rtw_hdr *rtw_hdr;
 
@@ -112,7 +112,7 @@ ssize_t efa_rdm_pke_init_eager_rtw(struct efa_rdm_pke *pkt_entry,
  */
 void efa_rdm_pke_handle_eager_rtw_send_completion(struct efa_rdm_pke *pkt_entry)
 {
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 
 	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	assert(txe->total_len == pkt_entry->payload_size);
@@ -131,7 +131,7 @@ void efa_rdm_pke_handle_eager_rtw_send_completion(struct efa_rdm_pke *pkt_entry)
  * @param[in]		rma_iov_count	number of elements in rma_iov
  */
 void efa_rdm_pke_proc_eager_rtw(struct efa_rdm_pke *pkt_entry,
-				struct efa_proto_ope *rxe,
+				struct efa_proto_ope_base *rxe,
 				struct efa_rma_iov *rma_iov,
 				size_t rma_iov_count)
 {
@@ -155,7 +155,7 @@ void efa_rdm_pke_proc_eager_rtw(struct efa_rdm_pke *pkt_entry,
 	rxe->cq_entry.buf = rxe->iov[0].iov_base;
 	rxe->total_len = rxe->cq_entry.len;
 
-	rxe->bytes_received += pkt_entry->payload_size;
+	efa_proto_to_rx(rxe)->bytes_received += pkt_entry->payload_size;
 	if (pkt_entry->payload_size != rxe->total_len) {
 		EFA_WARN(FI_LOG_CQ, "Eager RTM size mismatch! payload_size: %ld total_len: %ld.\n",
 			 pkt_entry->payload_size, rxe->total_len);
@@ -185,7 +185,7 @@ void efa_rdm_pke_proc_eager_rtw(struct efa_rdm_pke *pkt_entry,
 void efa_rdm_pke_handle_eager_rtw_recv(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ep *ep;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_eager_rtw_hdr *rtw_hdr;
 
 	ep = pkt_entry->ep;
@@ -219,7 +219,7 @@ void efa_rdm_pke_handle_eager_rtw_recv(struct efa_rdm_pke *pkt_entry)
  * negative libfabric error code on failure
  */
 ssize_t efa_rdm_pke_init_dc_eager_rtw(struct efa_rdm_pke *pkt_entry,
-				      struct efa_proto_ope *txe)
+				      struct efa_proto_ope_base *txe)
 {
 	struct efa_rdm_dc_eager_rtw_hdr *dc_eager_rtw_hdr;
 	int ret;
@@ -247,7 +247,7 @@ ssize_t efa_rdm_pke_init_dc_eager_rtw(struct efa_rdm_pke *pkt_entry,
  */
 void efa_rdm_pke_handle_dc_eager_rtw_recv(struct efa_rdm_pke *pkt_entry)
 {
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_dc_eager_rtw_hdr *rtw_hdr;
 
 	rxe = efa_rdm_pke_alloc_rtw_rxe(pkt_entry);
@@ -279,7 +279,7 @@ void efa_rdm_pke_handle_dc_eager_rtw_recv(struct efa_rdm_pke *pkt_entry)
 static inline
 void efa_rdm_pke_init_longcts_rtw_hdr(struct efa_rdm_pke *pkt_entry,
 				      int pkt_type,
-				      struct efa_proto_ope *txe)
+				      struct efa_proto_ope_base *txe)
 {
 	struct efa_rdm_longcts_rtw_hdr *rtw_hdr;
 
@@ -302,7 +302,7 @@ void efa_rdm_pke_init_longcts_rtw_hdr(struct efa_rdm_pke *pkt_entry,
  * negative libfabric error code on failure
  */
 ssize_t efa_rdm_pke_init_longcts_rtw(struct efa_rdm_pke *pkt_entry,
-				     struct efa_proto_ope *txe)
+				     struct efa_proto_ope_base *txe)
 {
 	struct efa_rdm_longcts_rtw_hdr *rtw_hdr;
 
@@ -323,14 +323,14 @@ ssize_t efa_rdm_pke_init_longcts_rtw(struct efa_rdm_pke *pkt_entry,
 void efa_rdm_pke_handle_longcts_rtw_sent(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ep *ep;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 	struct efa_domain *efa_domain;
 
 	ep = pkt_entry->ep;
 	efa_domain = efa_rdm_ep_domain(ep);
 	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
-	txe->bytes_sent += pkt_entry->payload_size;
-	assert(txe->bytes_sent < txe->total_len);
+	efa_proto_to_tx(txe)->bytes_sent += pkt_entry->payload_size;
+	assert(efa_proto_to_tx(txe)->bytes_sent < txe->total_len);
 	if (efa_is_cache_available(efa_domain))
 		efa_proto_ope_try_fill_desc(txe, 0, FI_SEND);
 }
@@ -344,7 +344,7 @@ void efa_rdm_pke_handle_longcts_rtw_sent(struct efa_rdm_pke *pkt_entry)
  */
 void efa_rdm_pke_handle_longcts_rtw_send_completion(struct efa_rdm_pke *pkt_entry)
 {
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 
 	/**
 	 * A zero-payload longcts rtw pkt currently should only happen when it's
@@ -359,8 +359,8 @@ void efa_rdm_pke_handle_longcts_rtw_send_completion(struct efa_rdm_pke *pkt_entr
 	}
 
 	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
-	txe->bytes_acked += pkt_entry->payload_size;
-	if (txe->total_len == txe->bytes_acked)
+	efa_proto_to_tx(txe)->bytes_acked += pkt_entry->payload_size;
+	if (txe->total_len == efa_proto_to_tx(txe)->bytes_acked)
 		efa_proto_ope_handle_send_completed(txe);
 }
 
@@ -374,7 +374,7 @@ void efa_rdm_pke_handle_longcts_rtw_send_completion(struct efa_rdm_pke *pkt_entr
 void efa_rdm_pke_handle_longcts_rtw_recv(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ep *ep;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_longcts_rtw_hdr *rtw_hdr;
 	ssize_t err;
 	uint32_t tx_id;
@@ -411,7 +411,7 @@ void efa_rdm_pke_handle_longcts_rtw_recv(struct efa_rdm_pke *pkt_entry)
 	rxe->cq_entry.buf = rxe->iov[0].iov_base;
 	rxe->total_len = rxe->cq_entry.len;
 
-	rxe->bytes_received += pkt_entry->payload_size;
+	efa_proto_to_rx(rxe)->bytes_received += pkt_entry->payload_size;
 	if (pkt_entry->payload_size >= rxe->total_len) {
 		EFA_WARN(FI_LOG_CQ, "Long RTM size mismatch! payload_size: %ld total_len: %ld\n",
 			 pkt_entry->payload_size, rxe->total_len);
@@ -457,7 +457,7 @@ void efa_rdm_pke_handle_longcts_rtw_recv(struct efa_rdm_pke *pkt_entry)
  * negative libfabric error code on failure
  */
 ssize_t efa_rdm_pke_init_dc_longcts_rtw(struct efa_rdm_pke *pkt_entry,
-					struct efa_proto_ope *txe)
+					struct efa_proto_ope_base *txe)
 {
 	struct efa_rdm_longcts_rtw_hdr *rtw_hdr;
 
@@ -480,7 +480,7 @@ ssize_t efa_rdm_pke_init_dc_longcts_rtw(struct efa_rdm_pke *pkt_entry,
  * negative libfabric error code on failure
  */
 ssize_t efa_rdm_pke_init_longread_rtw(struct efa_rdm_pke *pkt_entry,
-				      struct efa_proto_ope *txe)
+				      struct efa_proto_ope_base *txe)
 {
 	struct efa_rdm_longread_rtw_hdr *rtw_hdr;
 	struct efa_rma_iov *rma_iov;
@@ -523,7 +523,7 @@ ssize_t efa_rdm_pke_init_longread_rtw(struct efa_rdm_pke *pkt_entry,
 void efa_rdm_pke_handle_longread_rtw_recv(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ep *ep;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_longread_rtw_hdr *rtw_hdr;
 	struct fi_rma_iov *read_iov;
 	size_t hdr_size;

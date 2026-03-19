@@ -106,9 +106,9 @@ void efa_unit_test_eager_msgrtm_pkt_construct(struct efa_rdm_pke *pkt_entry, str
 
 void efa_unit_test_construct_handshake_pkt_for_receive(struct efa_rdm_pke *pkt_entry, struct efa_unit_test_handshake_pkt_attr *attr);
 
-struct efa_proto_ope *efa_unit_test_alloc_txe(struct efa_resource *resource, uint32_t op);
+struct efa_proto_ope_base *efa_unit_test_alloc_txe(struct efa_resource *resource, uint32_t op);
 
-struct efa_proto_ope *efa_unit_test_alloc_rxe(struct efa_resource *resource, uint32_t op);
+struct efa_proto_ope_base *efa_unit_test_alloc_rxe(struct efa_resource *resource, uint32_t op);
 
 /* end of common functions in efa_unit_test_common.c */
 

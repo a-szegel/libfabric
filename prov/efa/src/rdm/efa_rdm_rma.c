@@ -44,14 +44,14 @@ int efa_rdm_rma_verified_copy_iov(struct efa_rdm_ep *ep, struct efa_rma_iov *rma
 }
 
 
-struct efa_proto_ope *
+struct efa_proto_ope_base *
 efa_proto_rma_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 		      struct efa_rdm_peer *peer,
 		      const struct fi_msg_rma *msg_rma,
 		      uint32_t op,
 		      uint64_t flags)
 {
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 	struct fi_msg msg;
 
 	txe = ofi_buf_alloc(efa_rdm_ep->proto_ope_pool);
@@ -66,7 +66,13 @@ efa_proto_rma_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 	msg.iov_count = msg_rma->iov_count;
 	msg.data = msg_rma->data;
 	msg.desc = msg_rma->desc;
-	efa_proto_tx_construct(txe, efa_rdm_ep, peer, &msg, op, flags);
+
+	if (op == ofi_op_read_req)
+		efa_proto_tx_rma_read_init((struct efa_proto_tx_rma_read *)txe,
+					   efa_rdm_ep, peer, &msg, flags);
+	else
+		efa_proto_tx_rma_write_init((struct efa_proto_tx_rma_write *)txe,
+					    efa_rdm_ep, peer, &msg, flags);
 
 	assert(msg_rma->rma_iov_count > 0);
 	assert(msg_rma->rma_iov);
@@ -79,7 +85,7 @@ efa_proto_rma_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 }
 
 /* rma_read functions */
-ssize_t efa_rdm_rma_post_efa_emulated_read(struct efa_rdm_ep *ep, struct efa_proto_ope *txe)
+ssize_t efa_rdm_rma_post_efa_emulated_read(struct efa_rdm_ep *ep, struct efa_proto_ope_base *txe)
 {
 	int err;
 
@@ -93,7 +99,7 @@ ssize_t efa_rdm_rma_post_efa_emulated_read(struct efa_rdm_ep *ep, struct efa_pro
 		err = efa_proto_ope_post_send(txe, EFA_RDM_SHORT_RTR_PKT);
 	} else {
 		assert(efa_env.tx_min_credits > 0);
-		txe->window = MIN(txe->total_len,
+		efa_proto_to_tx_msg(txe)->window = MIN(txe->total_len,
 				       efa_env.tx_min_credits * ep->max_data_payload_size);
 		err = efa_proto_ope_post_send(txe, EFA_RDM_LONGCTS_RTR_PKT);
 	}
@@ -115,7 +121,7 @@ ssize_t efa_rdm_rma_post_efa_emulated_read(struct efa_rdm_ep *ep, struct efa_pro
  * @param txe tx entry
  * @return int 0 on success, negative integer on failure.
  */
-ssize_t efa_proto_rma_post_read(struct efa_rdm_ep *ep, struct efa_proto_ope *txe)
+ssize_t efa_proto_rma_post_read(struct efa_rdm_ep *ep, struct efa_proto_ope_base *txe)
 {
 	bool use_device_read = false;
 	int use_p2p;
@@ -166,7 +172,7 @@ ssize_t efa_proto_rma_post_read(struct efa_rdm_ep *ep, struct efa_proto_ope *txe
 ssize_t efa_rdm_rma_generic_readmsg(struct efa_rdm_ep *efa_rdm_ep, struct efa_rdm_peer *peer, const struct fi_msg_rma *msg, uint64_t flags)
 {
 	ssize_t err;
-	struct efa_proto_ope *txe = NULL;
+	struct efa_proto_ope_base *txe = NULL;
 	struct util_srx_ctx *srx_ctx;
 
 	efa_rdm_tracepoint(read_begin_msg_context,
@@ -336,7 +342,7 @@ ssize_t efa_rdm_rma_read(struct fid_ep *ep, void *buf, size_t len, void *desc,
  * @param txe	The ope context for this write.
  * @return On success return 0, otherwise return a negative libfabric error code.
  */
-ssize_t efa_proto_rma_post_write(struct efa_rdm_ep *ep, struct efa_proto_ope *txe)
+ssize_t efa_proto_rma_post_write(struct efa_rdm_ep *ep, struct efa_proto_ope_base *txe)
 {
 	ssize_t err;
 	bool delivery_complete_requested;
@@ -413,7 +419,7 @@ static inline ssize_t efa_rdm_rma_generic_writemsg(struct efa_rdm_ep *efa_rdm_ep
 			 uint64_t flags)
 {
 	ssize_t err;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 	struct util_srx_ctx *srx_ctx;
 
 	efa_rdm_tracepoint(write_begin_msg_context,

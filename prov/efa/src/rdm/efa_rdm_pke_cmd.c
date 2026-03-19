@@ -46,7 +46,7 @@
  */
 int efa_rdm_pke_fill_data(struct efa_rdm_pke *pkt_entry,
 			  int pkt_type,
-			  struct efa_proto_ope *ope,
+			  struct efa_proto_ope_base *ope,
 			  int64_t data_offset,
 			  int data_size)
 {
@@ -340,7 +340,7 @@ void efa_rdm_pke_handle_sent(struct efa_rdm_pke *pkt_entry, int pkt_type, struct
  */
 void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry)
 {
-	struct efa_proto_ope *ope;
+	struct efa_proto_ope_base *ope;
 	struct efa_rdm_ep *ep;
 
 	ope = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
@@ -348,14 +348,14 @@ void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry)
 	ep = pkt_entry->ep;
 	assert(ep);
 
-	ope->bytes_copied += pkt_entry->payload_size;
+	efa_proto_to_rx(ope)->bytes_copied += pkt_entry->payload_size;
 	efa_rdm_tracepoint(rx_pke_proc_matched_msg_end, (size_t) pkt_entry, pkt_entry->payload_size, ope->msg_id, (size_t) ope->cq_entry.op_context, ope->total_len);
 	efa_rdm_pke_release_rx(pkt_entry);
 
-	if (ope->total_len == ope->bytes_copied) {
-		if (ope->cuda_copy_method == EFA_PROTO_CUDA_COPY_BLOCKING) {
+	if (ope->total_len == efa_proto_to_rx(ope)->bytes_copied) {
+		if (efa_proto_to_rx(ope)->cuda_copy_method == EFA_PROTO_CUDA_COPY_BLOCKING) {
 			assert(ep->blocking_copy_rxe_num > 0);
-			ope->cuda_copy_method = EFA_PROTO_CUDA_COPY_UNSPEC;
+			efa_proto_to_rx(ope)->cuda_copy_method = EFA_PROTO_CUDA_COPY_UNSPEC;
 			ep->blocking_copy_rxe_num -= 1;
 		}
 
@@ -400,7 +400,7 @@ void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry)
  */
 void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 {
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 	struct efa_rdm_ep *ep;
 
 	int err = to_fi_errno(prov_errno);
@@ -731,7 +731,7 @@ void efa_rdm_pke_handle_rx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 
 void efa_rdm_pke_proc_received_no_hdr(struct efa_rdm_pke *pkt_entry, bool has_imm_data, uint32_t imm_data)
 {
-	struct efa_proto_ope *rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
+	struct efa_proto_ope_base *rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 
 	assert(pkt_entry->flags & EFA_RDM_PKE_HAS_NO_BASE_HDR);
 	assert(rxe);

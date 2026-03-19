@@ -6,7 +6,7 @@
 #include "rdm/efa_proto_ope.h"
 #include "rdm/efa_rdm_pke_nonreq.h"
 
-typedef void (*efa_proto_ope_handle_error_func_t)(struct efa_proto_ope *ope, int err, int prov_errno);
+typedef void (*efa_proto_ope_handle_error_func_t)(struct efa_proto_ope_base *ope, int err, int prov_errno);
 
 void test_efa_rdm_ope_prepare_to_post_send_impl(struct efa_resource *resource,
 						enum fi_hmem_iface iface,
@@ -17,7 +17,7 @@ void test_efa_rdm_ope_prepare_to_post_send_impl(struct efa_resource *resource,
 {
 	struct efa_ep_addr raw_addr;
 	struct efa_mr mock_mr;
-	struct efa_proto_ope mock_txe;
+	struct efa_proto_ope_base mock_txe;
 	struct efa_rdm_peer mock_peer;
 	size_t raw_addr_len = sizeof(raw_addr);
 	fi_addr_t addr;
@@ -245,7 +245,7 @@ void test_efa_rdm_ope_post_write_0_byte(struct efa_resource **state)
 	struct efa_resource *resource = *state;
 	struct efa_unit_test_buff local_buff;
 	struct efa_ep_addr raw_addr;
-	struct efa_proto_ope mock_txe;
+	struct efa_proto_ope_base mock_txe;
 	size_t raw_addr_len = sizeof(raw_addr);
 	fi_addr_t addr;
 	uint64_t wr_id;
@@ -310,7 +310,7 @@ void test_efa_rdm_rxe_post_local_read_or_queue_impl(struct efa_resource *resourc
 {
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pkt_entry;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_mr cuda_mr = {0};
 	char buf[16];
 	struct iovec iov = {
@@ -373,7 +373,7 @@ void test_efa_rdm_rxe_post_local_read_or_queue_happy(struct efa_resource **state
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_resource *resource = *state;
 	struct efa_rdm_pke *tx_pkt_entry;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
 
@@ -382,7 +382,7 @@ void test_efa_rdm_rxe_post_local_read_or_queue_happy(struct efa_resource **state
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 	/* Now we should have a txe allocated */
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list),  1);
-	txe = container_of(efa_rdm_ep->txe_list.next, struct efa_proto_ope, ep_entry);
+	txe = container_of(efa_rdm_ep->txe_list.next, struct efa_proto_ope_base, ep_entry);
 	assert_true(txe->internal_flags & EFA_PROTO_OPE_INTERNAL);
 
 	/* We also have a tx pkt allocated inside efa_proto_ope_read
@@ -395,7 +395,7 @@ static
 void test_efa_proto_ope_handle_error_impl(
 	struct efa_resource *resource,
 	efa_proto_ope_handle_error_func_t efa_proto_ope_handle_error,
-	struct efa_proto_ope *ope, bool expect_cq_error)
+	struct efa_proto_ope_base *ope, bool expect_cq_error)
 {
 	struct fi_cq_data_entry cq_entry;
 	struct fi_cq_err_entry cq_err_entry = {0};
@@ -427,7 +427,7 @@ void test_efa_proto_ope_handle_error_impl(
 void test_efa_rdm_txe_handle_error_write_cq(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
 
@@ -442,7 +442,7 @@ void test_efa_rdm_txe_handle_error_write_cq(struct efa_resource **state)
 void test_efa_rdm_txe_handle_error_not_write_cq(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
 
@@ -459,7 +459,7 @@ void test_efa_rdm_txe_handle_error_not_write_cq(struct efa_resource **state)
 void test_efa_rdm_rxe_handle_error_write_cq(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
 
@@ -474,7 +474,7 @@ void test_efa_rdm_rxe_handle_error_write_cq(struct efa_resource **state)
 void test_efa_rdm_rxe_handle_error_not_write_cq(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
 
@@ -491,7 +491,7 @@ void test_efa_rdm_rxe_handle_error_not_write_cq(struct efa_resource **state)
 void test_efa_rdm_rxe_map(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_peer *peer;
 	struct efa_rdm_ep *efa_rdm_ep;
 
@@ -530,7 +530,7 @@ void test_efa_rdm_rxe_map(struct efa_resource **state)
 void test_efa_rdm_rxe_list_removal(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_ep *efa_rdm_ep;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
@@ -554,7 +554,7 @@ void test_efa_rdm_rxe_list_removal(struct efa_resource **state)
 void test_efa_rdm_txe_list_removal(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 	struct efa_rdm_ep *efa_rdm_ep;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
@@ -583,7 +583,7 @@ void test_efa_rdm_txe_list_removal(struct efa_resource **state)
 void test_efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pkt_entry;
 	struct fid_ep *ep;
@@ -635,7 +635,7 @@ void test_efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_resource **state)
 void test_efa_rdm_txe_handle_error_queue_flags_cleanup(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 	struct efa_rdm_ep *efa_rdm_ep;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
@@ -670,7 +670,7 @@ void test_efa_rdm_txe_handle_error_queue_flags_cleanup(struct efa_resource **sta
 void test_efa_rdm_rxe_handle_error_queue_flags_cleanup(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_ep *efa_rdm_ep;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
@@ -707,7 +707,7 @@ void test_efa_rdm_rxe_handle_error_queue_flags_cleanup(struct efa_resource **sta
 void test_efa_rdm_txe_handle_error_duplicate_prevention(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 	struct efa_rdm_ep *efa_rdm_ep;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
@@ -746,7 +746,7 @@ void test_efa_rdm_txe_handle_error_duplicate_prevention(struct efa_resource **st
 void test_efa_rdm_rxe_handle_error_duplicate_prevention(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_ep *efa_rdm_ep;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
@@ -800,10 +800,10 @@ static void test_efa_rdm_ope_ack_packet_tracking_common(
 	int post_return_code,
 	int ibv_cq_status,
 	int vendor_err,
-	struct efa_proto_ope **rxe_allocated)
+	struct efa_proto_ope_base **rxe_allocated)
 {
 	struct efa_rdm_ep *efa_rdm_ep;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
 
@@ -855,7 +855,7 @@ static
 void test_efa_rdm_ope_receit_eor_packet_tracking_cq_read_common(struct efa_resource **state, int pkt_type)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_ep *efa_rdm_ep;
 
 	test_efa_rdm_ope_ack_packet_tracking_common(resource, pkt_type, 0, IBV_WC_SUCCESS, 0, &rxe);
@@ -883,7 +883,7 @@ static
 void test_efa_rdm_ope_ack_packet_tracking_wait_send_common(struct efa_resource **state, int pkt_type)
 {
 	struct efa_resource *resource = *state;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_ep *efa_rdm_ep;
 
 	test_efa_rdm_ope_ack_packet_tracking_common(resource, pkt_type, 0, IBV_WC_SUCCESS, 0, &rxe);
@@ -912,7 +912,7 @@ void test_efa_rdm_ope_ack_packet_failed_posting_common(struct efa_resource **sta
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 
 	test_efa_rdm_ope_ack_packet_tracking_common(resource, pkt_type, -FI_EINVAL, IBV_WC_SUCCESS, 0, &rxe);
 
@@ -934,7 +934,7 @@ void test_efa_rdm_ope_ack_packet_tracking_unresponsive_wait_send_common(struct e
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
-	struct efa_proto_ope *rxe, *rxe2;
+	struct efa_proto_ope_base *rxe, *rxe2;
 
 	test_efa_rdm_ope_ack_packet_tracking_common(resource, pkt_type, 0, IBV_WC_GENERAL_ERR, EFA_IO_COMP_STATUS_LOCAL_ERROR_UNRESP_REMOTE, &rxe);
 
@@ -1099,7 +1099,7 @@ void test_efa_rdm_atomic_compare_desc_persistence(struct efa_resource **state)
 	struct fi_msg_atomic msg = {0};
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_peer *peer;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 
 	/* disable shm to force using efa device to send */
 	efa_unit_test_resource_construct_rdm_shm_disabled(resource);
@@ -1170,7 +1170,7 @@ void test_efa_rdm_atomic_compare_desc_persistence(struct efa_resource **state)
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 	assert_false(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list));
 	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list.next,
-			   struct efa_proto_ope, queued_entry);
+			   struct efa_proto_ope_base, queued_entry);
 
 	/* Verify compare_desc was copied, not just pointer stored */
 	assert_ptr_equal(txe->atomic_ex.compare_desc[0], original_desc_value);
@@ -1192,7 +1192,7 @@ void test_efa_rdm_atomic_compare_desc_persistence(struct efa_resource **state)
 static void test_efa_rdm_txe_dc_release_common(struct efa_resource *resource, bool send_first)
 {
 	struct efa_rdm_ep *efa_rdm_ep;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 	struct efa_rdm_pke *dc_pkt_entry, *receipt_pkt_entry;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);

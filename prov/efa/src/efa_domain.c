@@ -777,7 +777,7 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 {
 	struct efa_rdm_peer *peer;
 	struct dlist_entry *tmp;
-	struct efa_proto_ope *ope;
+	struct efa_proto_ope_base *ope;
 	int ret;
 
 	assert(domain->info->ep_attr->type == FI_EP_RDM);
@@ -826,7 +826,7 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 	 * Repost pkts for all queued op entries
 	 */
 	dlist_foreach_container_safe(&domain->proto_ope_queued_list,
-				     struct efa_proto_ope,
+				     struct efa_proto_ope_base,
 				     ope, queued_entry, tmp) {
 
 		peer = ope->peer;
@@ -845,7 +845,7 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 	/*
 	 * Send data packets until window or data queue is exhausted.
 	 */
-	dlist_foreach_container(&domain->proto_ope_longcts_send_list, struct efa_proto_ope,
+	dlist_foreach_container(&domain->proto_ope_longcts_send_list, struct efa_proto_ope_base,
 				ope, entry) {
 		peer = ope->peer;
 		assert(peer);
@@ -876,7 +876,7 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 		if (!(peer->flags & EFA_RDM_PEER_HANDSHAKE_RECEIVED))
 			continue;
 
-		if (ope->window > 0) {
+		if ((*efa_proto_ope_window_ptr(ope)) > 0) {
 			ret = efa_proto_ope_post_send(ope, EFA_RDM_CTSDATA_PKT);
 			if (OFI_UNLIKELY(ret)) {
 				if (ret == -FI_EAGAIN)

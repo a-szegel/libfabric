@@ -26,11 +26,11 @@ struct efa_rdm_rxe_map {
 	struct efa_rdm_rxe_map_entry *head;
 };
 
-struct efa_proto_ope;
+struct efa_proto_ope_base;
 
 struct efa_rdm_rxe_map_entry {
 	uint64_t msg_id;
-	struct efa_proto_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	UT_hash_handle hh;
 };
 
@@ -42,12 +42,12 @@ void efa_rdm_rxe_map_construct(struct efa_rdm_rxe_map *rxe_map)
 
 struct efa_rdm_pke;
 
-struct efa_proto_ope *efa_rdm_rxe_map_lookup(struct efa_rdm_rxe_map *rxe_map,
+struct efa_proto_ope_base *efa_rdm_rxe_map_lookup(struct efa_rdm_rxe_map *rxe_map,
 					   uint64_t msg_id);
 
 void efa_rdm_rxe_map_insert(struct efa_rdm_rxe_map *rxe_map, uint64_t msg_id,
-			    struct efa_proto_ope *rxe);
+			    struct efa_proto_ope_base *rxe);
 
 void efa_rdm_rxe_map_remove(struct efa_rdm_rxe_map *rxe_map, uint64_t msg_id,
-			    struct efa_proto_ope *rxe);
+			    struct efa_proto_ope_base *rxe);
 #endif

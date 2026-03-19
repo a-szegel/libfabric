@@ -267,12 +267,9 @@ union efa_proto_ope_entry {
 };
 
 /**
- * @brief Size of each bufpool entry.
- * Must be large enough for both the legacy struct and the new union.
+ * @brief Size of each bufpool entry — the union of all leaf types.
  */
-#define EFA_PROTO_OPE_POOL_ENTRY_SIZE \
-	(sizeof(union efa_proto_ope_entry) > sizeof(struct efa_proto_ope) \
-	 ? sizeof(union efa_proto_ope_entry) : sizeof(struct efa_proto_ope))
+#define EFA_PROTO_OPE_POOL_ENTRY_SIZE sizeof(union efa_proto_ope_entry)
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Static assertions — size budgets and hot-field placement
@@ -369,86 +366,6 @@ enum efa_proto_ope_type_legacy {
 	EFA_PROTO_RXE,
 };
 
-struct efa_proto_ope {
-	enum efa_proto_ope_type_legacy type;
-
-	struct efa_rdm_ep *ep;
-	struct efa_rdm_peer *peer;
-
-	uint32_t tx_id;
-	uint32_t rx_id;
-	uint32_t op;
-
-	struct efa_proto_atomic_hdr atomic_hdr;
-	struct efa_proto_atomic_ex atomic_ex;
-
-	uint32_t msg_id;
-
-	uint64_t tag;
-	uint64_t ignore;
-
-	int64_t window;
-
-	uint64_t total_len;
-
-	enum efa_proto_ope_state state;
-	int queued_ctrl_type;
-
-	uint64_t fi_flags;
-
-	uint32_t internal_flags;
-
-	size_t iov_count;
-	struct iovec iov[EFA_PROTO_IOV_LIMIT];
-	void *desc[EFA_PROTO_IOV_LIMIT];
-	struct fid_mr *mr[EFA_PROTO_IOV_LIMIT];
-
-	size_t rma_iov_count;
-	struct fi_rma_iov rma_iov[EFA_PROTO_IOV_LIMIT];
-
-	struct fi_cq_tagged_entry cq_entry;
-
-	struct dlist_entry entry;
-	struct dlist_entry ep_entry;
-	struct dlist_entry ack_list_entry;
-	struct dlist_entry queued_entry;
-	struct dlist_entry queued_pkts;
-	struct dlist_entry peer_entry;
-
-	uint64_t bytes_runt;
-
-	uint64_t bytes_received;
-	uint64_t bytes_received_via_mulreq;
-	uint64_t bytes_copied;
-	uint64_t bytes_queued_blocking_copy;
-
-#if ENABLE_DEBUG
-	struct dlist_entry pending_recv_entry;
-#endif
-
-	size_t efa_outstanding_tx_ops;
-
-	struct efa_rdm_pke *unexp_pkt;
-	char *atomrsp_data;
-	enum efa_proto_cuda_copy_method cuda_copy_method;
-	struct efa_rdm_rxe_map *rxe_map;
-
-	uint64_t bytes_acked;
-	uint64_t bytes_sent;
-
-	uint64_t bytes_read_completed;
-	uint64_t bytes_read_submitted;
-	uint64_t bytes_read_total_len;
-	uint64_t bytes_read_offset;
-
-	uint64_t bytes_write_completed;
-	uint64_t bytes_write_submitted;
-	uint64_t bytes_write_total_len;
-
-	struct fi_peer_rx_entry *peer_rxe;
-	struct efa_rdm_pke *local_read_pkt_entry;
-};
-
 /* ────────────────────────────────────────────────────────────────────────────
  * internal_flags bit definitions
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -475,58 +392,142 @@ struct efa_proto_ope {
  * Legacy function declarations (operate on struct efa_proto_ope)
  * ──────────────────────────────────────────────────────────────────────────── */
 
-void efa_proto_tx_construct(struct efa_proto_ope *txe, struct efa_rdm_ep *ep,
-			    struct efa_rdm_peer *peer, const struct fi_msg *msg,
-			    uint32_t op, uint64_t flags);
-void efa_proto_tx_release(struct efa_proto_ope *txe);
-void efa_proto_rx_release(struct efa_proto_ope *rxe);
-void efa_proto_rx_release_internal(struct efa_proto_ope *rxe);
-void efa_proto_ope_try_fill_desc(struct efa_proto_ope *ope, int mr_iov_start, uint64_t access);
-int efa_proto_tx_prepare_to_be_read(struct efa_proto_ope *txe, struct fi_rma_iov *read_iov);
-size_t efa_proto_ope_mulreq_total_data_size(struct efa_proto_ope *ope, int pkt_type);
-size_t efa_proto_tx_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_proto_ope *txe, int pkt_type);
-void efa_proto_tx_handle_error(struct efa_proto_ope *txe, int err, int prov_errno);
-void efa_proto_rx_handle_error(struct efa_proto_ope *rxe, int err, int prov_errno);
-void efa_proto_tx_report_completion(struct efa_proto_ope *txe);
-void efa_proto_rx_report_completion(struct efa_proto_ope *rxe);
-void efa_proto_ope_handle_recv_completed(struct efa_proto_ope *ope);
-void efa_proto_ope_handle_send_completed(struct efa_proto_ope *ope);
+void efa_proto_tx_release(struct efa_proto_ope_base *txe);
+void efa_proto_rx_release(struct efa_proto_ope_base *rxe);
+void efa_proto_rx_release_internal(struct efa_proto_ope_base *rxe);
+void efa_proto_ope_try_fill_desc(struct efa_proto_ope_base *ope, int mr_iov_start, uint64_t access);
+int efa_proto_tx_prepare_to_be_read(struct efa_proto_ope_base *txe, struct fi_rma_iov *read_iov);
+size_t efa_proto_ope_mulreq_total_data_size(struct efa_proto_ope_base *ope, int pkt_type);
+size_t efa_proto_tx_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_proto_ope_base *txe, int pkt_type);
+void efa_proto_tx_handle_error(struct efa_proto_ope_base *txe, int err, int prov_errno);
+void efa_proto_rx_handle_error(struct efa_proto_ope_base *rxe, int err, int prov_errno);
+void efa_proto_tx_report_completion(struct efa_proto_ope_base *txe);
+void efa_proto_rx_report_completion(struct efa_proto_ope_base *rxe);
+void efa_proto_ope_handle_recv_completed(struct efa_proto_ope_base *ope);
+void efa_proto_ope_handle_send_completed(struct efa_proto_ope_base *ope);
 
-static inline bool efa_proto_tx_dc_ready_for_release(struct efa_proto_ope *txe)
+static inline bool efa_proto_tx_dc_ready_for_release(struct efa_proto_ope_base *txe)
 {
 	return (txe->efa_outstanding_tx_ops == 0) &&
 	       (txe->internal_flags & EFA_PROTO_TXE_RECEIPT_RECEIVED);
 }
 
-int efa_proto_ope_prepare_to_post_read(struct efa_proto_ope *ope);
-void efa_proto_ope_prepare_to_post_write(struct efa_proto_ope *ope);
-int efa_proto_ope_post_read(struct efa_proto_ope *ope);
-int efa_proto_ope_post_remote_write(struct efa_proto_ope *ope);
-int efa_proto_ope_post_remote_read_or_queue(struct efa_proto_ope *ope);
-int efa_proto_rx_post_local_read_or_queue(struct efa_proto_ope *rxe,
+int efa_proto_ope_prepare_to_post_read(struct efa_proto_ope_base *ope);
+void efa_proto_ope_prepare_to_post_write(struct efa_proto_ope_base *ope);
+int efa_proto_ope_post_read(struct efa_proto_ope_base *ope);
+int efa_proto_ope_post_remote_write(struct efa_proto_ope_base *ope);
+int efa_proto_ope_post_remote_read_or_queue(struct efa_proto_ope_base *ope);
+int efa_proto_rx_post_local_read_or_queue(struct efa_proto_ope_base *rxe,
 					  size_t rx_data_offset,
 					  struct efa_rdm_pke *pkt_entry,
 					  char *pkt_data, size_t data_size);
-ssize_t efa_proto_ope_prepare_to_post_send(struct efa_proto_ope *ope, int pkt_type,
+ssize_t efa_proto_ope_prepare_to_post_send(struct efa_proto_ope_base *ope, int pkt_type,
 					   int *pkt_entry_cnt, int *pkt_entry_data_size_vec);
-ssize_t efa_proto_ope_post_send(struct efa_proto_ope *ope, int pkt_type);
-ssize_t efa_proto_ope_post_send_fallback(struct efa_proto_ope *ope, int pkt_type, ssize_t err);
-ssize_t efa_proto_ope_post_send_or_queue(struct efa_proto_ope *ope, int pkt_type);
-ssize_t efa_proto_ope_repost_queued_before_handshake(struct efa_proto_ope *ope);
-ssize_t efa_proto_tx_prepare_local_read_pkt_entry(struct efa_proto_ope *txe);
-int efa_proto_ope_process_queued(struct efa_proto_ope *ope, uint32_t flag);
+ssize_t efa_proto_ope_post_send(struct efa_proto_ope_base *ope, int pkt_type);
+ssize_t efa_proto_ope_post_send_fallback(struct efa_proto_ope_base *ope, int pkt_type, ssize_t err);
+ssize_t efa_proto_ope_post_send_or_queue(struct efa_proto_ope_base *ope, int pkt_type);
+ssize_t efa_proto_ope_repost_queued_before_handshake(struct efa_proto_ope_base *ope);
+ssize_t efa_proto_tx_prepare_local_read_pkt_entry(struct efa_proto_ope_base *txe);
+int efa_proto_ope_process_queued(struct efa_proto_ope_base *ope, uint32_t flag);
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Bridge macros — cast between legacy struct and new base struct
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** Cast legacy ope pointer to proto base pointer */
-#define EFA_PROTO_BASE_FROM_OPE(ope) \
-	((struct efa_proto_ope_base *)(void *)(ope))
+/** Identity cast — both sides are now struct efa_proto_ope_base * */
+#define EFA_PROTO_BASE_FROM_OPE(ope) (ope)
+#define EFA_PROTO_OPE_FROM_BASE(base) (base)
 
-/** Cast proto base pointer back to legacy ope pointer */
-#define EFA_PROTO_OPE_FROM_BASE(base) \
-	((struct efa_proto_ope *)(void *)(base))
+/* ────────────────────────────────────────────────────────────────────────────
+ * Leaf-type cast helpers — access non-base fields from ope_base pointer
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+static inline struct efa_proto_tx_base *efa_proto_to_tx(struct efa_proto_ope_base *b)
+{ return (struct efa_proto_tx_base *)b; }
+
+static inline struct efa_proto_rx_base *efa_proto_to_rx(struct efa_proto_ope_base *b)
+{ return (struct efa_proto_rx_base *)b; }
+
+static inline struct efa_proto_tx_msg *efa_proto_to_tx_msg(struct efa_proto_ope_base *b)
+{ return (struct efa_proto_tx_msg *)b; }
+
+static inline struct efa_proto_rx_msg *efa_proto_to_rx_msg(struct efa_proto_ope_base *b)
+{ return (struct efa_proto_rx_msg *)b; }
+
+static inline struct efa_proto_tx_rma_read *efa_proto_to_tx_rma_read(struct efa_proto_ope_base *b)
+{ return (struct efa_proto_tx_rma_read *)b; }
+
+static inline struct efa_proto_tx_rma_write *efa_proto_to_tx_rma_write(struct efa_proto_ope_base *b)
+{ return (struct efa_proto_tx_rma_write *)b; }
+
+static inline struct efa_proto_tx_atomic *efa_proto_to_tx_atomic(struct efa_proto_ope_base *b)
+{ return (struct efa_proto_tx_atomic *)b; }
+
+static inline struct efa_proto_rx_rma_read *efa_proto_to_rx_rma_read(struct efa_proto_ope_base *b)
+{ return (struct efa_proto_rx_rma_read *)b; }
+
+static inline struct efa_proto_rx_atomic *efa_proto_to_rx_atomic(struct efa_proto_ope_base *b)
+{ return (struct efa_proto_rx_atomic *)b; }
+
+/**
+ * @brief Access the window field from a generic ope pointer.
+ * Window exists in tx_msg, rx_msg, and rx_rma_read leaf types.
+ */
+static inline int64_t *efa_proto_ope_window_ptr(struct efa_proto_ope_base *b)
+{
+	if (b->type <= EFA_PROTO_TX_ATOMIC)
+		return &((struct efa_proto_tx_msg *)b)->window;
+	else
+		return &((struct efa_proto_rx_msg *)b)->window;
+}
+
+/**
+ * @brief Access the bytes_runt field from a generic ope pointer.
+ */
+static inline uint64_t *efa_proto_ope_bytes_runt_ptr(struct efa_proto_ope_base *b)
+{
+	if (b->type <= EFA_PROTO_TX_ATOMIC)
+		return &((struct efa_proto_tx_msg *)b)->bytes_runt;
+	else
+		return &((struct efa_proto_rx_msg *)b)->bytes_runt;
+}
+
+/**
+ * @brief Read-counter accessors for generic ope pointer.
+ * These fields exist in tx_msg, tx_rma_read, rx_msg.
+ * For TX, we cast to tx_msg (tx_rma_read has same layout for these fields).
+ */
+static inline uint64_t *efa_proto_ope_bytes_read_completed_ptr(struct efa_proto_ope_base *b)
+{
+	if (b->type <= EFA_PROTO_TX_ATOMIC)
+		return &((struct efa_proto_tx_msg *)b)->bytes_read_completed;
+	else
+		return &((struct efa_proto_rx_msg *)b)->bytes_read_completed;
+}
+
+static inline uint64_t *efa_proto_ope_bytes_read_submitted_ptr(struct efa_proto_ope_base *b)
+{
+	if (b->type <= EFA_PROTO_TX_ATOMIC)
+		return &((struct efa_proto_tx_msg *)b)->bytes_read_submitted;
+	else
+		return &((struct efa_proto_rx_msg *)b)->bytes_read_submitted;
+}
+
+static inline uint64_t *efa_proto_ope_bytes_read_total_len_ptr(struct efa_proto_ope_base *b)
+{
+	if (b->type <= EFA_PROTO_TX_ATOMIC)
+		return &((struct efa_proto_tx_msg *)b)->bytes_read_total_len;
+	else
+		return &((struct efa_proto_rx_msg *)b)->bytes_read_total_len;
+}
+
+static inline uint64_t *efa_proto_ope_bytes_read_offset_ptr(struct efa_proto_ope_base *b)
+{
+	if (b->type <= EFA_PROTO_TX_ATOMIC)
+		return &((struct efa_proto_tx_msg *)b)->bytes_read_offset;
+	else
+		return &((struct efa_proto_rx_msg *)b)->bytes_read_offset;
+}
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Inline helpers for type discrimination

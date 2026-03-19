@@ -12,7 +12,7 @@ int efa_rdm_atomic_query(struct fid_domain *domain,
 			 enum fi_datatype datatype, enum fi_op op,
 			 struct fi_atomic_attr *attr, uint64_t flags);
 
-ssize_t efa_proto_atomic_post_atomic(struct efa_rdm_ep *efa_rdm_ep, struct efa_proto_ope *txe);
+ssize_t efa_proto_atomic_post_atomic(struct efa_rdm_ep *efa_rdm_ep, struct efa_proto_ope_base *txe);
 
 extern struct fi_ops_atomic efa_rdm_atomic_ops;
 

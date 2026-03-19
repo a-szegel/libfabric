@@ -583,7 +583,7 @@ int efa_rdm_pke_read(struct efa_rdm_pke *pkt_entry,
 	struct efa_qp *qp;
 	struct efa_conn *conn;
 	struct ibv_sge sge;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 	int err = 0;
 	struct efa_ah *ah;
 	uint32_t qpn, qkey;
@@ -656,7 +656,7 @@ int efa_rdm_pke_write(struct efa_rdm_pke *pkt_entry)
 	struct efa_conn *conn;
 	struct ibv_sge sge;
 	struct efa_rdm_rma_context_pkt *rma_context_pkt;
-	struct efa_proto_ope *txe;
+	struct efa_proto_ope_base *txe;
 	bool self_comm;
 	void *local_buf;
 	size_t len;
@@ -702,7 +702,7 @@ int efa_rdm_pke_write(struct efa_rdm_pke *pkt_entry)
 	if (txe->fi_flags & FI_REMOTE_CQ_DATA) {
 		/* assert that we are sending the entire buffer as a
 			   single IOV when immediate data is also included. */
-		assert(len == txe->bytes_write_total_len);
+		assert(len == efa_proto_to_tx_rma_write(txe)->bytes_write_total_len);
 		cq_data = txe->cq_entry.data;
 	}
 
