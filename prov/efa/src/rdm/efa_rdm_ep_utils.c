@@ -173,7 +173,7 @@ struct efa_proto_ope *efa_proto_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_r
 {
 	struct efa_proto_ope *rxe;
 
-	rxe = ofi_buf_alloc(ep->proto_op_pool);
+	rxe = ofi_buf_alloc(ep->proto_ope_pool);
 	if (OFI_UNLIKELY(!rxe)) {
 		EFA_WARN(FI_LOG_EP_CTRL, "RX entries exhausted\n");
 		return NULL;
@@ -328,7 +328,7 @@ struct efa_proto_ope *efa_proto_ep_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 {
 	struct efa_proto_ope *txe;
 
-	txe = ofi_buf_alloc(efa_rdm_ep->proto_op_pool);
+	txe = ofi_buf_alloc(efa_rdm_ep->proto_ope_pool);
 	if (OFI_UNLIKELY(!txe)) {
 		EFA_DBG(FI_LOG_EP_CTRL, "TX entries exhausted.\n");
 		return NULL;
@@ -397,7 +397,7 @@ void efa_rdm_ep_record_tx_op_submitted(struct efa_rdm_ep *ep, struct efa_rdm_pke
 	case EFA_RDM_RECEIPT_PKT:
 	case EFA_RDM_EOR_PKT:
 		assert(ope->type == EFA_PROTO_RXE);
-		dlist_insert_tail(&ope->ack_list_entry, &ope->ep->proto_op_posted_ack_list);
+		dlist_insert_tail(&ope->ack_list_entry, &ope->ep->proto_ope_posted_ack_list);
 	default:
 		break;
 	}
@@ -584,7 +584,7 @@ void efa_rdm_ep_queue_rnr_pkt(struct efa_rdm_ep *ep, struct efa_rdm_pke *pkt_ent
 	assert(peer);
 	if (!(ope->internal_flags & EFA_PROTO_OPE_QUEUED_RNR)) {
 		ope->internal_flags |= EFA_PROTO_OPE_QUEUED_RNR;
-		dlist_insert_tail(&ope->queued_entry, &efa_rdm_ep_domain(ep)->proto_op_queued_list);
+		dlist_insert_tail(&ope->queued_entry, &efa_rdm_ep_domain(ep)->proto_ope_queued_list);
 	}
 	if (!(pkt_entry->flags & EFA_RDM_PKE_RNR_RETRANSMIT)) {
 		/* This is the first time this packet encountered RNR,
@@ -1110,13 +1110,13 @@ int efa_rdm_ep_enforce_handshake_for_txe(struct efa_rdm_ep *ep, struct efa_proto
 	 * of opes queued due to handshake not made
 	 */
 	if ((txe->fi_flags & FI_INJECT) ||
-	    (ep->proto_op_queued_before_handshake_cnt >= EFA_RDM_MAX_QUEUED_OPE_BEFORE_HANDSHAKE))
+	    (ep->proto_ope_queued_before_handshake_cnt >= EFA_RDM_MAX_QUEUED_OPE_BEFORE_HANDSHAKE))
 		return -FI_EAGAIN;
 
 	if (!(txe->internal_flags & EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE)) {
 		txe->internal_flags |= EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE;
-		dlist_insert_tail(&txe->queued_entry, &efa_rdm_ep_domain(ep)->proto_op_queued_list);
-		ep->proto_op_queued_before_handshake_cnt++;
+		dlist_insert_tail(&txe->queued_entry, &efa_rdm_ep_domain(ep)->proto_ope_queued_list);
+		ep->proto_ope_queued_before_handshake_cnt++;
 	}
 	return FI_SUCCESS;
 }

@@ -45,10 +45,10 @@ struct efa_domain {
 	/* number of rdma-read messages in flight */
 	uint64_t		num_read_msg_in_flight;
 	/* queued op entries */
-	struct dlist_entry proto_op_queued_list;
+	struct dlist_entry proto_ope_queued_list;
 	/* tx/rx_entries used by long CTS msg/write/read protocol
          * which have data to be sent */
-	struct dlist_entry proto_op_longcts_send_list;
+	struct dlist_entry proto_ope_longcts_send_list;
 	/* list of #efa_rdm_peer that are in backoff due to RNR */
 	struct dlist_entry peer_backoff_list;
 	/* list of #efa_rdm_peer that will retry posting handshake pkt */

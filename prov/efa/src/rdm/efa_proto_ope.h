@@ -131,9 +131,9 @@ struct efa_proto_ope_base {
 	struct fi_cq_tagged_entry cq_entry;		/* 48 (320) */
 
 	/* dlist entries used by all paths */
-	struct dlist_entry entry;		/* 16 (368) — proto_op_longcts_send_list */
+	struct dlist_entry entry;		/* 16 (368) — proto_ope_longcts_send_list */
 	struct dlist_entry ep_entry;		/* 16 (384) — tx/rxe_list in ep */
-	struct dlist_entry queued_entry;	/* 16 (400) — proto_op_queued_list */
+	struct dlist_entry queued_entry;	/* 16 (400) — proto_ope_queued_list */
 	struct dlist_entry queued_pkts;		/* 16 (416) — queued pkt list head */
 	struct dlist_entry peer_entry;		/* 16 (432) — tx/rxe_list in peer */
 
@@ -265,6 +265,14 @@ union efa_proto_ope_entry {
 	struct efa_proto_rx_rma_read rx_rma_read;
 	struct efa_proto_rx_atomic rx_atomic;
 };
+
+/**
+ * @brief Size of each bufpool entry.
+ * Must be large enough for both the legacy struct and the new union.
+ */
+#define EFA_PROTO_OPE_POOL_ENTRY_SIZE \
+	(sizeof(union efa_proto_ope_entry) > sizeof(struct efa_proto_ope) \
+	 ? sizeof(union efa_proto_ope_entry) : sizeof(struct efa_proto_ope))
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Static assertions — size budgets and hot-field placement

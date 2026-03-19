@@ -101,7 +101,7 @@ struct efa_rdm_ep {
 	int rx_readcopy_pkt_pool_max_used;
 
 	/* datastructure to maintain send/recv states */
-	struct ofi_bufpool *proto_op_pool;
+	struct ofi_bufpool *proto_ope_pool;
 	/* data structure to maintain overflow pke linked list entry */
 	struct ofi_bufpool *overflow_pke_pool;
 	/* data structure to maintain pkt rx map */
@@ -128,8 +128,8 @@ struct efa_rdm_ep {
 	struct ofi_bufpool *pke_debug_info_pool;
 	/* tx/rx_entries waiting to receive data in
          * long CTS msg/read/write protocols */
-	struct dlist_entry proto_op_recv_list;
-	/* counter tracking proto_op_recv_list */
+	struct dlist_entry proto_ope_recv_list;
+	/* counter tracking proto_ope_recv_list */
 	size_t pending_recv_counter;
 
 	/* rx packets being processed or waiting to be processed */
@@ -197,12 +197,12 @@ struct efa_rdm_ep {
 	int *send_pkt_entry_size_vec;
 	struct dlist_entry entry;
 	/* the count of opes queued before handshake is made with their peers */
-	size_t proto_op_queued_before_handshake_cnt;
+	size_t proto_ope_queued_before_handshake_cnt;
 	bool homogeneous_peers; /* peers always support the same capabilities in extra_info as this ep */
 	struct fi_info *shm_info;	/* fi_info used to create shm_ep */
 
 	/* track operations with posted packets to ack a remote */
-	struct dlist_entry proto_op_posted_ack_list;
+	struct dlist_entry proto_ope_posted_ack_list;
 };
 
 int efa_rdm_ep_flush_queued_blocking_copy_to_hmem(struct efa_rdm_ep *ep);

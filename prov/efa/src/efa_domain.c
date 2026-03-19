@@ -134,8 +134,8 @@ static int efa_domain_init_rdm(struct efa_domain *efa_domain, struct fi_info *in
 				  efa_env.cq_size);
 	efa_domain->num_read_msg_in_flight = 0;
 
-	dlist_init(&efa_domain->proto_op_queued_list);
-	dlist_init(&efa_domain->proto_op_longcts_send_list);
+	dlist_init(&efa_domain->proto_ope_queued_list);
+	dlist_init(&efa_domain->proto_ope_longcts_send_list);
 	dlist_init(&efa_domain->peer_backoff_list);
 	dlist_init(&efa_domain->handshake_queued_peer_list);
 
@@ -825,7 +825,7 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 	/*
 	 * Repost pkts for all queued op entries
 	 */
-	dlist_foreach_container_safe(&domain->proto_op_queued_list,
+	dlist_foreach_container_safe(&domain->proto_ope_queued_list,
 				     struct efa_proto_ope,
 				     ope, queued_entry, tmp) {
 
@@ -845,7 +845,7 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 	/*
 	 * Send data packets until window or data queue is exhausted.
 	 */
-	dlist_foreach_container(&domain->proto_op_longcts_send_list, struct efa_proto_ope,
+	dlist_foreach_container(&domain->proto_ope_longcts_send_list, struct efa_proto_ope,
 				ope, entry) {
 		peer = ope->peer;
 		assert(peer);

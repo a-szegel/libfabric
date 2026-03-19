@@ -246,15 +246,18 @@ int efa_rdm_ep_create_buffer_pools(struct efa_rdm_ep *ep)
 	if (ret)
 		goto err_free;
 
-	ret = ofi_bufpool_create(&ep->proto_op_pool,
-				 sizeof(union efa_proto_ope_entry),
+	fprintf(stderr, "DEBUG ope pool sizes: struct efa_proto_ope=%zu, union efa_proto_ope_entry=%zu, pool_entry=%zu\n",
+		sizeof(struct efa_proto_ope), sizeof(union efa_proto_ope_entry), (size_t)EFA_PROTO_OPE_POOL_ENTRY_SIZE);
+
+	ret = ofi_bufpool_create(&ep->proto_ope_pool,
+				 EFA_PROTO_OPE_POOL_ENTRY_SIZE,
 				 EFA_RDM_BUFPOOL_ALIGNMENT,
 				 0, /* no limit for max_cnt */
 				 ep->base_ep.info->tx_attr->size + ep->base_ep.info->rx_attr->size, 0);
 	if (ret)
 		goto err_free;
 
-	ret = ofi_bufpool_grow(ep->proto_op_pool);
+	ret = ofi_bufpool_grow(ep->proto_ope_pool);
 	if (ret)
 		goto err_free;
 
@@ -314,8 +317,8 @@ err_free:
 	if (ep->map_entry_pool)
 		ofi_bufpool_destroy(ep->map_entry_pool);
 
-	if (ep->proto_op_pool)
-		ofi_bufpool_destroy(ep->proto_op_pool);
+	if (ep->proto_ope_pool)
+		ofi_bufpool_destroy(ep->proto_ope_pool);
 
 	if (ep->overflow_pke_pool)
 		ofi_bufpool_destroy(ep->overflow_pke_pool);
@@ -361,13 +364,13 @@ void efa_rdm_ep_init_linked_lists(struct efa_rdm_ep *ep)
 {
 	dlist_init(&ep->rx_posted_buf_list);
 #if ENABLE_DEBUG
-	dlist_init(&ep->proto_op_recv_list);
+	dlist_init(&ep->proto_ope_recv_list);
 	dlist_init(&ep->rx_pkt_list);
 	dlist_init(&ep->tx_pkt_list);
 #endif
 	dlist_init(&ep->rxe_list);
 	dlist_init(&ep->txe_list);
-	dlist_init(&ep->proto_op_posted_ack_list);
+	dlist_init(&ep->proto_ope_posted_ack_list);
 }
 
 /**
@@ -889,8 +892,8 @@ static void efa_rdm_ep_destroy_buffer_pools(struct efa_rdm_ep *efa_rdm_ep)
 		ofi_buf_free(peer_map_entry);
 	}
 
-	if (efa_rdm_ep->proto_op_pool)
-		ofi_bufpool_destroy(efa_rdm_ep->proto_op_pool);
+	if (efa_rdm_ep->proto_ope_pool)
+		ofi_bufpool_destroy(efa_rdm_ep->proto_ope_pool);
 
 	if (efa_rdm_ep->overflow_pke_pool)
 		ofi_bufpool_destroy(efa_rdm_ep->overflow_pke_pool);
@@ -940,7 +943,7 @@ static void efa_rdm_ep_destroy_buffer_pools(struct efa_rdm_ep *efa_rdm_ep)
 /**
  * @brief check if endpoint should wait for send operations to complete
  *
- * This function checks if there are any operations in the proto_op_posted_ack_list
+ * This function checks if there are any operations in the proto_ope_posted_ack_list
  * that are from responsive peers. If all remaining operations are from unresponsive
  * peers, the endpoint should not wait for them to complete.
  *
@@ -953,7 +956,7 @@ bool efa_rdm_ep_close_should_wait_send(struct efa_rdm_ep *efa_rdm_ep)
 	struct efa_proto_ope *ope;
 	struct dlist_entry *entry;
 
-	dlist_foreach(&efa_rdm_ep->proto_op_posted_ack_list, entry) {
+	dlist_foreach(&efa_rdm_ep->proto_ope_posted_ack_list, entry) {
 		ope = container_of(entry, struct efa_proto_ope, ack_list_entry);
 		if (ope->peer && !(ope->peer->flags & EFA_RDM_PEER_UNRESP)) {
 			return true;
@@ -982,7 +985,7 @@ static inline void progress_queues_closing_ep(struct efa_rdm_ep *ep)
 		}
 	}
 
-	dlist_foreach_container_safe(&domain->proto_op_queued_list,
+	dlist_foreach_container_safe(&domain->proto_ope_queued_list,
 			struct efa_proto_ope, ope, queued_entry, tmp) {
 		if (ope->ep == ep) {
 			switch (efa_rdm_pke_get_ctrl_pkt_type_from_queued_ope(ope)) {

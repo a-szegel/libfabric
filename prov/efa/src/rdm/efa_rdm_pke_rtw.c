@@ -433,7 +433,7 @@ void efa_rdm_pke_handle_longcts_rtw_recv(struct efa_rdm_pke *pkt_entry)
 
 
 #if ENABLE_DEBUG
-	dlist_insert_tail(&rxe->pending_recv_entry, &ep->proto_op_recv_list);
+	dlist_insert_tail(&rxe->pending_recv_entry, &ep->proto_ope_recv_list);
 	ep->pending_recv_counter++;
 #endif
 	rxe->state = EFA_PROTO_RXE_RECV;

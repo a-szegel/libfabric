@@ -256,7 +256,7 @@ ssize_t efa_rdm_pke_proc_matched_rtm(struct efa_rdm_pke *pkt_entry)
 		return ret;
 	}
 #if ENABLE_DEBUG
-	dlist_insert_tail(&rxe->pending_recv_entry, &ep->proto_op_recv_list);
+	dlist_insert_tail(&rxe->pending_recv_entry, &ep->proto_ope_recv_list);
 	ep->pending_recv_counter++;
 #endif
 	rxe->state = EFA_PROTO_RXE_RECV;

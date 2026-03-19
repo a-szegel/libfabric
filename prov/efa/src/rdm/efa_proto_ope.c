@@ -354,7 +354,7 @@ void efa_proto_ope_base_release(struct efa_proto_ope_base *base)
 	}
 
 #ifdef ENABLE_EFA_POISONING
-	efa_rdm_poison_mem_region(base, sizeof(union efa_proto_ope_entry));
+	efa_rdm_poison_mem_region(base, EFA_PROTO_OPE_POOL_ENTRY_SIZE);
 #endif
 	ofi_buf_free(base);
 }
@@ -500,7 +500,7 @@ void efa_proto_tx_release(struct efa_proto_ope *txe)
 
 #ifdef ENABLE_EFA_POISONING
 	efa_rdm_poison_mem_region(txe,
-			      sizeof(union efa_proto_ope_entry));
+			      EFA_PROTO_OPE_POOL_ENTRY_SIZE);
 #endif
 	ofi_buf_free(txe);
 }
@@ -556,7 +556,7 @@ void efa_proto_rx_release_internal(struct efa_proto_ope *rxe)
 
 #ifdef ENABLE_EFA_POISONING
 	efa_rdm_poison_mem_region(rxe,
-			      sizeof(union efa_proto_ope_entry));
+			      EFA_PROTO_OPE_POOL_ENTRY_SIZE);
 #endif
 	ofi_buf_free(rxe);
 }
@@ -2018,7 +2018,7 @@ int efa_proto_ope_post_remote_read_or_queue(struct efa_proto_ope *ope)
 	switch (err) {
 	case -FI_EAGAIN:
 		dlist_insert_tail(&ope->queued_entry,
-				  &efa_rdm_ep_domain(ope->ep)->proto_op_queued_list);
+				  &efa_rdm_ep_domain(ope->ep)->proto_ope_queued_list);
 		ope->internal_flags |= EFA_PROTO_OPE_QUEUED_READ;
 		err = 0;
 		break;
@@ -2275,7 +2275,7 @@ ssize_t efa_proto_ope_post_send_or_queue(struct efa_proto_ope *ope, int pkt_type
 		ope->internal_flags |= EFA_PROTO_OPE_QUEUED_CTRL;
 		ope->queued_ctrl_type = pkt_type;
 		dlist_insert_tail(&ope->queued_entry,
-				  &efa_rdm_ep_domain(ope->ep)->proto_op_queued_list);
+				  &efa_rdm_ep_domain(ope->ep)->proto_ope_queued_list);
 		err = 0;
 	}
 
@@ -2325,7 +2325,7 @@ int efa_proto_ope_process_queued(struct efa_proto_ope *ope, uint32_t flag)
 	switch (flag) {
 	case EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE:
 		ret = efa_proto_ope_repost_queued_before_handshake(ope);
-		--ope->ep->proto_op_queued_before_handshake_cnt;
+		--ope->ep->proto_ope_queued_before_handshake_cnt;
 		break;
 	case EFA_PROTO_OPE_QUEUED_RNR:
 		assert(!dlist_empty(&ope->queued_pkts));

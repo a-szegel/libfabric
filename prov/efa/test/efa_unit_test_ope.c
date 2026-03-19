@@ -543,12 +543,12 @@ void test_efa_rdm_rxe_list_removal(struct efa_resource **state)
 
 	/* insert to lists */
 	rxe->state = EFA_PROTO_OPE_SEND;
-	dlist_insert_tail(&rxe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list);
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list), 1);
+	dlist_insert_tail(&rxe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_longcts_send_list);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_longcts_send_list), 1);
 
 	/* Lists should be empty after releasing the ope */
 	efa_proto_rx_release(rxe);
-	dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list);
+	dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_longcts_send_list);
 }
 
 void test_efa_rdm_txe_list_removal(struct efa_resource **state)
@@ -567,17 +567,17 @@ void test_efa_rdm_txe_list_removal(struct efa_resource **state)
 
 	/* insert to lists */
 	txe->state = EFA_PROTO_OPE_SEND;
-	dlist_insert_tail(&txe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list);
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list), 1);
+	dlist_insert_tail(&txe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_longcts_send_list);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_longcts_send_list), 1);
 
 	txe->internal_flags |= EFA_PROTO_OPE_QUEUED_CTRL;
-	dlist_insert_tail(&txe->queued_entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list);
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list), 1);
+	dlist_insert_tail(&txe->queued_entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list), 1);
 
 	/* Lists should be empty after releasing the ope */
 	efa_proto_tx_release(txe);
-	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list));
-	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list));
+	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_longcts_send_list));
+	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list));
 }
 
 void test_efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_resource **state)
@@ -647,10 +647,10 @@ void test_efa_rdm_txe_handle_error_queue_flags_cleanup(struct efa_resource **sta
 
 	/* Set up txe with queued flags */
 	txe->internal_flags |= EFA_PROTO_OPE_QUEUED_CTRL;
-	dlist_insert_tail(&txe->queued_entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list);
+	dlist_insert_tail(&txe->queued_entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list);
 
 	/* Verify txe is in queued list */
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list), 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list), 1);
 	assert_true(txe->internal_flags & EFA_PROTO_OPE_QUEUED_CTRL);
 
 	/* Handle error - this should clean up queue flags */
@@ -658,7 +658,7 @@ void test_efa_rdm_txe_handle_error_queue_flags_cleanup(struct efa_resource **sta
 
 	/* Verify queue flags are cleaned up */
 	assert_false(txe->internal_flags & EFA_PROTO_OPE_QUEUED_CTRL);
-	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list));
+	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list));
 
 	/* Release should not cause duplicate dlist_remove */
 	efa_proto_tx_release(txe);
@@ -682,10 +682,10 @@ void test_efa_rdm_rxe_handle_error_queue_flags_cleanup(struct efa_resource **sta
 
 	/* Set up rxe with queued flags */
 	rxe->internal_flags |= EFA_PROTO_OPE_QUEUED_READ;
-	dlist_insert_tail(&rxe->queued_entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list);
+	dlist_insert_tail(&rxe->queued_entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list);
 
 	/* Verify rxe is in queued list */
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list), 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list), 1);
 	assert_true(rxe->internal_flags & EFA_PROTO_OPE_QUEUED_READ);
 
 	/* Handle error - this should clean up queue flags */
@@ -693,7 +693,7 @@ void test_efa_rdm_rxe_handle_error_queue_flags_cleanup(struct efa_resource **sta
 
 	/* Verify queue flags are cleaned up */
 	assert_false(rxe->internal_flags & EFA_PROTO_OPE_QUEUED_READ);
-	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list));
+	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list));
 
 	/* Release should not cause duplicate dlist_remove */
 	efa_proto_rx_release(rxe);
@@ -719,16 +719,16 @@ void test_efa_rdm_txe_handle_error_duplicate_prevention(struct efa_resource **st
 
 	/* Set txe to EFA_PROTO_OPE_SEND state and add to longcts_send_list */
 	txe->state = EFA_PROTO_OPE_SEND;
-	dlist_insert_tail(&txe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list);
+	dlist_insert_tail(&txe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_longcts_send_list);
 
 	/* Verify txe is in the list */
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list), 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_longcts_send_list), 1);
 
 	/* First error handling call */
 	efa_proto_tx_handle_error(txe, FI_ENOTCONN, EFA_IO_COMP_STATUS_LOCAL_ERROR_UNREACH_REMOTE);
 
 	/* Verify txe is removed from list and in error state */
-	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list));
+	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_longcts_send_list));
 	assert_int_equal(txe->state, EFA_PROTO_OPE_ERR);
 
 	/* Second error handling call should be a no-op */
@@ -758,16 +758,16 @@ void test_efa_rdm_rxe_handle_error_duplicate_prevention(struct efa_resource **st
 
 	/* Set rxe to EFA_PROTO_OPE_SEND state and add to longcts_send_list */
 	rxe->state = EFA_PROTO_OPE_SEND;
-	dlist_insert_tail(&rxe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list);
+	dlist_insert_tail(&rxe->entry, &efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_longcts_send_list);
 
 	/* Verify rxe is in the list */
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list), 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_longcts_send_list), 1);
 
 	/* First error handling call */
 	efa_proto_rx_handle_error(rxe, FI_ENOTCONN, EFA_IO_COMP_STATUS_LOCAL_ERROR_UNREACH_REMOTE);
 
 	/* Verify rxe is removed from list and in error state */
-	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_longcts_send_list));
+	assert_true(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_longcts_send_list));
 	assert_int_equal(rxe->state, EFA_PROTO_OPE_ERR);
 
 	/* Second error handling call should be a no-op */
@@ -784,7 +784,7 @@ void test_efa_rdm_rxe_handle_error_duplicate_prevention(struct efa_resource **st
  * @brief Common helper for testing RECEIPT/EOR packet tracking functionality
  *
  * This helper function sets up the test environment and mocks for testing
- * RECEIPT or EOR packet posting, tracking in proto_op_posted_ack_list, and
+ * RECEIPT or EOR packet posting, tracking in proto_ope_posted_ack_list, and
  * completion handling with various return codes and error conditions.
  *
  * @param[in] resource Test resource structure
@@ -810,7 +810,7 @@ static void test_efa_rdm_ope_ack_packet_tracking_common(
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
 	/* List should be initially empty */
-	assert_true(dlist_empty(&efa_rdm_ep->proto_op_posted_ack_list));
+	assert_true(dlist_empty(&efa_rdm_ep->proto_ope_posted_ack_list));
 
 	/* Allocate rx entry */
 	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_tagged);
@@ -845,7 +845,7 @@ static void test_efa_rdm_ope_ack_packet_tracking_common(
  * @brief Test RECEIPT/EOR packet tracking via CQ read
  *
  * This test verifies that RECEIPT or EOR packets are correctly added to
- * proto_op_posted_ack_list when posted and properly removed when completed
+ * proto_ope_posted_ack_list when posted and properly removed when completed
  * via fi_cq_read with successful completion status.
  *
  * @param[in] state Test resource state
@@ -863,20 +863,20 @@ void test_efa_rdm_ope_receit_eor_packet_tracking_cq_read_common(struct efa_resou
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
 	/* It should post a RECEIPT packet and add the rxe to the list */
-	assert_false(dlist_empty(&efa_rdm_ep->proto_op_posted_ack_list));
+	assert_false(dlist_empty(&efa_rdm_ep->proto_ope_posted_ack_list));
 
 	/* Poll the cq via cq read */
 	(void) fi_cq_read(resource->cq, NULL, 0);
 
 	/* The cq poll should remove the rxe from the list */
-	assert_true(dlist_empty(&efa_rdm_ep->proto_op_posted_ack_list));
+	assert_true(dlist_empty(&efa_rdm_ep->proto_ope_posted_ack_list));
 }
 
 /**
  * @brief Test packet tracking via wait_send with successful completion
  *
  * This test verifies that RECEIPT or EOR packets are correctly added to
- * proto_op_posted_ack_list when posted and properly removed when completed
+ * proto_ope_posted_ack_list when posted and properly removed when completed
  * via efa_rdm_ep_wait_send with successful completion status.
  */
 static
@@ -891,20 +891,20 @@ void test_efa_rdm_ope_ack_packet_tracking_wait_send_common(struct efa_resource *
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
 	/* It should post a RECEIPT packet and add the rxe to the list */
-	assert_false(dlist_empty(&efa_rdm_ep->proto_op_posted_ack_list));
+	assert_false(dlist_empty(&efa_rdm_ep->proto_ope_posted_ack_list));
 
 	/* Poll the cq via wait_send */
 	efa_rdm_ep_wait_send(efa_rdm_ep);
 
 	/* The cq poll should remove the rxe from the list */
-	assert_true(dlist_empty(&efa_rdm_ep->proto_op_posted_ack_list));
+	assert_true(dlist_empty(&efa_rdm_ep->proto_ope_posted_ack_list));
 }
 
 /**
- * @brief Test that failed packet posting does not add to proto_op_posted_ack_list
+ * @brief Test that failed packet posting does not add to proto_ope_posted_ack_list
  *
  * This test verifies that when RECEIPT or EOR packet posting fails,
- * the operation is not added to the proto_op_posted_ack_list, ensuring
+ * the operation is not added to the proto_ope_posted_ack_list, ensuring
  * proper list management during error conditions.
  */
 static
@@ -919,7 +919,7 @@ void test_efa_rdm_ope_ack_packet_failed_posting_common(struct efa_resource **sta
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
 	/* should NOT add to list due to failure */
-	assert_true(dlist_empty(&efa_rdm_ep->proto_op_posted_ack_list));
+	assert_true(dlist_empty(&efa_rdm_ep->proto_ope_posted_ack_list));
 }
 
 /**
@@ -955,7 +955,7 @@ void test_efa_rdm_ope_ack_packet_tracking_unresponsive_wait_send_common(struct e
 	will_return(efa_mock_efa_qp_post_send_return_mock, 0);
 	assert_int_equal(efa_proto_ope_post_send_or_queue(rxe2, pkt_type), 0);
 
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->proto_op_posted_ack_list), 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->proto_ope_posted_ack_list), 1);
 
 	/* Simulate the case where we are NOT getting more unresponsive error for this peer */
 	g_efa_unit_test_mocks.efa_ibv_cq_start_poll = &efa_mock_efa_ibv_cq_start_poll_return_mock;
@@ -963,7 +963,7 @@ void test_efa_rdm_ope_ack_packet_tracking_unresponsive_wait_send_common(struct e
 
 	/* Kick off the second wait_send, which should NOT try to progress more because of the unresp peer */
 	efa_rdm_ep_wait_send(efa_rdm_ep);
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->proto_op_posted_ack_list), 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->proto_ope_posted_ack_list), 1);
 }
 
 
@@ -971,7 +971,7 @@ void test_efa_rdm_ope_ack_packet_tracking_unresponsive_wait_send_common(struct e
  * @brief Test RECEIPT packet tracking via CQ read
  *
  * Verifies that RECEIPT packets are correctly added to and removed from
- * proto_op_posted_ack_list when posted and completed via fi_cq_read.
+ * proto_ope_posted_ack_list when posted and completed via fi_cq_read.
  *
  * @param[in] state cmocka state variable
  */
@@ -984,7 +984,7 @@ void test_efa_rdm_ope_receipt_packet_tracking_cq_read(struct efa_resource **stat
  * @brief Test RECEIPT packet tracking via wait_send
  *
  * Verifies that RECEIPT packets are correctly added to and removed from
- * proto_op_posted_ack_list when posted and completed via efa_rdm_ep_wait_send.
+ * proto_ope_posted_ack_list when posted and completed via efa_rdm_ep_wait_send.
  *
  * @param[in] state cmocka state variable
  */
@@ -997,7 +997,7 @@ void test_efa_rdm_ope_receipt_packet_tracking_wait_send(struct efa_resource **st
  * @brief Test failed RECEIPT packet posting
  *
  * Verifies that failed RECEIPT packet posting does not add operations
- * to the proto_op_posted_ack_list.
+ * to the proto_ope_posted_ack_list.
  *
  * @param[in] state cmocka state variable
  */
@@ -1023,7 +1023,7 @@ void test_efa_rdm_ope_receipt_packet_tracking_unresponsive_wait_send(struct efa_
  * @brief Test EOR packet tracking via CQ read
  *
  * Verifies that EOR packets are correctly added to and removed from
- * proto_op_posted_ack_list when posted and completed via fi_cq_read.
+ * proto_ope_posted_ack_list when posted and completed via fi_cq_read.
  *
  * @param[in] state cmocka state variable
  */
@@ -1036,7 +1036,7 @@ void test_efa_rdm_ope_eor_packet_tracking_cq_read(struct efa_resource **state)
  * @brief Test EOR packet tracking via wait_send
  *
  * Verifies that EOR packets are correctly added to and removed from
- * proto_op_posted_ack_list when posted and completed via efa_rdm_ep_wait_send.
+ * proto_ope_posted_ack_list when posted and completed via efa_rdm_ep_wait_send.
  *
  * @param[in] state cmocka state variable
  */
@@ -1049,7 +1049,7 @@ void test_efa_rdm_ope_eor_packet_tracking_wait_send(struct efa_resource **state)
  * @brief Test failed EOR packet posting
  *
  * Verifies that failed EOR packet posting does not add operations
- * to the proto_op_posted_ack_list.
+ * to the proto_ope_posted_ack_list.
  *
  * @param[in] state cmocka state variable
  */
@@ -1166,10 +1166,10 @@ void test_efa_rdm_atomic_compare_desc_persistence(struct efa_resource **state)
 	/* Destroy stack array to simulate function return */
 	compare_desc_array[0] = (void *)(uintptr_t)0xDEADBEEF;
 
-	/* Retrieve queued txe from proto_op_queued_list */
+	/* Retrieve queued txe from proto_ope_queued_list */
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
-	assert_false(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list));
-	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list.next,
+	assert_false(dlist_empty(&efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list));
+	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_ope_queued_list.next,
 			   struct efa_proto_ope, queued_entry);
 
 	/* Verify compare_desc was copied, not just pointer stored */

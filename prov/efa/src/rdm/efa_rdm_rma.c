@@ -54,7 +54,7 @@ efa_proto_rma_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 	struct efa_proto_ope *txe;
 	struct fi_msg msg;
 
-	txe = ofi_buf_alloc(efa_rdm_ep->proto_op_pool);
+	txe = ofi_buf_alloc(efa_rdm_ep->proto_ope_pool);
 	if (OFI_UNLIKELY(!txe)) {
 		EFA_DBG(FI_LOG_EP_CTRL, "TX entries exhausted.\n");
 		return NULL;
@@ -85,7 +85,7 @@ ssize_t efa_rdm_rma_post_efa_emulated_read(struct efa_rdm_ep *ep, struct efa_pro
 
 #if ENABLE_DEBUG
 	dlist_insert_tail(&txe->pending_recv_entry,
-			  &ep->proto_op_recv_list);
+			  &ep->proto_ope_recv_list);
 	ep->pending_recv_counter++;
 #endif
 
