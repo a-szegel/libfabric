@@ -289,8 +289,20 @@ struct efa_proto_ope_base *efa_proto_ep_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 		return NULL;
 	}
 
-	efa_proto_tx_msg_init((struct efa_proto_tx_msg *)txe,
-			      efa_rdm_ep, peer, msg, op, flags);
+	switch (op) {
+	case ofi_op_msg:
+	case ofi_op_tagged:
+		efa_proto_tx_msg_init((struct efa_proto_tx_msg *)txe,
+				      efa_rdm_ep, peer, msg, op, flags);
+		break;
+	case ofi_op_write:
+		efa_proto_tx_rma_write_init((struct efa_proto_tx_rma_write *)txe,
+					    efa_rdm_ep, peer, msg, flags);
+		break;
+	default:
+		assert(0 && "efa_proto_ep_alloc_txe: unexpected op");
+	}
+
 	if (op == ofi_op_tagged) {
 		txe->cq_entry.tag = tag;
 		txe->tag = tag;
