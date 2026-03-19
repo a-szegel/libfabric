@@ -20,6 +20,7 @@
 #include "efa_rdm_cq.h"
 #include "efa_rdm_pke_nonreq.h"
 #include "efa_rdm_pke_rtw.h"
+#include "efa_proto_op.h"
 
 struct efa_ep_addr *efa_rdm_ep_raw_addr(struct efa_rdm_ep *ep)
 {
@@ -269,7 +270,7 @@ int efa_rdm_ep_post_user_recv_buf(struct efa_rdm_ep *ep, struct efa_rdm_ope *rxe
 	if (OFI_UNLIKELY(!pkt_entry))
 		return -FI_EAGAIN;
 
-	pkt_entry->ope = rxe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 	pkt_entry->peer = rxe->peer;
 	rxe->state = EFA_RDM_RXE_MATCHED;
 
@@ -372,7 +373,7 @@ void efa_rdm_ep_record_tx_op_submitted(struct efa_rdm_ep *ep, struct efa_rdm_pke
 	struct efa_rdm_peer *peer;
 	struct efa_rdm_ope *ope;
 
-	ope = pkt_entry->ope;
+	ope = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	assert(ope);
 
 	/*
@@ -467,7 +468,7 @@ void efa_rdm_ep_record_tx_op_completed(struct efa_rdm_ep *ep, struct efa_rdm_pke
 	 */
 	int event_type = EFA_RDM_PKE_DEBUG_EVENT_SEND_COMPLETION;
 	if (pkt_entry->ope) {
-		switch (pkt_entry->ope->op) {
+		switch (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->op) {
 		case ofi_op_read_req:
 			event_type = EFA_RDM_PKE_DEBUG_EVENT_READ_COMPLETION;
 			break;
@@ -485,7 +486,7 @@ void efa_rdm_ep_record_tx_op_completed(struct efa_rdm_ep *ep, struct efa_rdm_pke
 	                               event_type);
 #endif
 
-	ope = pkt_entry->ope;
+	ope = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	/*
 	 * peer can be NULL when:
 	 *
@@ -569,7 +570,7 @@ void efa_rdm_ep_queue_rnr_pkt(struct efa_rdm_ep *ep, struct efa_rdm_pke *pkt_ent
 	static const int random_min_timeout = 40;
 	static const int random_max_timeout = 120;
 	struct efa_rdm_peer *peer;
-	struct efa_rdm_ope *ope = pkt_entry->ope;
+	struct efa_rdm_ope *ope = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 
 #if ENABLE_DEBUG
 	dlist_remove(&pkt_entry->dbg_entry);
@@ -690,7 +691,7 @@ static ssize_t efa_rdm_ep_handshake_common(struct efa_rdm_ep *ep, struct efa_rdm
 		return -FI_EAGAIN;
 	}
 
-	pkt_entry->ope = txe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(txe);
 	pkt_entry->peer = peer;
 
 	if (trigger_mode) {

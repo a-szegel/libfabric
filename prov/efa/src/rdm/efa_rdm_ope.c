@@ -10,6 +10,7 @@
 #include "efa_rdm_pke_cmd.h"
 #include "efa_rdm_pke_nonreq.h"
 #include "efa_rdm_tracepoint.h"
+#include "efa_proto_op.h"
 #include "efa_rdm_pke_req.h"
 #include "efa_rdm_pkt_type.h"
 
@@ -141,7 +142,7 @@ void efa_rdm_txe_release(struct efa_rdm_ope *txe)
 
 #ifdef ENABLE_EFA_POISONING
 	efa_rdm_poison_mem_region(txe,
-			      sizeof(struct efa_rdm_ope));
+			      sizeof(union efa_proto_op_entry));
 #endif
 	ofi_buf_free(txe);
 }
@@ -197,7 +198,7 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe)
 
 #ifdef ENABLE_EFA_POISONING
 	efa_rdm_poison_mem_region(rxe,
-			      sizeof(struct efa_rdm_ope));
+			      sizeof(union efa_proto_op_entry));
 #endif
 	ofi_buf_free(rxe);
 }
@@ -1714,7 +1715,7 @@ int efa_rdm_rxe_post_local_read_or_queue(struct efa_rdm_ope *rxe,
 	rma_iov.key = (pkt_entry->mr) ? fi_mr_key(pkt_entry->mr) : 0;
 
 	/* setup iov */
-	assert(pkt_entry->ope == rxe);
+	assert(pkt_entry->ope == EFA_PROTO_BASE_FROM_OPE(rxe));
 	assert(rxe->desc && efa_mr_is_hmem(rxe->desc[0]));
 	iov_count = rxe->iov_count;
 	memcpy(iov, rxe->iov, rxe->iov_count * sizeof(struct iovec));

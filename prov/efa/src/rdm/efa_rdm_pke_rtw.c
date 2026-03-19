@@ -16,6 +16,7 @@
 #include "efa_rdm_pke_utils.h"
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_pke_req.h"
+#include "efa_proto_op.h"
 
 /**
  * @brief initialize the payload and rma_iov of a RTW packet
@@ -114,7 +115,7 @@ void efa_rdm_pke_handle_eager_rtw_send_completion(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ope *txe;
 
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	assert(txe->total_len == pkt_entry->payload_size);
 	efa_rdm_ope_handle_send_completed(txe);
 }
@@ -328,7 +329,7 @@ void efa_rdm_pke_handle_longcts_rtw_sent(struct efa_rdm_pke *pkt_entry)
 
 	ep = pkt_entry->ep;
 	efa_domain = efa_rdm_ep_domain(ep);
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	txe->bytes_sent += pkt_entry->payload_size;
 	assert(txe->bytes_sent < txe->total_len);
 	if (efa_is_cache_available(efa_domain))
@@ -358,7 +359,7 @@ void efa_rdm_pke_handle_longcts_rtw_send_completion(struct efa_rdm_pke *pkt_entr
 		return;
 	}
 
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	txe->bytes_acked += pkt_entry->payload_size;
 	if (txe->total_len == txe->bytes_acked)
 		efa_rdm_ope_handle_send_completed(txe);
@@ -511,7 +512,7 @@ ssize_t efa_rdm_pke_init_longread_rtw(struct efa_rdm_pke *pkt_entry,
 		return err;
 
 	pkt_entry->pkt_size = hdr_size + txe->iov_count * sizeof(struct efa_rma_iov);
-	pkt_entry->ope = txe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(txe);
 	return 0;
 }
 

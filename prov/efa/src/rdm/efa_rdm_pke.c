@@ -22,6 +22,7 @@
 #include "efa_rdm_pke_req.h"
 #include "efa_rdm_tracepoint.h"
 #include "efa_rdm_pke_print.h"
+#include "efa_proto_op.h"
 
 /**
  * @brief allocate a packet entry
@@ -473,7 +474,7 @@ ssize_t efa_rdm_pke_sendv(struct efa_rdm_pke **pkt_entry_vec,
 	assert(ep);
 
 	assert(pkt_entry_vec[0]->ope);
-	peer = pkt_entry_vec[0]->ope->peer;
+	peer = EFA_PROTO_OPE_FROM_BASE(pkt_entry_vec[0]->ope)->peer;
 	assert(peer);
 	if (peer->flags & EFA_RDM_PEER_IN_BACKOFF)
 		return -FI_EAGAIN;
@@ -515,9 +516,9 @@ ssize_t efa_rdm_pke_sendv(struct efa_rdm_pke **pkt_entry_vec,
 			/* Currently this is only expected for eager pkts */
 			assert(pkt_entry_cnt == 1);
 			assert(peer->extra_info[0] & EFA_RDM_EXTRA_FEATURE_REQUEST_USER_RECV_QP);
-			if (pkt_entry->ope->fi_flags & FI_REMOTE_CQ_DATA) {
+			if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->fi_flags & FI_REMOTE_CQ_DATA) {
 				flags_in_loop |= FI_REMOTE_CQ_DATA;
-				cq_data = pkt_entry->ope->cq_entry.data;
+				cq_data = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->cq_entry.data;
 			}
 			qpn = peer->user_recv_qp.qpn;
 			qkey = peer->user_recv_qp.qkey;
@@ -592,7 +593,7 @@ int efa_rdm_pke_read(struct efa_rdm_pke *pkt_entry,
 	ep = pkt_entry->ep;
 	assert(ep);
 	qp = ep->base_ep.qp;
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 
 	if (txe->peer == NULL) {
 		pkt_entry->flags |= EFA_RDM_PKE_LOCAL_READ;
@@ -672,7 +673,7 @@ int efa_rdm_pke_write(struct efa_rdm_pke *pkt_entry)
 	ep = pkt_entry->ep;
 	assert(ep);
 	qp = ep->base_ep.qp;
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 
 	rma_context_pkt = (struct efa_rdm_rma_context_pkt *)pkt_entry->wiredata;
 	local_buf = rma_context_pkt->local_buf;

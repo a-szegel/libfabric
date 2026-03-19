@@ -10,6 +10,7 @@
 #include "efa_rdm_pke_nonreq.h"
 
 #include "efa_rdm_tracepoint.h"
+#include "efa_proto_op.h"
 
 /* This file define functons for the following packet type:
  *       HANDSHAKE
@@ -179,7 +180,7 @@ ssize_t efa_rdm_pke_init_cts(struct efa_rdm_pke *pkt_entry,
 	cts_hdr->connid = efa_rdm_ep_raw_addr(ope->ep)->qkey;
 
 	pkt_entry->peer = ope->peer;
-	pkt_entry->ope = (void *)ope;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(ope);
 	return 0;
 }
 
@@ -187,7 +188,7 @@ void efa_rdm_pke_handle_cts_sent(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ope *ope;
 
-	ope = pkt_entry->ope;
+	ope = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	ope->window = efa_rdm_pke_get_cts_hdr(pkt_entry)->recv_length;
 }
 
@@ -265,7 +266,7 @@ int efa_rdm_pke_init_ctsdata(struct efa_rdm_pke *pkt_entry,
 	if (ret)
 		return ret;
 
-	pkt_entry->ope = (void *)ope;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(ope);
 	pkt_entry->peer = ope->peer;
 
 	return 0;
@@ -279,7 +280,7 @@ void efa_rdm_pke_handle_ctsdata_sent(struct efa_rdm_pke *pkt_entry)
 	data_hdr = efa_rdm_pke_get_ctsdata_hdr(pkt_entry);
 	assert(data_hdr->seg_length > 0);
 
-	ope = pkt_entry->ope;
+	ope = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	ope->bytes_sent += data_hdr->seg_length;
 	ope->window -= data_hdr->seg_length;
 	assert(ope->window >= 0);
@@ -297,7 +298,7 @@ void efa_rdm_pke_handle_ctsdata_send_completion(struct efa_rdm_pke *pkt_entry)
 	if (pkt_entry->flags & EFA_RDM_PKE_DC_LONGCTS_DATA)
 		return;
 
-	ope = pkt_entry->ope;
+	ope = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	ope->bytes_acked += efa_rdm_pke_get_ctsdata_hdr(pkt_entry)->seg_length;
 
 	if (ope->total_len == ope->bytes_acked)
@@ -401,7 +402,7 @@ void efa_rdm_pke_handle_readrsp_sent(struct efa_rdm_pke *pkt_entry)
 	struct efa_rdm_ope *rxe;
 	size_t data_len;
 
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	data_len = efa_rdm_pke_get_readrsp_hdr(pkt_entry)->seg_length;
 	rxe->bytes_sent += data_len;
 	rxe->window -= data_len;
@@ -422,7 +423,7 @@ void efa_rdm_pke_handle_readrsp_send_completion(struct efa_rdm_pke *pkt_entry)
 
 	readrsp_hdr = (struct efa_rdm_readrsp_hdr *)pkt_entry->wiredata;
 
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	assert(rxe->cq_entry.flags & FI_READ);
 	rxe->bytes_acked += readrsp_hdr->seg_length;
 	if (rxe->total_len == rxe->bytes_acked)
@@ -458,7 +459,7 @@ void efa_rdm_pke_init_write_context(struct efa_rdm_pke *pkt_entry,
 {
 	struct efa_rdm_rma_context_pkt *rma_context_pkt;
 
-	pkt_entry->ope = (void *)txe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(txe);
 	pkt_entry->peer = txe->peer;
 	rma_context_pkt = (struct efa_rdm_rma_context_pkt *)pkt_entry->wiredata;
 	rma_context_pkt->type = EFA_RDM_RMA_CONTEXT_PKT;
@@ -480,7 +481,7 @@ void efa_rdm_pke_init_read_context(struct efa_rdm_pke *pkt_entry,
 {
 	struct efa_rdm_rma_context_pkt *ctx_pkt;
 
-	pkt_entry->ope = ope;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(ope);
 	pkt_entry->peer = ope->peer;
 	pkt_entry->pkt_size = sizeof(struct efa_rdm_rma_context_pkt);
 
@@ -507,9 +508,9 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 	assert(rma_context_pkt->type == EFA_RDM_RMA_CONTEXT_PKT);
 	assert(rma_context_pkt->context_type == EFA_RDM_RDMA_READ_CONTEXT);
 
-	x_entry_type = context_pkt_entry->ope->type;
+	x_entry_type = EFA_PROTO_OPE_FROM_BASE(context_pkt_entry->ope)->type;
 	if (x_entry_type == EFA_RDM_TXE) {
-		txe = context_pkt_entry->ope;
+		txe = EFA_PROTO_OPE_FROM_BASE(context_pkt_entry->ope);
 		assert(txe->op == ofi_op_read_req);
 		txe->bytes_read_completed += rma_context_pkt->seg_size;
 		if (txe->bytes_read_total_len == txe->bytes_read_completed) {
@@ -521,7 +522,7 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 					assert(txe->ep->efa_rx_pkts_held > 0);
 					txe->ep->efa_rx_pkts_held--;
 				}
-				efa_rdm_tracepoint(rx_pke_local_read_copy_payload_end, (size_t) data_pkt_entry, data_pkt_entry->payload_size, data_pkt_entry->ope->msg_id, (size_t) data_pkt_entry->ope->cq_entry.op_context, data_pkt_entry->ope->total_len);
+				efa_rdm_tracepoint(rx_pke_local_read_copy_payload_end, (size_t) data_pkt_entry, data_pkt_entry->payload_size, EFA_PROTO_OPE_FROM_BASE(data_pkt_entry->ope)->msg_id, (size_t) EFA_PROTO_OPE_FROM_BASE(data_pkt_entry->ope)->cq_entry.op_context, EFA_PROTO_OPE_FROM_BASE(data_pkt_entry->ope)->total_len);
 				efa_rdm_pke_handle_data_copied(data_pkt_entry);
 			} else {
 				assert(txe && txe->cq_entry.flags & FI_READ);
@@ -532,7 +533,7 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 		}
 	} else {
 		assert(x_entry_type == EFA_RDM_RXE);
-		rxe = context_pkt_entry->ope;
+		rxe = EFA_PROTO_OPE_FROM_BASE(context_pkt_entry->ope);
 		rxe->bytes_read_completed += rma_context_pkt->seg_size;
 		assert(rxe->bytes_read_completed <= rxe->bytes_read_total_len);
 		if (rxe->bytes_read_completed == rxe->bytes_read_total_len) {
@@ -590,7 +591,7 @@ void efa_rdm_pke_handle_rma_completion(struct efa_rdm_pke *context_pkt_entry)
 
 	switch (rma_context_pkt->context_type) {
 	case EFA_RDM_RDMA_WRITE_CONTEXT:
-		txe = context_pkt_entry->ope;
+		txe = EFA_PROTO_OPE_FROM_BASE(context_pkt_entry->ope);
 		txe->bytes_write_completed += rma_context_pkt->seg_size;
 		if (txe->bytes_write_completed == txe->bytes_write_total_len) {
 			if (txe->fi_flags & FI_COMPLETION)
@@ -627,7 +628,7 @@ int efa_rdm_pke_init_eor(struct efa_rdm_pke *pkt_entry, struct efa_rdm_ope *rxe)
 	eor_hdr->connid = efa_rdm_ep_raw_addr(rxe->ep)->qkey;
 	pkt_entry->pkt_size = sizeof(struct efa_rdm_eor_hdr);
 	pkt_entry->peer = rxe->peer;
-	pkt_entry->ope = rxe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 	return 0;
 }
 
@@ -635,7 +636,7 @@ void efa_rdm_pke_handle_eor_send_completion(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ope *rxe;
 
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	assert(rxe && rxe->rx_id == efa_rdm_pke_get_eor_hdr(pkt_entry)->recv_id);
 
 	if (rxe->bytes_copied == rxe->total_len) {
@@ -660,7 +661,7 @@ int efa_rdm_pke_init_read_nack(struct efa_rdm_pke *pkt_entry, struct efa_rdm_ope
 	nack_hdr->connid = efa_rdm_ep_raw_addr(rxe->ep)->qkey;
 	pkt_entry->pkt_size = sizeof(struct efa_rdm_read_nack_hdr);
 	pkt_entry->peer = rxe->peer;
-	pkt_entry->ope = rxe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 	return 0;
 }
 
@@ -755,7 +756,7 @@ int efa_rdm_pke_init_receipt(struct efa_rdm_pke *pkt_entry, struct efa_rdm_ope *
 
 	pkt_entry->pkt_size = sizeof(struct efa_rdm_receipt_hdr);
 	pkt_entry->peer = rxe->peer;
-	pkt_entry->ope = rxe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	return 0;
 }
@@ -764,7 +765,7 @@ void efa_rdm_pke_handle_receipt_send_completion(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ope *rxe;
 
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	efa_rdm_rxe_release(rxe);
 }
 
@@ -809,7 +810,7 @@ int efa_rdm_pke_init_atomrsp(struct efa_rdm_pke *pkt_entry, struct efa_rdm_ope *
 
 	assert(rxe->atomrsp_data);
 	pkt_entry->peer = rxe->peer;
-	pkt_entry->ope = rxe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	atomrsp_pkt = (struct efa_rdm_atomrsp_pkt *)pkt_entry->wiredata;
 	atomrsp_hdr = &atomrsp_pkt->hdr;
@@ -831,7 +832,7 @@ void efa_rdm_pke_handle_atomrsp_send_completion(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ope *rxe;
 
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	ofi_buf_free(rxe->atomrsp_data);
 	rxe->atomrsp_data = NULL;
 	efa_rdm_rxe_release(rxe);

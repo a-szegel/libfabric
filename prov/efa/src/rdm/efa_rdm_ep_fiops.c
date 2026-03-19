@@ -14,6 +14,7 @@
 #include "efa_rdm_pke_req.h"
 #include "efa_rdm_pke_utils.h"
 #include "efa_cntr.h"
+#include "efa_proto_op.h"
 
 
 static inline
@@ -246,7 +247,7 @@ int efa_rdm_ep_create_buffer_pools(struct efa_rdm_ep *ep)
 		goto err_free;
 
 	ret = ofi_bufpool_create(&ep->ope_pool,
-				 sizeof(struct efa_rdm_ope),
+				 sizeof(union efa_proto_op_entry),
 				 EFA_RDM_BUFPOOL_ALIGNMENT,
 				 0, /* no limit for max_cnt */
 				 ep->base_ep.info->tx_attr->size + ep->base_ep.info->rx_attr->size, 0);

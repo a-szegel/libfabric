@@ -20,6 +20,7 @@
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_tracepoint.h"
 #include "efa_rdm_pke_req.h"
+#include "efa_proto_op.h"
 
 /**
  * @brief the total length of the message corresponds to a RTM packet
@@ -191,7 +192,7 @@ ssize_t efa_rdm_pke_proc_matched_rtm(struct efa_rdm_pke *pkt_entry)
 	ep = pkt_entry->ep;
 #endif
 
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	assert(rxe && rxe->state == EFA_RDM_RXE_MATCHED);
 
 	efa_rdm_tracepoint(rx_pke_proc_matched_msg_begin, (size_t) pkt_entry, pkt_entry->payload_size, rxe->msg_id, (size_t) rxe->cq_entry.op_context, rxe->total_len);
@@ -295,7 +296,7 @@ ssize_t efa_rdm_pke_proc_msgrtm(struct efa_rdm_pke *pkt_entry)
 		}
 	}
 
-	pkt_entry->ope = rxe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	if (rxe->state == EFA_RDM_RXE_MATCHED) {
 		err = efa_rdm_pke_proc_matched_rtm(pkt_entry);
@@ -343,7 +344,7 @@ static ssize_t efa_rdm_pke_proc_tagrtm(struct efa_rdm_pke *pkt_entry)
 		}
 	}
 
-	pkt_entry->ope = rxe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	if (rxe->state == EFA_RDM_RXE_MATCHED) {
 		err = efa_rdm_pke_proc_matched_rtm(pkt_entry);
@@ -454,13 +455,13 @@ void efa_rdm_pke_handle_rtm_rta_recv(struct efa_rdm_pke *pkt_entry)
 		rxe = efa_rdm_rxe_map_lookup(&peer->rxe_map, efa_rdm_pke_get_rtm_msg_id(pkt_entry));
 		if (rxe) {
 			if (rxe->state == EFA_RDM_RXE_MATCHED) {
-				pkt_entry->ope = rxe;
+				pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 				efa_rdm_pke_proc_matched_mulreq_rtm(pkt_entry);
 			} else {
 				assert(rxe->unexp_pkt);
 				unexp_pkt_entry = efa_rdm_pke_get_unexp(&pkt_entry);
 				efa_rdm_pke_append(rxe->unexp_pkt, unexp_pkt_entry);
-				unexp_pkt_entry->ope = rxe;
+				unexp_pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 			}
 
 			return;
@@ -544,7 +545,7 @@ static inline
 ssize_t efa_rdm_pke_init_eager_msgrtm_zero_hdr(struct efa_rdm_pke *pkt_entry,
 				      struct efa_rdm_ope *txe)
 {
-	pkt_entry->ope = txe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(txe);
 	pkt_entry->peer = txe->peer;
 
 	return efa_rdm_pke_init_payload_from_ope(pkt_entry, txe,
@@ -657,7 +658,7 @@ void efa_rdm_pke_handle_eager_rtm_send_completion(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ope *txe;
 
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	assert(txe->total_len == pkt_entry->payload_size);
 	efa_rdm_ope_handle_send_completed(txe);
 }
@@ -677,7 +678,7 @@ ssize_t efa_rdm_pke_proc_matched_eager_rtm(struct efa_rdm_pke *pkt_entry)
 	int err;
 	struct efa_rdm_ope *rxe;
 
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 
 	/*
 	 * On success, efa_rdm_pke_copy_data_to_ope will write rx completion,
@@ -833,7 +834,7 @@ void efa_rdm_pke_handle_medium_rtm_sent(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ope *txe;
 
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	txe->bytes_sent += pkt_entry->payload_size;
 }
 
@@ -849,7 +850,7 @@ void efa_rdm_pke_handle_medium_rtm_send_completion(struct efa_rdm_pke *pkt_entry
 {
 	struct efa_rdm_ope *txe;
 
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	txe->bytes_acked += pkt_entry->payload_size;
 	if (txe->total_len == txe->bytes_acked)
 		efa_rdm_ope_handle_send_completed(txe);
@@ -875,7 +876,7 @@ ssize_t efa_rdm_pke_proc_matched_mulreq_rtm(struct efa_rdm_pke *pkt_entry)
 	uint64_t msg_id;
 
 	ep = pkt_entry->ep;
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	pkt_type = efa_rdm_pke_get_base_hdr(pkt_entry)->type;
 
 	ret = 0;
@@ -1071,7 +1072,7 @@ void efa_rdm_pke_handle_longcts_rtm_sent(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ope *txe;
 
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	txe->bytes_sent += pkt_entry->payload_size;
 	assert(txe->bytes_sent < txe->total_len);
 
@@ -1102,7 +1103,7 @@ void efa_rdm_pke_handle_longcts_rtm_send_completion(struct efa_rdm_pke *pkt_entr
 		return;
 	}
 
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	txe->bytes_acked += pkt_entry->payload_size;
 	if (txe->total_len == txe->bytes_acked)
 		efa_rdm_ope_handle_send_completed(txe);
@@ -1141,7 +1142,7 @@ ssize_t efa_rdm_pke_init_longread_rtm(struct efa_rdm_pke *pkt_entry,
 		return err;
 
 	pkt_entry->pkt_size = hdr_size + txe->iov_count * sizeof(struct fi_rma_iov);
-	pkt_entry->ope = txe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(txe);
 	pkt_entry->peer = txe->peer;
 	return 0;
 }
@@ -1207,7 +1208,7 @@ ssize_t efa_rdm_pke_proc_matched_longread_rtm(struct efa_rdm_pke *pkt_entry)
 	struct efa_rdm_ep *ep;
 	int err;
 
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	ep = rxe->ep;
 
 	rtm_hdr = efa_rdm_pke_get_longread_rtm_base_hdr(pkt_entry);
@@ -1341,7 +1342,7 @@ void efa_rdm_pke_handle_runtread_rtm_sent(struct efa_rdm_pke *pkt_entry, struct 
 
 	assert(peer);
 
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	txe->bytes_sent += pkt_data_size;
 	peer->num_runt_bytes_in_flight += pkt_data_size;
 
@@ -1364,7 +1365,7 @@ void efa_rdm_pke_handle_runtread_rtm_send_completion(struct efa_rdm_pke *pkt_ent
 	struct efa_rdm_peer *peer;
 	size_t pkt_data_size;
 
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	pkt_data_size = pkt_entry->payload_size;
 	txe->bytes_acked += pkt_data_size;
 

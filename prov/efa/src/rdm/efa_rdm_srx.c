@@ -8,6 +8,7 @@
 #include "efa_rdm_pke_req.h"
 #include "efa_rdm_ope.h"
 #include "efa_rdm_tracepoint.h"
+#include "efa_proto_op.h"
 
 /**
  * @brief update an rxe for a peer rx entry.
@@ -58,7 +59,7 @@ static int efa_rdm_srx_start(struct fi_peer_rx_entry *peer_rxe)
 
 	pkt_entry = peer_rxe->peer_context;
 	assert(pkt_entry);
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	efa_rdm_srx_update_rxe(peer_rxe, rxe);
 
 	efa_rdm_tracepoint(recv_unexp_match_found, (size_t) pkt_entry,
@@ -108,7 +109,7 @@ static int efa_rdm_srx_discard(struct fi_peer_rx_entry *peer_rxe)
 
 	pkt_entry = peer_rxe->peer_context;
 	assert(pkt_entry);
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	EFA_WARN(FI_LOG_EP_CTRL,
 		"Discarding unmatched unexpected rxe: %p pkt_entry %p\n",
 		rxe, rxe->unexp_pkt);

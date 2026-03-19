@@ -19,6 +19,7 @@
 #include "efa_rdm_pke_req.h"
 
 #include "efa_rdm_tracepoint.h"
+#include "efa_proto_op.h"
 
 /**
  * This file define the msg ops functions.
@@ -792,7 +793,7 @@ efa_rdm_msg_alloc_rxe_for_msgrtm(struct efa_rdm_ep *ep,
 			efa_base_ep_write_eq_error(&ep->base_ep, FI_ENOBUFS, FI_EFA_ERR_RXE_POOL_EXHAUSTED);
 			return NULL;
 		}
-		(*pkt_entry_ptr)->ope = rxe;
+		(*pkt_entry_ptr)->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 		peer_rxe->peer_context = (*pkt_entry_ptr);
 		rxe->peer_rxe = peer_rxe;
 
@@ -880,7 +881,7 @@ efa_rdm_msg_alloc_rxe_for_tagrtm(struct efa_rdm_ep *ep,
 			efa_base_ep_write_eq_error(&ep->base_ep, FI_ENOBUFS, FI_EFA_ERR_RXE_POOL_EXHAUSTED);
 			return NULL;
 		}
-		(*pkt_entry_ptr)->ope = rxe;
+		(*pkt_entry_ptr)->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 		if (efa_rdm_pke_get_base_hdr(*pkt_entry_ptr)->flags &
 		    EFA_RDM_REQ_OPT_CQ_DATA_HDR) {

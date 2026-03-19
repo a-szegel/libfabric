@@ -16,6 +16,7 @@
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_pke_req.h"
 #include "efa_rdm_tracepoint.h"
+#include "efa_proto_op.h"
 
 /**
  * @brief initialize the payload, payload_size, payload_mr and pkt_size of an outgoing packet
@@ -45,7 +46,7 @@ ssize_t efa_rdm_pke_init_payload_from_ope(struct efa_rdm_pke *pke,
 	size_t tx_iov_offset, copied;
 	struct efa_mr *iov_mr;
 
-	pke->ope = ope;
+	pke->ope = EFA_PROTO_BASE_FROM_OPE(ope);
 	pke->peer = ope->peer;
 	if (data_size == 0) {
 		pke->pkt_size = payload_offset;
@@ -134,7 +135,7 @@ int efa_rdm_ep_flush_queued_blocking_copy_to_hmem(struct efa_rdm_ep *ep)
 		data = ep->queued_copy_vec[i].data;
 		segment_offset = ep->queued_copy_vec[i].data_offset;
 
-		rxe = pkt_entry->ope;
+		rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 		desc = rxe->desc[0];
 		assert(desc && desc->peer.iface != FI_HMEM_SYSTEM);
 
@@ -160,7 +161,7 @@ int efa_rdm_ep_flush_queued_blocking_copy_to_hmem(struct efa_rdm_ep *ep)
 	for (i = 0; i < ep->queued_copy_num; ++i) {
 		pkt_entry = ep->queued_copy_vec[i].pkt_entry;
 		segment_offset = ep->queued_copy_vec[i].data_offset;
-		rxe = pkt_entry->ope;
+		rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 		if (pkt_entry->alloc_type == EFA_RDM_PKE_FROM_EFA_RX_POOL) {
 			assert(ep->efa_rx_pkts_held > 0);
 			ep->efa_rx_pkts_held--;
@@ -432,7 +433,7 @@ ssize_t efa_rdm_pke_copy_payload_to_ope(struct efa_rdm_pke *pke,
 	ep = pke->ep;
 	assert(ep);
 
-	pke->ope = ope;
+	pke->ope = EFA_PROTO_BASE_FROM_OPE(ope);
 	segment_offset = efa_rdm_pke_get_segment_offset(pke);
 	/*
 	 * Under 3 rare situations, this function does not perform the copy

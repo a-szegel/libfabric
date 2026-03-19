@@ -14,6 +14,7 @@
 #include "efa_rdm_pke_nonreq.h"
 #include "efa_rdm_pke_req.h"
 #include "efa_rdm_tracepoint.h"
+#include "efa_proto_op.h"
 
 /* Handshake wait timeout in microseconds */
 #define EFA_RDM_HANDSHAKE_WAIT_TIMEOUT 1000000
@@ -342,7 +343,7 @@ void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry)
 	struct efa_rdm_ope *ope;
 	struct efa_rdm_ep *ep;
 
-	ope = pkt_entry->ope;
+	ope = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	assert(ope);
 	ep = pkt_entry->ep;
 	assert(ep);
@@ -422,9 +423,9 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 		return;
 	}
 
-	switch (pkt_entry->ope->type) {
+	switch (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type) {
 	case EFA_RDM_TXE:
-		txe = pkt_entry->ope;
+		txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 		if (efa_rdm_pkt_type_of(pkt_entry) == EFA_RDM_HANDSHAKE_PKT) {
 			switch (prov_errno) {
 				case EFA_IO_COMP_STATUS_REMOTE_ERROR_RNR:
@@ -481,7 +482,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 				 */
 				if (!(txe->internal_flags & EFA_RDM_TXE_WRITTEN_RNR_CQ_ERR_ENTRY)) {
 					txe->internal_flags |= EFA_RDM_TXE_WRITTEN_RNR_CQ_ERR_ENTRY;
-					efa_rdm_txe_handle_error(pkt_entry->ope, err, prov_errno);
+					efa_rdm_txe_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
 				}
 
 				efa_rdm_pke_release_tx(pkt_entry);
@@ -496,7 +497,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 				efa_rdm_ep_queue_rnr_pkt(ep, pkt_entry);
 			}
 		} else {
-			efa_rdm_txe_handle_error(pkt_entry->ope, err, prov_errno);
+			efa_rdm_txe_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
 			efa_rdm_pke_release_tx(pkt_entry);
 		}
 		break;
@@ -510,12 +511,12 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			 */
 			efa_rdm_ep_queue_rnr_pkt(ep, pkt_entry);
 		} else {
-			efa_rdm_rxe_handle_error(pkt_entry->ope, err, prov_errno);
+			efa_rdm_rxe_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
 			efa_rdm_pke_release_tx(pkt_entry);
 		}
 		break;
 	default:
-		EFA_WARN(FI_LOG_CQ, "Unknown x_entry type: %d\n", pkt_entry->ope->type);
+		EFA_WARN(FI_LOG_CQ, "Unknown x_entry type: %d\n", EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type);
 		assert(0 && "unknown x_entry state");
 		efa_base_ep_write_eq_error(&ep->base_ep, err, prov_errno);
 		efa_rdm_pke_release_tx(pkt_entry);
@@ -567,10 +568,10 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 	case EFA_RDM_HANDSHAKE_PKT:
 		efa_rdm_tracepoint(handshake_send_completion,
 				   (size_t) pkt_entry, pkt_entry->pkt_size,
-				   pkt_entry->ope->msg_id,
-				   (size_t) pkt_entry->ope->cq_entry.op_context,
-				   pkt_entry->ope->total_len);
-		efa_rdm_txe_release(pkt_entry->ope);
+				   EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->msg_id,
+				   (size_t) EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->cq_entry.op_context,
+				   EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->total_len);
+		efa_rdm_txe_release(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope));
 		break;
 	case EFA_RDM_CTS_PKT:
 		break;
@@ -653,8 +654,8 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		 * Only release TXE when both TX ops complete and receipt is received.
 		 */
 		assert(pkt_entry->ope);
-		if (efa_rdm_txe_dc_ready_for_release(pkt_entry->ope))
-			efa_rdm_txe_release(pkt_entry->ope);
+		if (efa_rdm_txe_dc_ready_for_release(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)))
+			efa_rdm_txe_release(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope));
 		break;
 	case EFA_RDM_READ_NACK_PKT:
 		/* no action needed for NACK packet */
@@ -714,13 +715,13 @@ void efa_rdm_pke_handle_rx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 		return;
 	}
 
-	if (pkt_entry->ope->type == EFA_RDM_TXE) {
-		efa_rdm_txe_handle_error(pkt_entry->ope, err, prov_errno);
-	} else if (pkt_entry->ope->type == EFA_RDM_RXE) {
-		efa_rdm_rxe_handle_error(pkt_entry->ope, err, prov_errno);
+	if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type == EFA_RDM_TXE) {
+		efa_rdm_txe_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
+	} else if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type == EFA_RDM_RXE) {
+		efa_rdm_rxe_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
 	} else {
 		EFA_WARN(FI_LOG_CQ, "unknown RDM operation entry type encountered: %d\n",
-			pkt_entry->ope->type);
+			EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type);
 		assert(0 && "unknown x_entry state");
 		efa_base_ep_write_eq_error(&ep->base_ep, err, prov_errno);
 	}
@@ -730,7 +731,7 @@ void efa_rdm_pke_handle_rx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 
 void efa_rdm_pke_proc_received_no_hdr(struct efa_rdm_pke *pkt_entry, bool has_imm_data, uint32_t imm_data)
 {
-	struct efa_rdm_ope *rxe = pkt_entry->ope;
+	struct efa_rdm_ope *rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 
 	assert(pkt_entry->flags & EFA_RDM_PKE_HAS_NO_BASE_HDR);
 	assert(rxe);
