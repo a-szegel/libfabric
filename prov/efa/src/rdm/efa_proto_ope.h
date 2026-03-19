@@ -326,10 +326,6 @@ EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_atomic) <= 696,
 	"efa_proto_tx_atomic size budget");
 #endif
 
-/* Union must be at least as large as the old monolithic struct */
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_tx_atomic),
-	"union must cover largest member");
-
 /* First-member inheritance: base pointer cast is safe */
 EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_base, base) == 0,
 	"tx_base.base must be at offset 0");
@@ -351,6 +347,92 @@ EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_rma_read, rx) == 0,
 	"rx_rma_read.rx must be at offset 0");
 EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_atomic, rx) == 0,
 	"rx_atomic.rx must be at offset 0");
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Cache line layout enforcement (64 bytes per cache line)
+ *
+ * Base: hot fields in CL0, iov/desc/mr in CL1-3, rma_iov in CL3-5,
+ *       cq_entry+dlists in CL5-7.
+ * TX/RX base: leaf-specific fields start right after base (CL7+).
+ * Goal: non-atomic leaf structs ≤ ~8 CL, vs 14 CL for the old monolithic struct.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/* --- Base struct field ordering --- */
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, type) == 0,
+	"type at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, op) == 4,
+	"op at offset 4");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, ep) == 8,
+	"ep at offset 8");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, peer) == 16,
+	"peer at offset 16");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, fi_flags) == 24,
+	"fi_flags at offset 24");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, internal_flags) == 32,
+	"internal_flags at offset 32");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, total_len) == 48,
+	"total_len at offset 48");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, tag) == 56,
+	"tag at offset 56");
+
+/* state starts at CL1 boundary */
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, state) == 64,
+	"state at CL1 boundary");
+
+/* iov array starts within CL1 */
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, iov) == 88,
+	"iov at offset 88");
+
+/* cq_entry in CL5 */
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, cq_entry) == 320,
+	"cq_entry at offset 320");
+
+/* --- TX base: leaf fields start right after base --- */
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_base, bytes_acked) ==
+	sizeof(struct efa_proto_ope_base),
+	"tx_base fields start immediately after base");
+
+/* --- RX base: leaf fields start right after base --- */
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_base, bytes_received) ==
+	sizeof(struct efa_proto_ope_base),
+	"rx_base fields start immediately after base");
+
+/* --- No padding holes in intermediate bases --- */
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_base) ==
+	sizeof(struct efa_proto_ope_base) + 8 + 8 + 8,
+	"tx_base has no padding holes (base + 3 fields)");
+
+/* --- Leaf sizes: every non-atomic leaf < old struct (888 bytes) --- */
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_msg) < 888,
+	"tx_msg smaller than old monolithic struct");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_rma_read) < 888,
+	"tx_rma_read smaller than old monolithic struct");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_rma_write) < 888,
+	"tx_rma_write smaller than old monolithic struct");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_atomic) < 888,
+	"tx_atomic smaller than old monolithic struct");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_msg) < 888,
+	"rx_msg smaller than old monolithic struct");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_rma_write) < 888,
+	"rx_rma_write smaller than old monolithic struct");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_rma_read) < 888,
+	"rx_rma_read smaller than old monolithic struct");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_atomic) < 888,
+	"rx_atomic smaller than old monolithic struct");
+
+/* --- Union sized by largest member (tx_atomic) --- */
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) == sizeof(struct efa_proto_tx_atomic),
+	"union sized by tx_atomic (largest member)");
+
+/* --- Verify union covers all members --- */
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_tx_msg),
+	"union covers tx_msg");
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_rx_msg),
+	"union covers rx_msg");
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_rx_rma_read),
+	"union covers rx_rma_read");
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_rx_atomic),
+	"union covers rx_atomic");
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Legacy monolithic struct — still the active memory layout.
@@ -623,31 +705,5 @@ void efa_proto_rx_base_release(struct efa_proto_rx_base *rx);
  * The union (efa_proto_ope_entry) is sized by the largest member (tx_atomic)
  * and is used for the single bufpool allocation.
  * ──────────────────────────────────────────────────────────────────────────── */
-
-/* Verify the union covers all members */
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_tx_msg),
-	"union must cover tx_msg");
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_rx_msg),
-	"union must cover rx_msg");
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_rx_rma_read),
-	"union must cover rx_rma_read");
-
-/* Every non-atomic leaf must be smaller than the old monolithic struct (872 bytes) */
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_msg) < 872,
-	"tx_msg must be smaller than old efa_rdm_ope");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_rma_read) < 872,
-	"tx_rma_read must be smaller than old efa_rdm_ope");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_rma_write) < 872,
-	"tx_rma_write must be smaller than old efa_rdm_ope");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_msg) < 872,
-	"rx_msg must be smaller than old efa_rdm_ope");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_rma_write) < 872,
-	"rx_rma_write must be smaller than old efa_rdm_ope");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_rma_read) < 872,
-	"rx_rma_read must be smaller than old efa_rdm_ope");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_atomic) < 872,
-	"rx_atomic must be smaller than old efa_rdm_ope");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_atomic) < 872,
-	"tx_atomic must be smaller than old efa_rdm_ope");
 
 #endif /* _EFA_PROTO_OPE_H */

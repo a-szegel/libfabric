@@ -1450,3 +1450,209 @@ void test_efa_rdm_msg_send_0_byte_with_inject_flag(struct efa_resource **state)
 	ret = fi_sendmsg(resource->ep, &msg, FI_INJECT);
 	assert_int_equal(ret, 0);
 }
+
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Tests for per-protocol struct hierarchy (Tasks 6-10)
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * @brief Verify TX msg alloc sets correct type and initializes leaf fields
+ */
+void test_efa_proto_tx_msg_alloc_type(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_proto_ope_base *txe;
+	struct efa_proto_tx_msg *tx_msg;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	assert_int_equal(txe->type, EFA_PROTO_TX_MSG);
+	assert_true(efa_proto_is_tx(txe));
+	assert_false(efa_proto_is_rx(txe));
+
+	tx_msg = efa_proto_to_tx_msg(txe);
+	assert_int_equal(tx_msg->window, 0);
+	assert_int_equal(tx_msg->bytes_runt, 0);
+	assert_int_equal(tx_msg->bytes_read_total_len, 0);
+	assert_int_equal(efa_proto_to_tx(txe)->bytes_acked, 0);
+	assert_int_equal(efa_proto_to_tx(txe)->bytes_sent, 0);
+	assert_null(efa_proto_to_tx(txe)->local_read_pkt_entry);
+
+	efa_proto_tx_release(txe);
+}
+
+/**
+ * @brief Verify TX tagged alloc sets correct type and tag
+ */
+void test_efa_proto_tx_tagged_alloc_type(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct efa_rdm_peer *peer;
+	struct fi_msg msg = {0};
+	struct efa_proto_ope_base *txe;
+	fi_addr_t peer_addr = 0;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 0;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &peer_addr, 0, NULL), 1);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, peer_addr);
+
+	txe = efa_proto_ep_alloc_txe(efa_rdm_ep, peer, &msg, ofi_op_tagged, 0xDEAD, 0);
+	assert_non_null(txe);
+	assert_int_equal(txe->type, EFA_PROTO_TX_MSG);
+	assert_int_equal(txe->tag, 0xDEAD);
+	assert_int_equal(txe->cq_entry.tag, 0xDEAD);
+
+	efa_proto_tx_release(txe);
+}
+
+/**
+ * @brief Verify TX RMA write alloc sets correct type
+ */
+void test_efa_proto_tx_rma_write_alloc_type(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_proto_ope_base *txe;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_write);
+	assert_non_null(txe);
+	assert_int_equal(txe->type, EFA_PROTO_TX_RMA_WRITE);
+	assert_true(efa_proto_is_tx(txe));
+
+	efa_proto_tx_release(txe);
+}
+
+/**
+ * @brief Verify RX msg alloc sets correct type and initializes rx_base fields
+ */
+void test_efa_proto_rx_msg_alloc_type(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_proto_ope_base *rxe;
+	struct efa_proto_rx_base *rx;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_msg);
+	assert_non_null(rxe);
+	assert_int_equal(rxe->type, EFA_PROTO_RX_MSG);
+	assert_true(efa_proto_is_rx(rxe));
+	assert_false(efa_proto_is_tx(rxe));
+
+	rx = efa_proto_to_rx(rxe);
+	assert_int_equal(rx->bytes_received, 0);
+	assert_int_equal(rx->bytes_copied, 0);
+	assert_int_equal(rx->cuda_copy_method, EFA_PROTO_CUDA_COPY_UNSPEC);
+	assert_null(rx->unexp_pkt);
+	assert_null(rx->rxe_map);
+	assert_null(rx->peer_rxe);
+
+	efa_proto_rx_release(rxe);
+}
+
+/**
+ * @brief Verify RX RMA write alloc sets correct type
+ */
+void test_efa_proto_rx_rma_write_alloc_type(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_proto_ope_base *rxe;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_write);
+	assert_non_null(rxe);
+	assert_int_equal(rxe->type, EFA_PROTO_RX_RMA_WRITE);
+	assert_true(efa_proto_is_rx(rxe));
+
+	efa_proto_rx_release(rxe);
+}
+
+/**
+ * @brief Verify RX RMA read alloc sets correct type
+ */
+void test_efa_proto_rx_rma_read_alloc_type(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_proto_ope_base *rxe;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_read_rsp);
+	assert_non_null(rxe);
+	assert_int_equal(rxe->type, EFA_PROTO_RX_RMA_READ);
+
+	efa_proto_rx_release(rxe);
+}
+
+/**
+ * @brief Verify RX atomic alloc sets correct type
+ */
+void test_efa_proto_rx_atomic_alloc_type(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_proto_ope_base *rxe;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_atomic);
+	assert_non_null(rxe);
+	assert_int_equal(rxe->type, EFA_PROTO_RX_ATOMIC);
+	assert_true(efa_proto_is_rx(rxe));
+
+	efa_proto_rx_release(rxe);
+}
+
+/**
+ * @brief Verify generic window pointer helper dispatches correctly for TX and RX
+ */
+void test_efa_proto_ope_window_ptr_dispatch(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_proto_ope_base *txe, *rxe;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	assert_non_null(rxe);
+
+	/* Set window through the pointer helper */
+	*efa_proto_ope_window_ptr(txe) = 42;
+	*efa_proto_ope_window_ptr(rxe) = 99;
+
+	/* Verify it's accessible through the leaf type */
+	assert_int_equal(efa_proto_to_tx_msg(txe)->window, 42);
+	assert_int_equal(efa_proto_to_rx_msg(rxe)->window, 99);
+
+	efa_proto_tx_release(txe);
+	efa_proto_rx_release(rxe);
+}
+
+/**
+ * @brief Verify bufpool entry size matches union size
+ */
+void test_efa_proto_ope_pool_entry_size(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
+
+	assert_int_equal(efa_rdm_ep->proto_ope_pool->attr.size,
+			 sizeof(union efa_proto_ope_entry));
+}

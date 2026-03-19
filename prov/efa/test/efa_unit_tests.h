@@ -296,6 +296,15 @@ void test_efa_rdm_atomic_compare_desc_persistence();
 void test_efa_rdm_txe_dc_send_first();
 void test_efa_rdm_txe_dc_receipt_first();
 
+void test_efa_proto_tx_msg_alloc_type();
+void test_efa_proto_tx_tagged_alloc_type();
+void test_efa_proto_tx_rma_write_alloc_type();
+void test_efa_proto_rx_msg_alloc_type();
+void test_efa_proto_rx_rma_write_alloc_type();
+void test_efa_proto_rx_rma_read_alloc_type();
+void test_efa_proto_rx_atomic_alloc_type();
+void test_efa_proto_ope_window_ptr_dispatch();
+void test_efa_proto_ope_pool_entry_size();
 
 /* end of efa_unit_test_ope.c */
 void test_efa_rdm_msg_send_to_local_peer_with_null_desc();
