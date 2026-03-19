@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: BSD-2-Clause OR GPL-2.0-only */
 /* SPDX-FileCopyrightText: Copyright Amazon.com, Inc. or its affiliates. All rights reserved. */
 
-#ifndef _EFA_PROTO_OP_H
-#define _EFA_PROTO_OP_H
+#ifndef _EFA_PROTO_OPE_H
+#define _EFA_PROTO_OPE_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -483,4 +483,4 @@ EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_atomic) < 872,
 EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_atomic) < 872,
 	"tx_atomic must be smaller than old efa_rdm_ope");
 
-#endif /* _EFA_PROTO_OP_H */
+#endif /* _EFA_PROTO_OPE_H */

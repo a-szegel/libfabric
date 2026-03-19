@@ -1,66 +1,19 @@
 /* SPDX-License-Identifier: BSD-2-Clause OR GPL-2.0-only */
 /* SPDX-FileCopyrightText: Copyright Amazon.com, Inc. or its affiliates. All rights reserved. */
 
-#ifndef _EFA_PROTO_OP_LEGACY_H
-#define _EFA_PROTO_OP_LEGACY_H
+#ifndef _EFA_PROTO_OPE_LEGACY_H
+#define _EFA_PROTO_OPE_LEGACY_H
 
 #include "efa_rdm_pke.h"
-
-#define EFA_PROTO_IOV_LIMIT		(4)
+#include "efa_proto_ope.h"
 
 /**
- * @brief EFA RDM operation entry (ope) type
+ * @brief EFA RDM operation entry (ope) type — legacy 2-value discriminator.
+ * Will be replaced by enum efa_proto_ope_type (8 values) after layout switchover.
  */
 enum efa_proto_ope_type_legacy {
 	EFA_PROTO_TXE = 1, /**< this ope is for an TX operation */
 	EFA_PROTO_RXE,     /**< this ope is for an RX operation */
-};
-
-/**
- * @brief EFA RDM operation entry (ope)'s state
- */
-enum efa_proto_ope_state {
-	EFA_PROTO_TXE_REQ = 1,	/**< txe sending REQ packet */
-	EFA_PROTO_OPE_SEND,	/**< ope sending data in progress */
-	EFA_PROTO_RXE_INIT,	/**< rxe ready to recv RTM */
-	EFA_PROTO_RXE_UNEXP,	/**< rxe unexp msg waiting for post recv */
-	EFA_PROTO_RXE_MATCHED,	/**< rxe matched with RTM */
-	EFA_PROTO_RXE_RECV,	/**< rxe large msg recv data pkts */
-	EFA_PROTO_OPE_ERR, /*< ope is in error state */
-};
-
-/**
- * @brief basic information of an atomic operation
- * used by all 3 types of atomic operations: fetch, compare and write
- */
-struct efa_proto_atomic_hdr {
-	/* atomic_op is different from tx_op */
-	uint32_t atomic_op;
-	uint32_t datatype;
-};
-
-/**
- * @brief extra information that is not included in fi_msg_atomic
- * used by fetch atomic and compare atomic.
- *     resp stands for response
- *     comp stands for compare
- */
-struct efa_proto_atomic_ex {
-	struct iovec resp_iov[EFA_PROTO_IOV_LIMIT];
-	int resp_iov_count;
-	struct iovec comp_iov[EFA_PROTO_IOV_LIMIT];
-	int comp_iov_count;
-	void *result_desc[EFA_PROTO_IOV_LIMIT];
-	void *compare_desc[EFA_PROTO_IOV_LIMIT];
-};
-
-/**
- * @brief how to copy data from bounce buffer to CUDA receive buffer
- */
-enum efa_proto_cuda_copy_method {
-	EFA_PROTO_CUDA_COPY_UNSPEC = 0,
-	EFA_PROTO_CUDA_COPY_BLOCKING,   /** gdrcopy or cudaMemcpy */
-	EFA_PROTO_CUDA_COPY_LOCALREAD   /** device driven copy by using local RDMA read */
 };
 
 /**
