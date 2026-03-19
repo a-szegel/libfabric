@@ -497,7 +497,6 @@ void efa_rdm_pke_init_read_context(struct efa_rdm_pke *pkt_entry,
 static
 void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entry)
 {
-	enum efa_proto_ope_type_legacy x_entry_type;
 	struct efa_proto_ope_base *txe;
 	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_pke *data_pkt_entry;
@@ -508,7 +507,6 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 	assert(rma_context_pkt->type == EFA_RDM_RMA_CONTEXT_PKT);
 	assert(rma_context_pkt->context_type == EFA_RDM_RDMA_READ_CONTEXT);
 
-	x_entry_type = EFA_PROTO_OPE_FROM_BASE(context_pkt_entry->ope)->type;
 	if (efa_proto_is_tx(context_pkt_entry->ope)) {
 		txe = EFA_PROTO_OPE_FROM_BASE(context_pkt_entry->ope);
 		assert(txe->op == ofi_op_read_req);

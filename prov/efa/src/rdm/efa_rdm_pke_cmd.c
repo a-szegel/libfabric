@@ -465,8 +465,6 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			}
 			efa_rdm_pke_release_tx(pkt_entry);
 			efa_proto_tx_release(txe);
-
-			break;
 		}
 
 		if (prov_errno == EFA_IO_COMP_STATUS_REMOTE_ERROR_RNR) {
@@ -499,7 +497,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			efa_proto_tx_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
 			efa_rdm_pke_release_tx(pkt_entry);
 		}
-		break;
+		
 	} else if (efa_proto_is_rx(pkt_entry->ope)) {
 		if (prov_errno == EFA_IO_COMP_STATUS_REMOTE_ERROR_RNR) {
 			/*
@@ -712,13 +710,13 @@ void efa_rdm_pke_handle_rx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 		return;
 	}
 
-	if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)efa_proto_is_tx()) {
-		efa_proto_tx_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
-	} else if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)efa_proto_is_rx()) {
-		efa_proto_rx_handle_error(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope), err, prov_errno);
+	if (efa_proto_is_tx(pkt_entry->ope)) {
+		efa_proto_tx_handle_error(pkt_entry->ope, err, prov_errno);
+	} else if (efa_proto_is_rx(pkt_entry->ope)) {
+		efa_proto_rx_handle_error(pkt_entry->ope, err, prov_errno);
 	} else {
 		EFA_WARN(FI_LOG_CQ, "unknown RDM operation entry type encountered: %d\n",
-			EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->type);
+			pkt_entry->ope->type);
 		assert(0 && "unknown x_entry state");
 		efa_base_ep_write_eq_error(&ep->base_ep, err, prov_errno);
 	}
