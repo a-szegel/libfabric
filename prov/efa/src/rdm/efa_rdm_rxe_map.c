@@ -14,7 +14,7 @@
  * @returns
  * pointer to an RX entry. If such RX entry does not exist, return NULL
 */
-struct efa_rdm_ope *efa_rdm_rxe_map_lookup(struct efa_rdm_rxe_map *rxe_map,
+struct efa_proto_ope_base *efa_rdm_rxe_map_lookup(struct efa_rdm_rxe_map *rxe_map,
 					   uint64_t msg_id)
 {
 	struct efa_rdm_rxe_map_entry *entry = NULL;
@@ -35,7 +35,7 @@ struct efa_rdm_ope *efa_rdm_rxe_map_lookup(struct efa_rdm_rxe_map *rxe_map,
  * @param[in]		rxe		RX entry
 */
 void efa_rdm_rxe_map_insert(struct efa_rdm_rxe_map *rxe_map,
-			    uint64_t msg_id, struct efa_rdm_ope *rxe)
+			    uint64_t msg_id, struct efa_proto_ope_base *rxe)
 {
 	struct efa_rdm_rxe_map_entry *entry;
 
@@ -59,7 +59,7 @@ void efa_rdm_rxe_map_insert(struct efa_rdm_rxe_map *rxe_map,
 	entry->msg_id = msg_id;
 	entry->rxe = rxe;
 	HASH_ADD(hh, rxe_map->head, msg_id, sizeof(msg_id), entry);
-	rxe->rxe_map = rxe_map;
+	efa_proto_to_rx(rxe)->rxe_map = rxe_map;
 }
 
 /**
@@ -74,7 +74,7 @@ void efa_rdm_rxe_map_insert(struct efa_rdm_rxe_map *rxe_map,
  * @param[in]		rxe		RX entry
  */
 void efa_rdm_rxe_map_remove(struct efa_rdm_rxe_map *rxe_map, uint64_t msg_id,
-			    struct efa_rdm_ope *rxe)
+			    struct efa_proto_ope_base *rxe)
 {
 	struct efa_rdm_rxe_map_entry *entry;
 
@@ -83,5 +83,5 @@ void efa_rdm_rxe_map_remove(struct efa_rdm_rxe_map *rxe_map, uint64_t msg_id,
 	HASH_DEL(rxe_map->head, entry);
 	ofi_buf_free(entry);
 	/* Now the rxe is removed from the map, reset it to NULL */
-	rxe->rxe_map = NULL;
+	efa_proto_to_rx(rxe)->rxe_map = NULL;
 }

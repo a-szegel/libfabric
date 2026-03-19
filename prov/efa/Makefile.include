@@ -71,7 +71,7 @@ _efa_files = \
 	prov/efa/src/rdm/efa_rdm_pke_cmd.c \
 	prov/efa/src/rdm/efa_rdm_pke_print.c \
 	prov/efa/src/rdm/efa_rdm_pkt_type.c \
-	prov/efa/src/rdm/efa_rdm_ope.c \
+	prov/efa/src/rdm/efa_proto_ope.c \
 	prov/efa/src/rdm/efa_rdm_rxe_map.c \
 	prov/efa/src/rdm/efa_rdm_atomic.c \
 	prov/efa/src/rdm/efa_rdm_tracepoint_def.c \
@@ -129,7 +129,7 @@ _efa_headers = \
 	prov/efa/src/rdm/efa_rdm_pke_print.h \
 	prov/efa/src/rdm/efa_rdm_pkt_type.h \
 	prov/efa/src/rdm/efa_rdm_atomic.h \
-	prov/efa/src/rdm/efa_rdm_ope.h \
+	prov/efa/src/rdm/efa_proto_ope.h \
 	prov/efa/src/rdm/efa_rdm_rxe_map.h \
 	prov/efa/src/rdm/efa_rdm_protocol.h \
 	prov/efa/src/rdm/efa_rdm_tracepoint_def.h \
@@ -188,7 +188,7 @@ prov_efa_test_efa_unit_test_LDFLAGS = $(cmocka_rpath) $(efa_LDFLAGS) $(cmocka_LD
 					-Wl,--wrap=efa_rdm_pke_copy_payload_to_ope \
 					-Wl,--wrap=efa_rdm_pke_read \
 					-Wl,--wrap=efa_rdm_pke_proc_matched_rtm \
-					-Wl,--wrap=efa_rdm_ope_post_send \
+					-Wl,--wrap=efa_proto_ope_post_send \
 					-Wl,--wrap=efa_device_support_unsolicited_write_recv \
 					-Wl,--wrap=efa_qp_post_recv \
 					-Wl,--wrap=efa_qp_post_send \

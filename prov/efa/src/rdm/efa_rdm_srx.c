@@ -6,7 +6,7 @@
 #include "efa_rdm_msg.h"
 #include "efa_rdm_pke_rtm.h"
 #include "efa_rdm_pke_req.h"
-#include "efa_rdm_ope.h"
+#include "efa_proto_ope.h"
 #include "efa_rdm_tracepoint.h"
 
 /**
@@ -15,10 +15,10 @@
  *
  * @param[in] ep	endpoint
  * @param[in] peer_rxe	fi_peer_rx_entry_msg contains iov,iov_count,context for ths operation
- * @param[in] rxe	efa_rdm_ope to be updated
+ * @param[in] rxe	efa_proto_ope to be updated
  */
 void efa_rdm_srx_update_rxe(struct fi_peer_rx_entry *peer_rxe,
-			    struct efa_rdm_ope *rxe)
+			    struct efa_proto_ope_base *rxe)
 {
 	rxe->fi_flags = peer_rxe->flags;
 
@@ -38,7 +38,7 @@ void efa_rdm_srx_update_rxe(struct fi_peer_rx_entry *peer_rxe,
 		memset(&rxe->desc[0], 0, sizeof(rxe->desc));
 
 	rxe->cq_entry.op_context = peer_rxe->context;
-	rxe->peer_rxe = peer_rxe;
+	efa_proto_to_rx(rxe)->peer_rxe = peer_rxe;
 }
 
 /**
@@ -52,26 +52,26 @@ static int efa_rdm_srx_start(struct fi_peer_rx_entry *peer_rxe)
 {
 	int ret;
 	struct efa_rdm_pke *pkt_entry;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 
 	assert(ofi_genlock_held(efa_rdm_srx_get_srx_ctx(peer_rxe)->lock));
 
 	pkt_entry = peer_rxe->peer_context;
 	assert(pkt_entry);
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	efa_rdm_srx_update_rxe(peer_rxe, rxe);
 
 	efa_rdm_tracepoint(recv_unexp_match_found, (size_t) pkt_entry,
 			   pkt_entry->payload_size, rxe->msg_id,
 			   (size_t) rxe->cq_entry.op_context, rxe->total_len);
 
-	rxe->state = EFA_RDM_RXE_MATCHED;
+	rxe->state = EFA_PROTO_RXE_MATCHED;
 
 	/**
 	 * Since the rxe is now matched, we need to clean the unexp_pkt
 	 * as the pkts are now processed.
 	 */
-	rxe->unexp_pkt = NULL;
+	efa_proto_to_rx(rxe)->unexp_pkt = NULL;
 
 	ret = efa_rdm_pke_proc_matched_rtm(pkt_entry);
 	if (OFI_UNLIKELY(ret)) {
@@ -79,10 +79,10 @@ static int efa_rdm_srx_start(struct fi_peer_rx_entry *peer_rxe)
 		 * emulated protocols */
 		if (ret == -FI_ENOMR)
 			return 0;
-		efa_rdm_rxe_handle_error(rxe, -ret,
+		efa_proto_rx_handle_error(rxe, -ret,
 			rxe->op == ofi_op_msg ? FI_EFA_ERR_PKT_PROC_MSGRTM : FI_EFA_ERR_PKT_PROC_TAGRTM);
 		efa_rdm_pke_release_rx(pkt_entry);
-		efa_rdm_rxe_release(rxe);
+		efa_proto_rx_release(rxe);
 	}
 
 	return 0;
@@ -102,19 +102,19 @@ static int efa_rdm_srx_start(struct fi_peer_rx_entry *peer_rxe)
 static int efa_rdm_srx_discard(struct fi_peer_rx_entry *peer_rxe)
 {
 	struct efa_rdm_pke *pkt_entry;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 
 	assert(ofi_genlock_held(efa_rdm_srx_get_srx_ctx(peer_rxe)->lock));
 
 	pkt_entry = peer_rxe->peer_context;
 	assert(pkt_entry);
-	rxe = pkt_entry->ope;
+	rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	EFA_WARN(FI_LOG_EP_CTRL,
 		"Discarding unmatched unexpected rxe: %p pkt_entry %p\n",
-		rxe, rxe->unexp_pkt);
-	efa_rdm_pke_release_rx_list(rxe->unexp_pkt);
-	rxe->unexp_pkt = NULL;
-	efa_rdm_rxe_release_internal(rxe);
+		rxe, efa_proto_to_rx(rxe)->unexp_pkt);
+	efa_rdm_pke_release_rx_list(efa_proto_to_rx(rxe)->unexp_pkt);
+	efa_proto_to_rx(rxe)->unexp_pkt = NULL;
+	efa_proto_rx_release_internal(rxe);
 	return FI_SUCCESS;
 }
 
@@ -163,7 +163,7 @@ int efa_rdm_peer_srx_construct(struct efa_rdm_ep *ep)
 {
 	int ret;
 	ret = util_ep_srx_context(&efa_rdm_ep_domain(ep)->util_domain,
-				ep->base_ep.info->rx_attr->size, EFA_RDM_IOV_LIMIT,
+				ep->base_ep.info->rx_attr->size, EFA_PROTO_IOV_LIMIT,
 				ep->min_multi_recv_size,
 				&efa_rdm_srx_update_mr,
 				&efa_rdm_ep_domain(ep)->srx_lock,

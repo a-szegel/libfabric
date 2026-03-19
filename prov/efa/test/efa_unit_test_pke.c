@@ -3,6 +3,7 @@
 #include "rdm/efa_rdm_pke_rta.h"
 #include "rdm/efa_rdm_pke_rtw.h"
 #include "rdm/efa_rdm_pke_utils.h"
+#include "rdm/efa_proto_ope.h"
 
 
 /**
@@ -26,7 +27,7 @@ void test_efa_rdm_pke_handle_longcts_rtm_send_completion(struct efa_resource **s
     size_t raw_addr_len = sizeof(struct efa_ep_addr);
     fi_addr_t peer_addr;
     int err, numaddr;
-    struct efa_rdm_ope *txe;
+    struct efa_proto_ope_base *txe;
 
     efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
 
@@ -47,9 +48,9 @@ void test_efa_rdm_pke_handle_longcts_rtm_send_completion(struct efa_resource **s
     msg.iov_count = 1;
     msg.msg_iov = &iov;
     msg.desc = NULL;
-    txe = efa_rdm_ep_alloc_txe(efa_rdm_ep, peer, &msg, ofi_op_msg, 0, 0);
+    txe = efa_proto_ep_alloc_txe(efa_rdm_ep, peer, &msg, ofi_op_msg, 0, 0);
     assert_non_null(txe);
-    txe->internal_flags |= EFA_RDM_OPE_READ_NACK;
+    txe->internal_flags |= EFA_PROTO_OPE_READ_NACK;
 
     /* construct a fallback long cts rtm pkt */
     pkt_entry = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->efa_tx_pkt_pool, EFA_RDM_PKE_FROM_EFA_TX_POOL);
@@ -61,9 +62,9 @@ void test_efa_rdm_pke_handle_longcts_rtm_send_completion(struct efa_resource **s
     assert_int_equal(pkt_entry->payload_size, 0);
 
     /* Mimic the case when CTSDATA pkts have completed all data and released the txe */
-    txe->bytes_acked = txe->total_len;
-    txe->bytes_sent = txe->total_len;
-    efa_rdm_txe_release(txe);
+    efa_proto_to_tx(txe)->bytes_acked = txe->total_len;
+    efa_proto_to_tx(txe)->bytes_sent = txe->total_len;
+    efa_proto_tx_release(txe);
 
     efa_rdm_pke_handle_longcts_rtm_send_completion(pkt_entry);
 
@@ -118,7 +119,7 @@ void test_efa_rdm_pke_alloc_rta_rxe(struct efa_resource **state)
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pke;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_ep_addr raw_addr = {0};
 	size_t raw_addr_len = sizeof(raw_addr);
 	fi_addr_t peer_addr = 0;
@@ -148,9 +149,9 @@ void test_efa_rdm_pke_alloc_rta_rxe(struct efa_resource **state)
 	pke->peer = peer;
 
 	rxe = efa_rdm_pke_alloc_rta_rxe(pke, ofi_op_atomic);
-	assert_true(rxe->internal_flags & EFA_RDM_OPE_INTERNAL);
+	assert_true(rxe->internal_flags & EFA_PROTO_OPE_INTERNAL);
 
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 	efa_rdm_pke_release_rx(pke);
 }
 
@@ -159,7 +160,7 @@ void test_efa_rdm_pke_alloc_rtw_rxe(struct efa_resource **state)
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pke;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_ep_addr raw_addr = {0};
 	size_t raw_addr_len = sizeof(raw_addr);
 	fi_addr_t peer_addr = 0;
@@ -195,11 +196,11 @@ void test_efa_rdm_pke_alloc_rtw_rxe(struct efa_resource **state)
 
 	rxe = efa_rdm_pke_alloc_rtw_rxe(pke);
 
-	assert_true(rxe->internal_flags & EFA_RDM_OPE_INTERNAL);
-	assert_int_equal(rxe->bytes_received, 0);
-	assert_int_equal(rxe->bytes_copied, 0);
+	assert_true(rxe->internal_flags & EFA_PROTO_OPE_INTERNAL);
+	assert_int_equal(efa_proto_to_rx(rxe)->bytes_received, 0);
+	assert_int_equal(efa_proto_to_rx(rxe)->bytes_copied, 0);
 
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 	efa_rdm_pke_release_rx(pke);
 }
 
@@ -208,7 +209,7 @@ void test_efa_rdm_pke_alloc_rtr_rxe(struct efa_resource **state)
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pke;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_ep_addr raw_addr = {0};
 	size_t raw_addr_len = sizeof(raw_addr);
 	fi_addr_t peer_addr = 0;
@@ -244,11 +245,11 @@ void test_efa_rdm_pke_alloc_rtr_rxe(struct efa_resource **state)
 
 	rxe = efa_rdm_pke_alloc_rtw_rxe(pke);
 
-	assert_true(rxe->internal_flags & EFA_RDM_OPE_INTERNAL);
-	assert_int_equal(rxe->bytes_received, 0);
-	assert_int_equal(rxe->bytes_copied, 0);
+	assert_true(rxe->internal_flags & EFA_PROTO_OPE_INTERNAL);
+	assert_int_equal(efa_proto_to_rx(rxe)->bytes_received, 0);
+	assert_int_equal(efa_proto_to_rx(rxe)->bytes_copied, 0);
 
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 	efa_rdm_pke_release_rx(pke);
 }
 
@@ -291,7 +292,7 @@ void test_efa_rdm_pke_flag_tracking(struct efa_resource **state)
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_peer *peer;
-	struct efa_rdm_ope *txe;
+	struct efa_proto_ope_base *txe;
 	struct fi_msg msg = {0};
 	char buf[16];
 	struct iovec iov = {
@@ -322,13 +323,13 @@ void test_efa_rdm_pke_flag_tracking(struct efa_resource **state)
 	msg.iov_count = 1;
 	msg.msg_iov = &iov;
 	msg.desc = NULL;
-	txe = efa_rdm_ep_alloc_txe(efa_rdm_ep, peer, &msg, ofi_op_msg, 0, 0);
+	txe = efa_proto_ep_alloc_txe(efa_rdm_ep, peer, &msg, ofi_op_msg, 0, 0);
 	assert_non_null(txe);
 
 	/* Allocate a packet entry */
 	pkt_entry = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->efa_tx_pkt_pool, EFA_RDM_PKE_FROM_EFA_TX_POOL);
 	assert_non_null(pkt_entry);
-	pkt_entry->ope = txe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(txe);
 	pkt_entry->peer = peer;
 
 	/* Initially, packet should not be in any list */
@@ -364,7 +365,7 @@ void test_efa_rdm_pke_flag_tracking(struct efa_resource **state)
 	assert_true(dlist_empty(&txe->queued_pkts));
 
 	/* Clean up */
-	efa_rdm_txe_release(txe);
+	efa_proto_tx_release(txe);
 }
 
 
@@ -380,7 +381,7 @@ void test_efa_rdm_pke_proc_matched_eager_rtm_error(struct efa_resource **state)
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pkt_entry;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_base_hdr *base_hdr;
 	char buf[16];
 	int err;
@@ -395,16 +396,16 @@ void test_efa_rdm_pke_proc_matched_eager_rtm_error(struct efa_resource **state)
 	base_hdr = efa_rdm_pke_get_base_hdr(pkt_entry);
 	base_hdr->type = EFA_RDM_EAGER_MSGRTM_PKT;
 
-	rxe = efa_rdm_ep_alloc_rxe(efa_rdm_ep, NULL, ofi_op_msg);
+	rxe = efa_proto_ep_alloc_rxe(efa_rdm_ep, NULL, ofi_op_msg);
 	assert_non_null(rxe);
-	rxe->state = EFA_RDM_RXE_MATCHED;
+	rxe->state = EFA_PROTO_RXE_MATCHED;
 	rxe->internal_flags = 0;
 	rxe->iov_count = 1;
 	rxe->iov[0].iov_base = buf;
 	rxe->iov[0].iov_len = sizeof buf;
 	rxe->cq_entry.len = 1024;
 	rxe->total_len = 1024;
-	pkt_entry->ope = rxe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	g_efa_unit_test_mocks.efa_rdm_pke_copy_payload_to_ope = &efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock;
 	will_return_int(efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock, -FI_EINVAL);
@@ -414,7 +415,7 @@ void test_efa_rdm_pke_proc_matched_eager_rtm_error(struct efa_resource **state)
 
 	/* Verify there is no double free */
 	efa_rdm_pke_release_rx(pkt_entry);
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 }
 
 /**
@@ -461,7 +462,7 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_first_packet_error(struct efa_reso
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pkt_entry;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	char buf[16];
 	int err;
 
@@ -471,18 +472,18 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_first_packet_error(struct efa_reso
 	pkt_entry = create_medium_rtm_pkt(efa_rdm_ep, 1, 1024, 0, 512);
 	assert_non_null(pkt_entry);
 
-	rxe = efa_rdm_ep_alloc_rxe(efa_rdm_ep, NULL, ofi_op_msg);
+	rxe = efa_proto_ep_alloc_rxe(efa_rdm_ep, NULL, ofi_op_msg);
 	assert_non_null(rxe);
-	rxe->state = EFA_RDM_RXE_MATCHED;
+	rxe->state = EFA_PROTO_RXE_MATCHED;
 	rxe->internal_flags = 0;
 	rxe->iov_count = 1;
 	rxe->iov[0].iov_base = buf;
 	rxe->iov[0].iov_len = sizeof buf;
 	rxe->cq_entry.len = 1024;
 	rxe->total_len = 1024;
-	rxe->bytes_received = 0;
-	rxe->bytes_received_via_mulreq = 0;
-	pkt_entry->ope = rxe;
+	efa_proto_to_rx(rxe)->bytes_received = 0;
+	efa_proto_to_rx(rxe)->bytes_received_via_mulreq = 0;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	g_efa_unit_test_mocks.efa_rdm_pke_copy_payload_to_ope = &efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock;
 	will_return_int(efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock, -FI_EINVAL);
@@ -492,7 +493,7 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_first_packet_error(struct efa_reso
 
 	/* Verify there is no double free by releasing the first packet entry */
 	efa_rdm_pke_release_rx(pkt_entry);
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 }
 
 /**
@@ -506,7 +507,7 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_second_packet_error(struct efa_res
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pkt_entry, *second_pkt;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	char buf[1024];
 	int err;
 
@@ -520,18 +521,18 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_second_packet_error(struct efa_res
 	assert_non_null(second_pkt);
 	pkt_entry->next = second_pkt;
 
-	rxe = efa_rdm_ep_alloc_rxe(efa_rdm_ep, NULL, ofi_op_msg);
+	rxe = efa_proto_ep_alloc_rxe(efa_rdm_ep, NULL, ofi_op_msg);
 	assert_non_null(rxe);
-	rxe->state = EFA_RDM_RXE_MATCHED;
+	rxe->state = EFA_PROTO_RXE_MATCHED;
 	rxe->internal_flags = 0;
 	rxe->iov_count = 1;
 	rxe->iov[0].iov_base = buf;
 	rxe->iov[0].iov_len = sizeof buf;
 	rxe->cq_entry.len = 2048;
 	rxe->total_len = 2048;
-	rxe->bytes_received = 0;
-	rxe->bytes_received_via_mulreq = 0; 
-	pkt_entry->ope = rxe;
+	efa_proto_to_rx(rxe)->bytes_received = 0;
+	efa_proto_to_rx(rxe)->bytes_received_via_mulreq = 0; 
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	g_efa_unit_test_mocks.efa_rdm_pke_copy_payload_to_ope = &efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock;
 
@@ -549,5 +550,5 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_second_packet_error(struct efa_res
 	 * been released by the function when it failed.
 	 */
 	efa_rdm_pke_release_rx(pkt_entry);
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 }

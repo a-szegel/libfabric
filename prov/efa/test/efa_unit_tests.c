@@ -85,7 +85,7 @@ static int efa_unit_test_mocks_teardown(void **state)
 		.efa_rdm_pke_copy_payload_to_ope = __real_efa_rdm_pke_copy_payload_to_ope,
 		.efa_rdm_pke_read = __real_efa_rdm_pke_read,
 		.efa_rdm_pke_proc_matched_rtm = __real_efa_rdm_pke_proc_matched_rtm,
-		.efa_rdm_ope_post_send = __real_efa_rdm_ope_post_send,
+		.efa_proto_ope_post_send = __real_efa_proto_ope_post_send,
 		.efa_device_support_unsolicited_write_recv = __real_efa_device_support_unsolicited_write_recv,
 		.ibv_is_fork_initialized = __real_ibv_is_fork_initialized,
 
@@ -336,6 +336,15 @@ int main(void)
 		cmocka_unit_test_setup_teardown(test_efa_rdm_atomic_compare_desc_persistence, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
 		cmocka_unit_test_setup_teardown(test_efa_rdm_txe_dc_send_first, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
 		cmocka_unit_test_setup_teardown(test_efa_rdm_txe_dc_receipt_first, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
+		cmocka_unit_test_setup_teardown(test_efa_proto_tx_msg_alloc_type, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
+		cmocka_unit_test_setup_teardown(test_efa_proto_tx_tagged_alloc_type, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
+		cmocka_unit_test_setup_teardown(test_efa_proto_tx_rma_write_alloc_type, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
+		cmocka_unit_test_setup_teardown(test_efa_proto_rx_msg_alloc_type, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
+		cmocka_unit_test_setup_teardown(test_efa_proto_rx_rma_write_alloc_type, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
+		cmocka_unit_test_setup_teardown(test_efa_proto_rx_rma_read_alloc_type, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
+		cmocka_unit_test_setup_teardown(test_efa_proto_rx_atomic_alloc_type, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
+		cmocka_unit_test_setup_teardown(test_efa_proto_ope_window_ptr_dispatch, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
+		cmocka_unit_test_setup_teardown(test_efa_proto_ope_pool_entry_size, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
 		/* end of efa_unit_test_ope.c */
 
 		cmocka_unit_test_setup_teardown(test_efa_rdm_msg_send_to_local_peer_with_null_desc, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),

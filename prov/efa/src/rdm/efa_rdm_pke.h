@@ -154,8 +154,8 @@ struct efa_rdm_pke {
 	/** @brief pointer to #efa_rdm_ep */
 	struct efa_rdm_ep *ep;
 
-	/** @brief pointer to #efa_rdm_ope */
-	struct efa_rdm_ope *ope;
+	/** @brief pointer to operation entry (proto base) */
+	struct efa_proto_ope_base *ope;
 
 	/** @brief number of bytes sent/received over wire */
 	size_t pkt_size;
@@ -280,7 +280,9 @@ static_assert(sizeof (struct efa_rdm_pke) == EFA_RDM_PKE_ALIGNMENT, "efa_rdm_pke
 
 struct efa_rdm_ep;
 
-struct efa_rdm_ope;
+struct efa_proto_ope_base;
+
+struct efa_proto_ope_base;
 
 struct efa_rdm_pke *efa_rdm_pke_init_prefix(struct efa_rdm_ep *ep,
 						const struct fi_msg *posted_buf,

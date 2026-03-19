@@ -106,9 +106,9 @@ void efa_unit_test_eager_msgrtm_pkt_construct(struct efa_rdm_pke *pkt_entry, str
 
 void efa_unit_test_construct_handshake_pkt_for_receive(struct efa_rdm_pke *pkt_entry, struct efa_unit_test_handshake_pkt_attr *attr);
 
-struct efa_rdm_ope *efa_unit_test_alloc_txe(struct efa_resource *resource, uint32_t op);
+struct efa_proto_ope_base *efa_unit_test_alloc_txe(struct efa_resource *resource, uint32_t op);
 
-struct efa_rdm_ope *efa_unit_test_alloc_rxe(struct efa_resource *resource, uint32_t op);
+struct efa_proto_ope_base *efa_unit_test_alloc_rxe(struct efa_resource *resource, uint32_t op);
 
 /* end of common functions in efa_unit_test_common.c */
 
@@ -296,6 +296,15 @@ void test_efa_rdm_atomic_compare_desc_persistence();
 void test_efa_rdm_txe_dc_send_first();
 void test_efa_rdm_txe_dc_receipt_first();
 
+void test_efa_proto_tx_msg_alloc_type();
+void test_efa_proto_tx_tagged_alloc_type();
+void test_efa_proto_tx_rma_write_alloc_type();
+void test_efa_proto_rx_msg_alloc_type();
+void test_efa_proto_rx_rma_write_alloc_type();
+void test_efa_proto_rx_rma_read_alloc_type();
+void test_efa_proto_rx_atomic_alloc_type();
+void test_efa_proto_ope_window_ptr_dispatch();
+void test_efa_proto_ope_pool_entry_size();
 
 /* end of efa_unit_test_ope.c */
 void test_efa_rdm_msg_send_to_local_peer_with_null_desc();

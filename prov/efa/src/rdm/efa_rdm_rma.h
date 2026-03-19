@@ -16,19 +16,19 @@ int efa_rdm_rma_verified_copy_iov(struct efa_rdm_ep *ep, struct efa_rma_iov *rma
 
 extern struct fi_ops_rma efa_rdm_rma_ops;
 
-struct efa_rdm_ope *
-efa_rdm_rma_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
+struct efa_proto_ope_base *
+efa_proto_rma_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 		      struct efa_rdm_peer *peer,
 		      const struct fi_msg_rma *msg_rma,
 		      uint32_t op,
 		      uint64_t flags);
 
-ssize_t efa_rdm_rma_post_write(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe);
+ssize_t efa_proto_rma_post_write(struct efa_rdm_ep *ep, struct efa_proto_ope_base *txe);
 
-ssize_t efa_rdm_rma_post_read(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe);
+ssize_t efa_proto_rma_post_read(struct efa_rdm_ep *ep, struct efa_proto_ope_base *txe);
 
 static inline
-bool efa_rdm_rma_should_write_using_rdma(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe,
+bool efa_rdm_rma_should_write_using_rdma(struct efa_rdm_ep *ep, struct efa_proto_ope_base *txe,
 					  struct efa_rdm_peer *peer, bool use_p2p)
 {
 	if (txe->fi_flags & FI_REMOTE_CQ_DATA) {

@@ -15,7 +15,7 @@
 
 #include "efa_rdm_msg.h"
 #include "efa_rdm_rma.h"
-#include "efa_rdm_ope.h"
+#include "efa_proto_ope.h"
 #include "efa_rdm_pke_cmd.h"
 #include "efa_rdm_pke_rtm.h"
 #include "efa_rdm_pke_nonreq.h"
@@ -473,7 +473,7 @@ ssize_t efa_rdm_pke_sendv(struct efa_rdm_pke **pkt_entry_vec,
 	assert(ep);
 
 	assert(pkt_entry_vec[0]->ope);
-	peer = pkt_entry_vec[0]->ope->peer;
+	peer = EFA_PROTO_OPE_FROM_BASE(pkt_entry_vec[0]->ope)->peer;
 	assert(peer);
 	if (peer->flags & EFA_RDM_PEER_IN_BACKOFF)
 		return -FI_EAGAIN;
@@ -515,9 +515,9 @@ ssize_t efa_rdm_pke_sendv(struct efa_rdm_pke **pkt_entry_vec,
 			/* Currently this is only expected for eager pkts */
 			assert(pkt_entry_cnt == 1);
 			assert(peer->extra_info[0] & EFA_RDM_EXTRA_FEATURE_REQUEST_USER_RECV_QP);
-			if (pkt_entry->ope->fi_flags & FI_REMOTE_CQ_DATA) {
+			if (EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->fi_flags & FI_REMOTE_CQ_DATA) {
 				flags_in_loop |= FI_REMOTE_CQ_DATA;
-				cq_data = pkt_entry->ope->cq_entry.data;
+				cq_data = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope)->cq_entry.data;
 			}
 			qpn = peer->user_recv_qp.qpn;
 			qkey = peer->user_recv_qp.qkey;
@@ -583,7 +583,7 @@ int efa_rdm_pke_read(struct efa_rdm_pke *pkt_entry,
 	struct efa_qp *qp;
 	struct efa_conn *conn;
 	struct ibv_sge sge;
-	struct efa_rdm_ope *txe;
+	struct efa_proto_ope_base *txe;
 	int err = 0;
 	struct efa_ah *ah;
 	uint32_t qpn, qkey;
@@ -592,7 +592,7 @@ int efa_rdm_pke_read(struct efa_rdm_pke *pkt_entry,
 	ep = pkt_entry->ep;
 	assert(ep);
 	qp = ep->base_ep.qp;
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 
 	if (txe->peer == NULL) {
 		pkt_entry->flags |= EFA_RDM_PKE_LOCAL_READ;
@@ -656,7 +656,7 @@ int efa_rdm_pke_write(struct efa_rdm_pke *pkt_entry)
 	struct efa_conn *conn;
 	struct ibv_sge sge;
 	struct efa_rdm_rma_context_pkt *rma_context_pkt;
-	struct efa_rdm_ope *txe;
+	struct efa_proto_ope_base *txe;
 	bool self_comm;
 	void *local_buf;
 	size_t len;
@@ -672,7 +672,7 @@ int efa_rdm_pke_write(struct efa_rdm_pke *pkt_entry)
 	ep = pkt_entry->ep;
 	assert(ep);
 	qp = ep->base_ep.qp;
-	txe = pkt_entry->ope;
+	txe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 
 	rma_context_pkt = (struct efa_rdm_rma_context_pkt *)pkt_entry->wiredata;
 	local_buf = rma_context_pkt->local_buf;
@@ -702,7 +702,7 @@ int efa_rdm_pke_write(struct efa_rdm_pke *pkt_entry)
 	if (txe->fi_flags & FI_REMOTE_CQ_DATA) {
 		/* assert that we are sending the entire buffer as a
 			   single IOV when immediate data is also included. */
-		assert(len == txe->bytes_write_total_len);
+		assert(len == efa_proto_to_tx_rma_write(txe)->bytes_write_total_len);
 		cq_data = txe->cq_entry.data;
 	}
 

@@ -22,7 +22,7 @@
  */
 void efa_rdm_pke_init_req_hdr_common(struct efa_rdm_pke *pkt_entry,
 				     int pkt_type,
-				     struct efa_rdm_ope *txe)
+				     struct efa_proto_ope_base *txe)
 {
 	char *opt_hdr;
 	struct efa_rdm_ep *ep;

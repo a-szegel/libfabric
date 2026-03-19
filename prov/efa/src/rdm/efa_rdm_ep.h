@@ -101,7 +101,7 @@ struct efa_rdm_ep {
 	int rx_readcopy_pkt_pool_max_used;
 
 	/* datastructure to maintain send/recv states */
-	struct ofi_bufpool *ope_pool;
+	struct ofi_bufpool *proto_ope_pool;
 	/* data structure to maintain overflow pke linked list entry */
 	struct ofi_bufpool *overflow_pke_pool;
 	/* data structure to maintain pkt rx map */
@@ -128,8 +128,8 @@ struct efa_rdm_ep {
 	struct ofi_bufpool *pke_debug_info_pool;
 	/* tx/rx_entries waiting to receive data in
          * long CTS msg/read/write protocols */
-	struct dlist_entry ope_recv_list;
-	/* counter tracking ope_recv_list */
+	struct dlist_entry proto_ope_recv_list;
+	/* counter tracking proto_ope_recv_list */
 	size_t pending_recv_counter;
 
 	/* rx packets being processed or waiting to be processed */
@@ -192,17 +192,17 @@ struct efa_rdm_ep {
 	bool sendrecv_in_order_aligned_128_bytes; /**< whether to support in order send/recv of each aligned 128 bytes memory region */
 	bool write_in_order_aligned_128_bytes; /**< whether to support in order write of each aligned 128 bytes memory region */
 	struct efa_rdm_pke **pke_vec;
-	/* Work arrays for efa_rdm_ope_post_send to avoid stack allocation */
+	/* Work arrays for efa_proto_ope_post_send to avoid stack allocation */
 	struct efa_rdm_pke **send_pkt_entry_vec;
 	int *send_pkt_entry_size_vec;
 	struct dlist_entry entry;
 	/* the count of opes queued before handshake is made with their peers */
-	size_t ope_queued_before_handshake_cnt;
+	size_t proto_ope_queued_before_handshake_cnt;
 	bool homogeneous_peers; /* peers always support the same capabilities in extra_info as this ep */
 	struct fi_info *shm_info;	/* fi_info used to create shm_ep */
 
 	/* track operations with posted packets to ack a remote */
-	struct dlist_entry ope_posted_ack_list;
+	struct dlist_entry proto_ope_posted_ack_list;
 };
 
 int efa_rdm_ep_flush_queued_blocking_copy_to_hmem(struct efa_rdm_ep *ep);
@@ -219,14 +219,14 @@ struct efa_rdm_peer *efa_rdm_ep_get_peer_explicit(struct efa_rdm_ep *ep, fi_addr
 int32_t efa_rdm_ep_get_peer_ahn(struct efa_rdm_ep *ep, fi_addr_t addr);
 struct efa_rdm_peer *efa_rdm_ep_get_peer_implicit(struct efa_rdm_ep *ep, fi_addr_t addr);
 
-struct efa_rdm_ope *efa_rdm_ep_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
+struct efa_proto_ope_base *efa_proto_ep_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 					 struct efa_rdm_peer *peer,
 					 const struct fi_msg *msg,
 					 uint32_t op,
 					 uint64_t tag,
 					 uint64_t flags);
 
-struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep,
+struct efa_proto_ope_base *efa_proto_ep_alloc_rxe(struct efa_rdm_ep *ep,
 					   struct efa_rdm_peer *peer, uint32_t op);
 
 void efa_rdm_ep_record_tx_op_submitted(struct efa_rdm_ep *ep, struct efa_rdm_pke *pkt_entry);
@@ -242,7 +242,7 @@ static inline int efa_rdm_ep_need_sas(struct efa_rdm_ep *ep)
 int efa_rdm_ep_open(struct fid_domain *domain, struct fi_info *info,
 		    struct fid_ep **ep, void *context);
 
-int efa_rdm_ep_post_user_recv_buf(struct efa_rdm_ep *ep, struct efa_rdm_ope *rxe,
+int efa_rdm_ep_post_user_recv_buf(struct efa_rdm_ep *ep, struct efa_proto_ope_base *rxe,
 			      uint64_t flags);
 
 struct efa_rdm_peer;
@@ -459,7 +459,7 @@ ssize_t efa_rdm_ep_trigger_handshake(struct efa_rdm_ep *ep, struct efa_rdm_peer 
 
 ssize_t efa_rdm_ep_post_handshake(struct efa_rdm_ep *ep, struct efa_rdm_peer *peer);
 
-int efa_rdm_ep_enforce_handshake_for_txe(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe);
+int efa_rdm_ep_enforce_handshake_for_txe(struct efa_rdm_ep *ep, struct efa_proto_ope_base *txe);
 
 void efa_rdm_ep_post_handshake_or_queue(struct efa_rdm_ep *ep,
 				     struct efa_rdm_peer *peer);

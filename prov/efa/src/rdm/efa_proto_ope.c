@@ -1,9 +1,26 @@
 /* SPDX-License-Identifier: BSD-2-Clause OR GPL-2.0-only */
 /* SPDX-FileCopyrightText: Copyright Amazon.com, Inc. or its affiliates. All rights reserved. */
 
+/**
+ * @file efa_proto_ope.c
+ * @brief Init/release functions for the per-protocol operation entry structs.
+ *
+ * These functions are wired in during Task 11 (the atomic switchover from
+ * struct efa_proto_ope to the new hierarchy).  Until then they coexist with
+ * the old efa_proto_tx_construct / efa_proto_rx_release functions.
+ */
+
 #include <assert.h>
+#include <ofi_mem.h>
+#include <ofi_iov.h>
 #include "efa.h"
 #include "efa_cntr.h"
+#include "efa_proto_ope.h"
+#include "efa_rdm_ep.h"
+#include "efa_rdm_peer.h"
+#include "efa_rdm_pke.h"
+#include "efa_rdm_rxe_map.h"
+#include "efa_rdm_util.h"
 #include "efa_rdm_msg.h"
 #include "efa_rdm_rma.h"
 #include "efa_rdm_atomic.h"
@@ -13,89 +30,350 @@
 #include "efa_rdm_pke_req.h"
 #include "efa_rdm_pkt_type.h"
 
-void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
+/* ────────────────────────────────────────────────────────────────────────────
+ * Base initialisation — shared by every leaf constructor
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+static void
+efa_proto_ope_base_init(struct efa_proto_ope_base *base,
+		       struct efa_rdm_ep *ep,
+		       struct efa_rdm_peer *peer,
+		       const struct fi_msg *msg,
+		       enum efa_proto_ope_type type,
+		       uint32_t op, uint64_t flags)
+{
+	base->type = type;
+	base->op = op;
+	base->ep = ep;
+	base->peer = peer;
+
+	base->internal_flags = 0;
+	base->tx_id = ofi_buf_index(base);
+	base->rx_id = base->tx_id;
+	base->msg_id = 0;
+	base->total_len = 0;
+	base->tag = 0;
+
+	base->state = (type <= EFA_PROTO_TX_ATOMIC)
+		? EFA_PROTO_TXE_REQ : EFA_PROTO_RXE_INIT;
+	base->queued_ctrl_type = 0;
+	base->efa_outstanding_tx_ops = 0;
+
+	base->iov_count = msg->iov_count;
+	if (msg->msg_iov)
+		memcpy(base->iov, msg->msg_iov,
+		       sizeof(struct iovec) * msg->iov_count);
+	if (msg->desc)
+		memcpy(base->desc, msg->desc,
+		       sizeof(*msg->desc) * msg->iov_count);
+	else
+		memset(base->desc, 0, sizeof(*base->desc) * msg->iov_count);
+	memset(base->mr, 0, sizeof(*base->mr) * msg->iov_count);
+
+	base->rma_iov_count = 0;
+
+	/* cq_entry */
+	base->cq_entry.op_context = msg->context;
+	base->cq_entry.data = msg->data;
+	base->cq_entry.len = ofi_total_iov_len(base->iov, base->iov_count);
+	base->cq_entry.buf = OFI_LIKELY(base->cq_entry.len > 0)
+		? base->iov[0].iov_base : NULL;
+	base->total_len = base->cq_entry.len;
+
+	/* flags — TX op flags only apply to TX entries */
+	if (type <= EFA_PROTO_TX_ATOMIC) {
+		uint64_t tx_op_flags;
+
+		assert(ep->base_ep.util_ep.tx_msg_flags == 0 ||
+		       ep->base_ep.util_ep.tx_msg_flags == FI_COMPLETION);
+		tx_op_flags = ep->base_ep.util_ep.tx_op_flags;
+		if (ep->base_ep.util_ep.tx_msg_flags == 0)
+			tx_op_flags &= ~FI_COMPLETION;
+		base->fi_flags = flags | tx_op_flags;
+	} else {
+		base->fi_flags = flags;
+	}
+
+	dlist_init(&base->entry);
+	dlist_init(&base->queued_pkts);
+	if (peer) {
+		if (type <= EFA_PROTO_TX_ATOMIC)
+			dlist_insert_tail(&base->peer_entry, &peer->txe_list);
+		else
+			dlist_insert_tail(&base->peer_entry, &peer->rxe_list);
+	}
+
+	/* Insert into endpoint's tx/rx entry list */
+	if (type <= EFA_PROTO_TX_ATOMIC)
+		dlist_insert_tail(&base->ep_entry, &ep->txe_list);
+	else
+		dlist_insert_tail(&base->ep_entry, &ep->rxe_list);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * TX leaf constructors
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+static inline void efa_proto_tx_base_init(struct efa_proto_tx_base *tx)
+{
+	tx->bytes_acked = 0;
+	tx->bytes_sent = 0;
+	tx->local_read_pkt_entry = NULL;
+}
+
+void efa_proto_tx_msg_init(struct efa_proto_tx_msg *entry,
 			   struct efa_rdm_ep *ep,
 			   struct efa_rdm_peer *peer,
 			   const struct fi_msg *msg,
 			   uint32_t op, uint64_t flags)
 {
-	uint64_t tx_op_flags;
+	efa_proto_ope_base_init(&entry->tx.base, ep, peer, msg,
+			       EFA_PROTO_TX_MSG, op, flags);
+	efa_proto_tx_base_init(&entry->tx);
 
-	txe->ep = ep;
-	txe->type = EFA_RDM_TXE;
-	txe->op = op;
-	txe->tx_id = ofi_buf_index(txe);
-	txe->state = EFA_RDM_TXE_REQ;
-	txe->peer = peer;
-	/* peer would be NULL for local read operation */
-	if (txe->peer) {
-		dlist_insert_tail(&txe->peer_entry, &txe->peer->txe_list);
-	}
-
-	txe->internal_flags = 0;
-	txe->bytes_received = 0;
-	txe->bytes_copied = 0;
-	txe->bytes_acked = 0;
-	txe->bytes_sent = 0;
-	txe->window = 0;
-	txe->iov_count = msg->iov_count;
-	txe->rma_iov_count = 0;
-	txe->msg_id = 0;
-	txe->efa_outstanding_tx_ops = 0;
-	dlist_init(&txe->queued_pkts);
-
-	memcpy(txe->iov, msg->msg_iov, sizeof(struct iovec) * msg->iov_count);
-	memset(txe->mr, 0, sizeof(*txe->mr) * msg->iov_count);
-	if (msg->desc) {
-		memcpy(txe->desc, msg->desc, sizeof(*msg->desc) * msg->iov_count);
-	} else {
-		memset(txe->desc, 0, sizeof(*txe->desc) * msg->iov_count);
-	}
-
-	/* cq_entry on completion */
-	txe->cq_entry.op_context = msg->context;
-	txe->cq_entry.data = msg->data;
-	txe->cq_entry.len = ofi_total_iov_len(txe->iov, txe->iov_count);
-	txe->cq_entry.buf = OFI_LIKELY(txe->cq_entry.len > 0) ? txe->iov[0].iov_base : NULL;
-	txe->total_len = ofi_total_iov_len(txe->iov, txe->iov_count);
-
-	/* set flags */
-	assert(ep->base_ep.util_ep.tx_msg_flags == 0 ||
-	       ep->base_ep.util_ep.tx_msg_flags == FI_COMPLETION);
-	tx_op_flags = ep->base_ep.util_ep.tx_op_flags;
-	if (ep->base_ep.util_ep.tx_msg_flags == 0)
-		tx_op_flags &= ~FI_COMPLETION;
-	txe->fi_flags = flags | tx_op_flags;
-	txe->bytes_runt = 0;
-	dlist_init(&txe->entry);
+	entry->window = 0;
+	entry->bytes_runt = 0;
+	entry->bytes_read_completed = 0;
+	entry->bytes_read_submitted = 0;
+	entry->bytes_read_total_len = 0;
+	entry->bytes_read_offset = 0;
 
 	switch (op) {
 	case ofi_op_tagged:
-		txe->cq_entry.flags = FI_TRANSMIT | FI_MSG | FI_TAGGED;
-		break;
-	case ofi_op_write:
-		txe->cq_entry.flags = FI_RMA | FI_WRITE;
-		break;
-	case ofi_op_read_req:
-		txe->cq_entry.flags = FI_RMA | FI_READ;
+		entry->tx.base.cq_entry.flags = FI_TRANSMIT | FI_MSG | FI_TAGGED;
 		break;
 	case ofi_op_msg:
-		txe->cq_entry.flags = FI_TRANSMIT | FI_MSG;
-		break;
-	case ofi_op_atomic:
-		txe->cq_entry.flags = (FI_WRITE | FI_ATOMIC);
-		break;
-	case ofi_op_atomic_fetch:
-	case ofi_op_atomic_compare:
-		txe->cq_entry.flags = (FI_READ | FI_ATOMIC);
+		entry->tx.base.cq_entry.flags = FI_TRANSMIT | FI_MSG;
 		break;
 	default:
-		EFA_WARN(FI_LOG_CQ, "invalid operation type\n");
-		assert(0);
+		assert(0 && "efa_proto_tx_msg_init: invalid op");
 	}
 }
 
-void efa_rdm_txe_release(struct efa_rdm_ope *txe)
+void efa_proto_tx_rma_read_init(struct efa_proto_tx_rma_read *entry,
+				struct efa_rdm_ep *ep,
+				struct efa_rdm_peer *peer,
+				const struct fi_msg *msg,
+				uint64_t flags)
+{
+	efa_proto_ope_base_init(&entry->tx.base, ep, peer, msg,
+			       EFA_PROTO_TX_RMA_READ, ofi_op_read_req, flags);
+	efa_proto_tx_base_init(&entry->tx);
+
+	entry->tx.base.cq_entry.flags = FI_RMA | FI_READ;
+	entry->bytes_read_completed = 0;
+	entry->bytes_read_submitted = 0;
+	entry->bytes_read_total_len = 0;
+	entry->bytes_read_offset = 0;
+}
+
+void efa_proto_tx_rma_write_init(struct efa_proto_tx_rma_write *entry,
+				 struct efa_rdm_ep *ep,
+				 struct efa_rdm_peer *peer,
+				 const struct fi_msg *msg,
+				 uint64_t flags)
+{
+	efa_proto_ope_base_init(&entry->tx.base, ep, peer, msg,
+			       EFA_PROTO_TX_RMA_WRITE, ofi_op_write, flags);
+	efa_proto_tx_base_init(&entry->tx);
+
+	entry->tx.base.cq_entry.flags = FI_RMA | FI_WRITE;
+	entry->bytes_write_completed = 0;
+	entry->bytes_write_submitted = 0;
+	entry->bytes_write_total_len = 0;
+}
+
+void efa_proto_tx_atomic_init(struct efa_proto_tx_atomic *entry,
+			      struct efa_rdm_ep *ep,
+			      struct efa_rdm_peer *peer,
+			      const struct fi_msg *msg,
+			      uint32_t op, uint64_t flags,
+			      const struct efa_proto_atomic_hdr *hdr,
+			      const struct efa_proto_atomic_ex *ex)
+{
+	efa_proto_ope_base_init(&entry->tx.base, ep, peer, msg,
+			       EFA_PROTO_TX_ATOMIC, op, flags);
+	efa_proto_tx_base_init(&entry->tx);
+
+	entry->atomic_hdr = *hdr;
+	if (ex)
+		entry->atomic_ex = *ex;
+
+	switch (op) {
+	case ofi_op_atomic:
+		entry->tx.base.cq_entry.flags = FI_WRITE | FI_ATOMIC;
+		break;
+	case ofi_op_atomic_fetch:
+	case ofi_op_atomic_compare:
+		entry->tx.base.cq_entry.flags = FI_READ | FI_ATOMIC;
+		break;
+	default:
+		assert(0 && "efa_proto_tx_atomic_init: invalid op");
+	}
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * RX leaf constructors
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+static inline void efa_proto_rx_base_init(struct efa_proto_rx_base *rx)
+{
+	rx->bytes_received = 0;
+	rx->bytes_received_via_mulreq = 0;
+	rx->bytes_copied = 0;
+	rx->bytes_queued_blocking_copy = 0;
+	rx->ignore = 0;
+	rx->unexp_pkt = NULL;
+	rx->rxe_map = NULL;
+	rx->peer_rxe = NULL;
+	rx->cuda_copy_method = EFA_PROTO_CUDA_COPY_UNSPEC;
+}
+
+void efa_proto_rx_msg_init(struct efa_proto_rx_msg *entry,
+			   struct efa_rdm_ep *ep,
+			   struct efa_rdm_peer *peer,
+			   uint32_t op)
+{
+	struct fi_msg empty_msg = { 0 };
+
+	efa_proto_ope_base_init(&entry->rx.base, ep, peer, &empty_msg,
+			       EFA_PROTO_RX_MSG, op, 0);
+	efa_proto_rx_base_init(&entry->rx);
+
+	entry->window = 0;
+	entry->bytes_runt = 0;
+	entry->bytes_read_completed = 0;
+	entry->bytes_read_submitted = 0;
+	entry->bytes_read_total_len = 0;
+	entry->bytes_read_offset = 0;
+
+	switch (op) {
+	case ofi_op_tagged:
+		entry->rx.base.cq_entry.flags = FI_RECV | FI_MSG | FI_TAGGED;
+		break;
+	case ofi_op_msg:
+		entry->rx.base.cq_entry.flags = FI_RECV | FI_MSG;
+		break;
+	default:
+		assert(0 && "efa_proto_rx_msg_init: invalid op");
+	}
+}
+
+void efa_proto_rx_rma_write_init(struct efa_proto_rx_rma_write *entry,
+				 struct efa_rdm_ep *ep,
+				 struct efa_rdm_peer *peer)
+{
+	struct fi_msg empty_msg = { 0 };
+
+	efa_proto_ope_base_init(&entry->rx.base, ep, peer, &empty_msg,
+			       EFA_PROTO_RX_RMA_WRITE, ofi_op_write, 0);
+	efa_proto_rx_base_init(&entry->rx);
+
+	entry->rx.base.cq_entry.flags = FI_REMOTE_WRITE | FI_RMA;
+}
+
+void efa_proto_rx_rma_read_init(struct efa_proto_rx_rma_read *entry,
+				struct efa_rdm_ep *ep,
+				struct efa_rdm_peer *peer)
+{
+	struct fi_msg empty_msg = { 0 };
+
+	efa_proto_ope_base_init(&entry->rx.base, ep, peer, &empty_msg,
+			       EFA_PROTO_RX_RMA_READ, ofi_op_read_rsp, 0);
+	efa_proto_rx_base_init(&entry->rx);
+
+	entry->rx.base.cq_entry.flags = FI_REMOTE_READ | FI_RMA;
+	entry->window = 0;
+	entry->bytes_sent = 0;
+}
+
+void efa_proto_rx_atomic_init(struct efa_proto_rx_atomic *entry,
+			      struct efa_rdm_ep *ep,
+			      struct efa_rdm_peer *peer,
+			      uint32_t op)
+{
+	struct fi_msg empty_msg = { 0 };
+
+	efa_proto_ope_base_init(&entry->rx.base, ep, peer, &empty_msg,
+			       EFA_PROTO_RX_ATOMIC, op, 0);
+	efa_proto_rx_base_init(&entry->rx);
+
+	entry->atomic_hdr.atomic_op = 0;
+	entry->atomic_hdr.datatype = 0;
+	entry->atomrsp_data = NULL;
+
+	switch (op) {
+	case ofi_op_atomic:
+		entry->rx.base.cq_entry.flags = FI_REMOTE_WRITE | FI_ATOMIC;
+		break;
+	case ofi_op_atomic_fetch:
+	case ofi_op_atomic_compare:
+		entry->rx.base.cq_entry.flags = FI_REMOTE_READ | FI_ATOMIC;
+		break;
+	default:
+		assert(0 && "efa_proto_rx_atomic_init: invalid op");
+	}
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Release helpers — common cleanup for base, tx_base, rx_base
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+void efa_proto_ope_base_release(struct efa_proto_ope_base *base)
+{
+	int i, err;
+	struct dlist_entry *tmp;
+	struct efa_rdm_pke *pkt_entry;
+
+	if (base->peer)
+		dlist_remove(&base->peer_entry);
+
+	for (i = 0; i < base->iov_count; i++) {
+		if (base->mr[i]) {
+			err = fi_close((struct fid *)base->mr[i]);
+			if (OFI_UNLIKELY(err))
+				efa_base_ep_write_eq_error(&base->ep->base_ep,
+							   err, FI_EFA_ERR_MR_DEREG);
+			base->mr[i] = NULL;
+		}
+	}
+
+	dlist_remove(&base->ep_entry);
+
+	if (base->state == EFA_PROTO_OPE_SEND)
+		dlist_remove(&base->entry);
+
+	dlist_foreach_container_safe(&base->queued_pkts,
+				     struct efa_rdm_pke,
+				     pkt_entry, entry, tmp)
+		efa_rdm_pke_release_tx(pkt_entry);
+
+	if (base->internal_flags & EFA_PROTO_OPE_QUEUED_FLAGS) {
+		dlist_remove(&base->queued_entry);
+		base->internal_flags &= ~EFA_PROTO_OPE_QUEUED_FLAGS;
+	}
+
+#ifdef ENABLE_EFA_POISONING
+	efa_rdm_poison_mem_region(base, EFA_PROTO_OPE_POOL_ENTRY_SIZE);
+#endif
+	ofi_buf_free(base);
+}
+
+void efa_proto_rx_base_release(struct efa_proto_rx_base *rx)
+{
+	if (rx->rxe_map)
+		efa_rdm_rxe_map_remove(rx->rxe_map, rx->base.msg_id,
+				       EFA_PROTO_OPE_FROM_BASE(&rx->base));
+
+	if (rx->peer_rxe) {
+		efa_rdm_ep_get_peer_srx(rx->base.ep)->owner_ops->free_entry(rx->peer_rxe);
+		rx->peer_rxe = NULL;
+	}
+
+	efa_proto_ope_base_release(&rx->base);
+}
+
+void efa_proto_tx_release(struct efa_proto_ope_base *txe)
 {
 	int i, err = 0;
 	struct dlist_entry *tmp;
@@ -125,7 +403,7 @@ void efa_rdm_txe_release(struct efa_rdm_ope *txe)
 	 * from ope_longcts_list when the ope
 	 * is released for whatever reasons.
 	 */
-	if (txe->state == EFA_RDM_OPE_SEND)
+	if (txe->state == EFA_PROTO_OPE_SEND)
 		dlist_remove(&txe->entry);
 
 	dlist_foreach_container_safe(&txe->queued_pkts,
@@ -134,14 +412,14 @@ void efa_rdm_txe_release(struct efa_rdm_ope *txe)
 		efa_rdm_pke_release_tx(pkt_entry);
 	}
 
-	if (txe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS) {
+	if (txe->internal_flags & EFA_PROTO_OPE_QUEUED_FLAGS) {
 		dlist_remove(&txe->queued_entry);
-		txe->internal_flags &= ~EFA_RDM_OPE_QUEUED_FLAGS;
+		txe->internal_flags &= ~EFA_PROTO_OPE_QUEUED_FLAGS;
 	}
 
 #ifdef ENABLE_EFA_POISONING
 	efa_rdm_poison_mem_region(txe,
-			      sizeof(struct efa_rdm_ope));
+			      EFA_PROTO_OPE_POOL_ENTRY_SIZE);
 #endif
 	ofi_buf_free(txe);
 }
@@ -151,9 +429,10 @@ void efa_rdm_txe_release(struct efa_rdm_ope *txe)
  *
  * @param rxe efa_rdm_ope
  */
-void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe)
+void efa_proto_rx_release_internal(struct efa_proto_ope_base *rxe)
 {
 	struct efa_rdm_pke *pkt_entry;
+	struct efa_proto_rx_base *rx = (struct efa_proto_rx_base *)rxe;
 	struct dlist_entry *tmp;
 	int i, err;
 
@@ -162,16 +441,11 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe)
 
 	dlist_remove(&rxe->ep_entry);
 
-	/**
-	 * Make sure the entry is removed
-	 * from ope_longcts_list when the ope
-	 * is released for whatever reasons.
-	 */
-	if (rxe->state == EFA_RDM_OPE_SEND)
+	if (rxe->state == EFA_PROTO_OPE_SEND)
 		dlist_remove(&rxe->entry);
 
-	if (rxe->rxe_map)
-		efa_rdm_rxe_map_remove(rxe->rxe_map, rxe->msg_id, rxe);
+	if (rx->rxe_map)
+		efa_rdm_rxe_map_remove(rx->rxe_map, rxe->msg_id, rxe);
 
 	for (i = 0; i < rxe->iov_count; i++) {
 		if (rxe->mr[i]) {
@@ -190,28 +464,28 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe)
 				     pkt_entry, entry, tmp)
 		efa_rdm_pke_release_tx(pkt_entry);
 
-	if (rxe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS) {
+	if (rxe->internal_flags & EFA_PROTO_OPE_QUEUED_FLAGS) {
 		dlist_remove(&rxe->queued_entry);
-		rxe->internal_flags &= ~EFA_RDM_OPE_QUEUED_FLAGS;
+		rxe->internal_flags &= ~EFA_PROTO_OPE_QUEUED_FLAGS;
 	}
 
 #ifdef ENABLE_EFA_POISONING
 	efa_rdm_poison_mem_region(rxe,
-			      sizeof(struct efa_rdm_ope));
+			      EFA_PROTO_OPE_POOL_ENTRY_SIZE);
 #endif
 	ofi_buf_free(rxe);
 }
 
-void efa_rdm_rxe_release(struct efa_rdm_ope *rxe)
+void efa_proto_rx_release(struct efa_proto_ope_base *rxe)
 {
-	/* release the resource created by util srx */
-	if (rxe->peer_rxe) {
-		efa_rdm_ep_get_peer_srx(rxe->ep)->owner_ops->free_entry(rxe->peer_rxe);
-		rxe->peer_rxe = NULL;
+	struct efa_proto_rx_base *rx = (struct efa_proto_rx_base *)rxe;
+
+	if (rx->peer_rxe) {
+		efa_rdm_ep_get_peer_srx(rxe->ep)->owner_ops->free_entry(rx->peer_rxe);
+		rx->peer_rxe = NULL;
 	}
 
-	/* release efa specific resources in rxe */
-	efa_rdm_rxe_release_internal(rxe);
+	efa_proto_rx_release_internal(rxe);
 }
 
 /**
@@ -277,7 +551,7 @@ void efa_rdm_rxe_release(struct efa_rdm_ope *rxe)
  * @param[in]		access			the access flag for the memory registation.
  *
  */
-void efa_rdm_ope_try_fill_desc(struct efa_rdm_ope *ope, int mr_iov_start, uint64_t access)
+void efa_proto_ope_try_fill_desc(struct efa_proto_ope_base *ope, int mr_iov_start, uint64_t access)
 {
 	struct efa_domain *domain;
 	int i, err;
@@ -311,18 +585,18 @@ void efa_rdm_ope_try_fill_desc(struct efa_rdm_ope *ope, int mr_iov_start, uint64
 	}
 }
 
-int efa_rdm_txe_prepare_to_be_read(struct efa_rdm_ope *txe, struct fi_rma_iov *read_iov)
+int efa_proto_tx_prepare_to_be_read(struct efa_proto_ope_base *txe, struct fi_rma_iov *read_iov)
 {
 	int i;
 
-	efa_rdm_ope_try_fill_desc(txe, 0, FI_REMOTE_READ);
+	efa_proto_ope_try_fill_desc(txe, 0, FI_REMOTE_READ);
 
 	for (i = 0; i < txe->iov_count; ++i) {
 		read_iov[i].addr = (uint64_t)txe->iov[i].iov_base;
 		read_iov[i].len = txe->iov[i].iov_len;
 
 		if (!txe->desc[i]) {
-			/* efa_rdm_ope_try_fill_desc() did not register the memory */
+			/* efa_proto_ope_try_fill_desc() did not register the memory */
 			return -FI_ENOMR;
 		}
 
@@ -341,17 +615,17 @@ int efa_rdm_txe_prepare_to_be_read(struct efa_rdm_ope *txe, struct fi_rma_iov *r
  * @param[in,out]	txe	txe to be set
  */
 static inline
-void efa_rdm_txe_set_runt_size(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe)
+void efa_proto_tx_set_runt_size(struct efa_rdm_ep *ep, struct efa_proto_ope_base *txe)
 {
-	assert(txe->type == EFA_RDM_TXE);
+	assert(efa_proto_is_tx(txe));
 
-	if (txe->bytes_runt > 0)
+	if (efa_proto_to_tx_msg(txe)->bytes_runt > 0)
 		return;
 
 	assert(txe->peer);
-	txe->bytes_runt = efa_rdm_peer_get_runt_size(txe->peer, ep, txe);
+	efa_proto_to_tx_msg(txe)->bytes_runt = efa_rdm_peer_get_runt_size(txe->peer, ep, txe);
 
-	assert(txe->bytes_runt);
+	assert(efa_proto_to_tx_msg(txe)->bytes_runt);
 }
 
 /**
@@ -371,7 +645,7 @@ void efa_rdm_txe_set_runt_size(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe)
  * @param[in]          pkt_type                REQ packet type
  * @return                     size of total data transfered by REQ packets
  */
-size_t efa_rdm_ope_mulreq_total_data_size(struct efa_rdm_ope *ope, int pkt_type)
+size_t efa_proto_ope_mulreq_total_data_size(struct efa_proto_ope_base *ope, int pkt_type)
 {
 	assert(efa_rdm_pkt_type_is_mulreq(pkt_type));
 
@@ -380,7 +654,7 @@ size_t efa_rdm_ope_mulreq_total_data_size(struct efa_rdm_ope *ope, int pkt_type)
 	}
 
 	assert(efa_rdm_pkt_type_is_runt(pkt_type));
-	return ope->bytes_runt;
+	return (*efa_proto_ope_bytes_runt_ptr(ope));
 }
 
 /**
@@ -404,7 +678,7 @@ size_t efa_rdm_ope_mulreq_total_data_size(struct efa_rdm_ope *ope, int pkt_type)
  * @return		maxiumum number of bytes of data can be save in a REQ packet
  * 			for given send operation and REQ packet type.
  */
-size_t efa_rdm_txe_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe, int pkt_type)
+size_t efa_proto_tx_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_proto_ope_base *txe, int pkt_type)
 {
 	uint16_t header_flags = 0;
 	int max_data_offset;
@@ -450,7 +724,7 @@ size_t efa_rdm_txe_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_rdm_o
  * On success, return 0
  * If there is not enough available packet entry in TX packet pool, return -FI_EAGAIN
  */
-ssize_t efa_rdm_ope_prepare_to_post_send(struct efa_rdm_ope *ope,
+ssize_t efa_proto_ope_prepare_to_post_send(struct efa_proto_ope_base *ope,
 					 int pkt_type,
 					 int *pkt_entry_cnt,
 					 int *pkt_entry_data_size_vec)
@@ -474,15 +748,15 @@ ssize_t efa_rdm_ope_prepare_to_post_send(struct efa_rdm_ope *ope,
 		return -FI_EAGAIN;
 
 	if (pkt_type == EFA_RDM_CTSDATA_PKT) {
-		assert(ope->window);
-		*pkt_entry_cnt = (ope->window - 1) / ope->ep->max_data_payload_size + 1;
+		assert((*efa_proto_ope_window_ptr(ope)));
+		*pkt_entry_cnt = ((*efa_proto_ope_window_ptr(ope)) - 1) / ope->ep->max_data_payload_size + 1;
 		if (*pkt_entry_cnt > available_tx_pkts)
 			*pkt_entry_cnt = available_tx_pkts;
 		assert(*pkt_entry_cnt > 0 && *pkt_entry_cnt <= efa_base_ep_get_tx_pool_size(&ope->ep->base_ep));
 		for (i = 0; i < *pkt_entry_cnt - 1; ++i)
 			pkt_entry_data_size_vec[i] = ope->ep->max_data_payload_size;
 
-		remainder = ope->window - (*pkt_entry_cnt - 1) * ep->max_data_payload_size;
+		remainder = (*efa_proto_ope_window_ptr(ope)) - (*pkt_entry_cnt - 1) * ep->max_data_payload_size;
 		assert(remainder > 0);
 		pkt_entry_data_size_vec[i] = MIN(remainder, ep->max_data_payload_size);
 		return 0;
@@ -490,12 +764,12 @@ ssize_t efa_rdm_ope_prepare_to_post_send(struct efa_rdm_ope *ope,
 
 	if (efa_rdm_pkt_type_is_medium(pkt_type) || efa_rdm_pkt_type_is_runt(pkt_type)) {
 		if(efa_rdm_pkt_type_is_runt(pkt_type))
-			efa_rdm_txe_set_runt_size(ep, ope);
+			efa_proto_tx_set_runt_size(ep, ope);
 
-		total_pkt_entry_data_size = efa_rdm_ope_mulreq_total_data_size(ope, pkt_type);
+		total_pkt_entry_data_size = efa_proto_ope_mulreq_total_data_size(ope, pkt_type);
 		assert(total_pkt_entry_data_size);
 
-		single_pkt_entry_max_data_size = efa_rdm_txe_max_req_data_capacity(ep, ope, pkt_type);
+		single_pkt_entry_max_data_size = efa_proto_tx_max_req_data_capacity(ep, ope, pkt_type);
 		assert(single_pkt_entry_max_data_size);
 
 		iface = ope->desc[0] ? ((struct efa_mr*) ope->desc[0])->peer.iface : FI_HMEM_SYSTEM;
@@ -563,7 +837,7 @@ ssize_t efa_rdm_ope_prepare_to_post_send(struct efa_rdm_ope *ope,
  * @param[in]	err			positive libfabric error code
  * @param[in]	prov_errno	positive provider specific error code
  */
-void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno)
+void efa_proto_rx_handle_error(struct efa_proto_ope_base *rxe, int err, int prov_errno)
 {
 	struct efa_rdm_ep *ep;
 	struct fi_cq_err_entry err_entry;
@@ -573,7 +847,7 @@ void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno)
 	int write_cq_err;
 	char err_msg[EFA_ERROR_MSG_BUFFER_LENGTH] = {0};
 
-	assert(rxe->type == EFA_RDM_RXE);
+	assert(efa_proto_is_rx(rxe));
 
 	memset(&err_entry, 0, sizeof(err_entry));
 
@@ -584,19 +858,19 @@ void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno)
 	err_entry.prov_errno = prov_errno;
 
 	switch (rxe->state) {
-	case EFA_RDM_RXE_INIT:
-	case EFA_RDM_RXE_UNEXP:
-	case EFA_RDM_RXE_MATCHED:
+	case EFA_PROTO_RXE_INIT:
+	case EFA_PROTO_RXE_UNEXP:
+	case EFA_PROTO_RXE_MATCHED:
 		break;
-	case EFA_RDM_OPE_SEND:
+	case EFA_PROTO_OPE_SEND:
 		dlist_remove(&rxe->entry);
 		break;
-	case EFA_RDM_RXE_RECV:
+	case EFA_PROTO_RXE_RECV:
 #if ENABLE_DEBUG
 		dlist_remove(&rxe->pending_recv_entry);
 #endif
 		break;
-	case EFA_RDM_OPE_ERR:
+	case EFA_PROTO_OPE_ERR:
 		/* Already progressed, no-op */
 		return;
 	default:
@@ -605,25 +879,25 @@ void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno)
 		assert(0 && "rxe unknown state");
 	}
 
-	rxe->state = EFA_RDM_OPE_ERR;
+	rxe->state = EFA_PROTO_OPE_ERR;
 
 	dlist_foreach_container_safe(&rxe->queued_pkts,
 				     struct efa_rdm_pke,
 				     pkt_entry, entry, tmp)
 		efa_rdm_pke_release_tx(pkt_entry);
 
-	if (rxe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS) {
+	if (rxe->internal_flags & EFA_PROTO_OPE_QUEUED_FLAGS) {
 		dlist_remove(&rxe->queued_entry);
-		rxe->internal_flags &= ~EFA_RDM_OPE_QUEUED_FLAGS;
+		rxe->internal_flags &= ~EFA_PROTO_OPE_QUEUED_FLAGS;
 	}
 
-	if (rxe->unexp_pkt) {
-		efa_rdm_pke_release_rx_list(rxe->unexp_pkt);
-		rxe->unexp_pkt = NULL;
+	if (efa_proto_to_rx(rxe)->unexp_pkt) {
+		efa_rdm_pke_release_rx_list(efa_proto_to_rx(rxe)->unexp_pkt);
+		efa_proto_to_rx(rxe)->unexp_pkt = NULL;
 	}
 
 	err_entry.flags = rxe->cq_entry.flags;
-	if (rxe->state != EFA_RDM_RXE_UNEXP)
+	if (rxe->state != EFA_PROTO_RXE_UNEXP)
 		err_entry.op_context = rxe->cq_entry.op_context;
 	err_entry.buf = rxe->cq_entry.buf;
 	err_entry.data = rxe->cq_entry.data;
@@ -648,9 +922,9 @@ void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno)
 	 * packets for this entry. Add ref counting so the rxe can safely
 	 * be freed once all packets are accounted for.
 	 */
-	//efa_rdm_rxe_release(rxe);
+	//efa_proto_rx_release(rxe);
 
-	if (rxe->internal_flags & EFA_RDM_OPE_INTERNAL) {
+	if (rxe->internal_flags & EFA_PROTO_OPE_INTERNAL) {
 		EFA_WARN(FI_LOG_CQ, "EFA provider internal rxe failure err: %d, message: %s (%d)\n",
 			err_entry.err,
 			err_entry.err_data
@@ -702,7 +976,7 @@ void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno)
  * @param[in]	err			positive libfabric error code
  * @param[in]	prov_errno	positive EFA provider specific error code
  */
-void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
+void efa_proto_tx_handle_error(struct efa_proto_ope_base *txe, int err, int prov_errno)
 {
 	struct efa_rdm_ep *ep;
 	struct fi_cq_err_entry err_entry;
@@ -721,12 +995,12 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	err_entry.prov_errno = prov_errno;
 
 	switch (txe->state) {
-	case EFA_RDM_TXE_REQ:
+	case EFA_PROTO_TXE_REQ:
 		break;
-	case EFA_RDM_OPE_SEND:
+	case EFA_PROTO_OPE_SEND:
 		dlist_remove(&txe->entry);
 		break;
-	case EFA_RDM_OPE_ERR:
+	case EFA_PROTO_OPE_ERR:
 		/* Already progressed, no-op */
 		return;
 	default:
@@ -735,11 +1009,11 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 		assert(0 && "txe unknown state");
 	}
 
-	txe->state = EFA_RDM_OPE_ERR;
+	txe->state = EFA_PROTO_OPE_ERR;
 
-	if (txe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS) {
+	if (txe->internal_flags & EFA_PROTO_OPE_QUEUED_FLAGS) {
 		dlist_remove(&txe->queued_entry);
-		txe->internal_flags &= ~EFA_RDM_OPE_QUEUED_FLAGS;
+		txe->internal_flags &= ~EFA_PROTO_OPE_QUEUED_FLAGS;
 	}
 
 	dlist_foreach_container_safe(&txe->queued_pkts,
@@ -772,9 +1046,9 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	 * for this entry. Add ref counting so the txe can safely
 	 * be freed once all packets are accounted for.
 	 */
-	//efa_rdm_txe_release(txe);
+	//efa_proto_tx_release(txe);
 
-	if (txe->internal_flags & EFA_RDM_OPE_INTERNAL) {
+	if (txe->internal_flags & EFA_PROTO_OPE_INTERNAL) {
 		EFA_WARN(FI_LOG_CQ, "EFA provider internal txe failure err: %d, message: %s (%d)\n",
 			err_entry.err,
 			err_entry.err_data
@@ -822,7 +1096,7 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
  *
  * @param[in]		rxe	information of the completed RX operation
  */
-void efa_rdm_rxe_report_completion(struct efa_rdm_ope *rxe)
+void efa_proto_rx_report_completion(struct efa_proto_ope_base *rxe)
 {
 	struct efa_rdm_ep *ep = rxe->ep;
 	struct util_cq *rx_cq = ep->base_ep.util_ep.rx_cq;
@@ -856,12 +1130,12 @@ void efa_rdm_rxe_report_completion(struct efa_rdm_ope *rxe)
 			return;
 		}
 
-		rxe->fi_flags |= EFA_RDM_TXE_NO_COMPLETION;
+		rxe->fi_flags |= EFA_PROTO_TXE_NO_COMPLETION;
 		efa_cntr_report_error(&ep->base_ep.util_ep, rxe->cq_entry.flags);
 		return;
 	}
 
-	if (!(rxe->internal_flags & EFA_RDM_RXE_RECV_CANCEL) &&
+	if (!(rxe->internal_flags & EFA_PROTO_RXE_RECV_CANCEL) &&
 	    (ofi_need_completion(cq_flags, rxe->fi_flags) ||
 	     (rxe->cq_entry.flags & FI_MULTI_RECV))) {
 		EFA_DBG(FI_LOG_CQ,
@@ -900,11 +1174,11 @@ void efa_rdm_rxe_report_completion(struct efa_rdm_ope *rxe)
 			EFA_WARN(FI_LOG_CQ,
 				"Unable to write recv completion: %s\n",
 				fi_strerror(-ret));
-			efa_rdm_rxe_handle_error(rxe, -ret, FI_EFA_ERR_WRITE_RECV_COMP);
+			efa_proto_rx_handle_error(rxe, -ret, FI_EFA_ERR_WRITE_RECV_COMP);
 			return;
 		}
 
-		rxe->fi_flags |= EFA_RDM_TXE_NO_COMPLETION;
+		rxe->fi_flags |= EFA_PROTO_TXE_NO_COMPLETION;
 	}
 
 	efa_cntr_report_rx_completion(&ep->base_ep.util_ep, rxe->cq_entry.flags);
@@ -915,7 +1189,7 @@ void efa_rdm_rxe_report_completion(struct efa_rdm_ope *rxe)
  *
  * There are two situations that txe should not write CQ entry:
  *
- * 1. there are EFA_RDM_OPE_NO_COMPLETEION flag in txe->fi_flags, which
+ * 1. there are EFA_PROTO_TXE_NO_COMPLETION flag in txe->fi_flags, which
  *    is because this txe is for an emulated inject operation
  *
  * 2. user does not want CQ entry for this operation, this behavior
@@ -927,10 +1201,10 @@ void efa_rdm_rxe_report_completion(struct efa_rdm_ope *rxe)
  * @return 		a boolean
  */
 static inline
-bool efa_rdm_txe_should_update_cq(struct efa_rdm_ope *txe)
+bool efa_proto_tx_should_update_cq(struct efa_proto_ope_base *txe)
 
 {
-	if (txe->fi_flags & EFA_RDM_TXE_NO_COMPLETION)
+	if (txe->fi_flags & EFA_PROTO_TXE_NO_COMPLETION)
 		return false;
 
 	/*
@@ -952,20 +1226,20 @@ bool efa_rdm_txe_should_update_cq(struct efa_rdm_ope *txe)
  *
  * 1. write a cq entry for the TX operation when necessary
  *    Sometimes it is not necessary to to write CQ entry
- *    See #efa_rdm_ope_should_update_cq
+ *    See #efa_proto_tx_should_update_cq
  *
  * 2. update counter if necessary.
  *
  *
  * @param[in]	txe	information of the completed TX operation
  */
-void efa_rdm_txe_report_completion(struct efa_rdm_ope *txe)
+void efa_proto_tx_report_completion(struct efa_proto_ope_base *txe)
 {
 	struct util_cq *tx_cq = txe->ep->base_ep.util_ep.tx_cq;
 	int ret;
 
-	assert(txe->type == EFA_RDM_TXE);
-	if (efa_rdm_txe_should_update_cq(txe)) {
+	assert(efa_proto_is_tx(txe));
+	if (efa_proto_tx_should_update_cq(txe)) {
 		EFA_DBG(FI_LOG_CQ,
 		       "Writing send completion for txe to peer: %" PRIu64
 		       " tx_id: %" PRIu32 " msg_id: %" PRIu32 " tag: %lx len: %"
@@ -1001,13 +1275,13 @@ void efa_rdm_txe_report_completion(struct efa_rdm_ope *txe)
 			EFA_WARN(FI_LOG_CQ,
 				"Unable to write send completion: %s\n",
 				fi_strerror(-ret));
-			efa_rdm_txe_handle_error(txe, -ret, FI_EFA_ERR_WRITE_SEND_COMP);
+			efa_proto_tx_handle_error(txe, -ret, FI_EFA_ERR_WRITE_SEND_COMP);
 			return;
 		}
 	}
 
 	efa_cntr_report_tx_completion(&txe->ep->base_ep.util_ep, txe->cq_entry.flags);
-	txe->fi_flags |= EFA_RDM_TXE_NO_COMPLETION;
+	txe->fi_flags |= EFA_PROTO_TXE_NO_COMPLETION;
 	return;
 }
 
@@ -1036,10 +1310,10 @@ void efa_rdm_txe_report_completion(struct efa_rdm_ope *txe)
  *
  * @param[in]	ope	inforatminon of op entry that sends data
  */
-void efa_rdm_ope_handle_send_completed(struct efa_rdm_ope *ope)
+void efa_proto_ope_handle_send_completed(struct efa_proto_ope_base *ope)
 {
 	struct efa_rdm_ep *ep;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 
 	ep = ope->ep;
 
@@ -1050,25 +1324,25 @@ void efa_rdm_ope_handle_send_completed(struct efa_rdm_ope *ope)
 		 * The entry is allocated for emulated read, so no need to write tx completion.
 		 * EFA does not support FI_RMA_EVENT, so no need to write rx completion.
 		 */
-		assert(ope->type == EFA_RDM_RXE);
+		assert(efa_proto_is_rx(ope));
 		rxe = ope;
-		efa_rdm_rxe_release(rxe);
+		efa_proto_rx_release(rxe);
 		return;
 	} else if (ope->cq_entry.flags & FI_WRITE) {
 		if (ope->fi_flags & FI_COMPLETION) {
-			efa_rdm_txe_report_completion(ope);
+			efa_proto_tx_report_completion(ope);
 		} else {
-			if (!(ope->fi_flags & EFA_RDM_TXE_NO_COUNTER))
+			if (!(ope->fi_flags & EFA_PROTO_TXE_NO_COUNTER))
 				efa_cntr_report_tx_completion(&ep->base_ep.util_ep, ope->cq_entry.flags);
 		}
 
 	} else {
 		assert(ope->cq_entry.flags & FI_SEND);
-		efa_rdm_txe_report_completion(ope);
+		efa_proto_tx_report_completion(ope);
 	}
 
-	assert(ope->type == EFA_RDM_TXE);
-	efa_rdm_txe_release(ope);
+	assert(efa_proto_is_tx(ope));
+	efa_proto_tx_release(ope);
 }
 
 /**
@@ -1094,10 +1368,10 @@ void efa_rdm_ope_handle_send_completed(struct efa_rdm_ope *ope)
  *
  * @param[in,out]	ope	ope that contains information of a data receive operation
  */
-void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope)
+void efa_proto_ope_handle_recv_completed(struct efa_proto_ope_base *ope)
 {
-	struct efa_rdm_ope *txe = NULL;
-	struct efa_rdm_ope *rxe = NULL;
+	struct efa_proto_ope_base *txe = NULL;
+	struct efa_proto_ope_base *rxe = NULL;
 	int err;
 
 	/* It is important to write completion before sending ctrl packet, because the
@@ -1109,7 +1383,7 @@ void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope)
 		 * For write, only write RX completion when REMOTE_CQ_DATA is on
 		 */
 		if (ope->cq_entry.flags & FI_REMOTE_CQ_DATA)
-			efa_rdm_rxe_report_completion(ope);
+			efa_proto_rx_report_completion(ope);
 	} else if (ope->cq_entry.flags & FI_READ) {
 		/* This ope is part of the for emulated read protocol,
 		 * created on the read requester side.
@@ -1124,34 +1398,34 @@ void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope)
 		 *                                rxe sending data
 		 * txe receiving data
 		 * receive completed              send completed
-		 * call this function             call #efa_rdm_ope_handle_send_completed()
+		 * call this function             call #efa_proto_ope_handle_send_completed()
 		 *
 		 * As can be seen, in the emulated read protocol, this function is called only
 		 * on the requester side, so we need to find the corresponding txe and
 		 * complete it.
 		 */
-		assert(ope->type == EFA_RDM_TXE);
+		assert(efa_proto_is_tx(ope));
 		txe = ope; /* Intentionally assigned for easier understanding */
 
-		assert(txe->state == EFA_RDM_TXE_REQ);
+		assert(txe->state == EFA_PROTO_TXE_REQ);
 		if (txe->fi_flags & FI_COMPLETION) {
-			efa_rdm_txe_report_completion(txe);
+			efa_proto_tx_report_completion(txe);
 		} else {
 			efa_cntr_report_tx_completion(&txe->ep->base_ep.util_ep, txe->cq_entry.flags);
 		}
 	} else {
-		assert(ope->type == EFA_RDM_RXE);
+		assert(efa_proto_is_rx(ope));
 		rxe = ope; /* Intentionally assigned for easier understanding */
 
 		assert(rxe->op == ofi_op_msg || rxe->op == ofi_op_tagged);
 
-		efa_rdm_rxe_report_completion(rxe);
+		efa_proto_rx_report_completion(rxe);
 	}
 
 	/* As can be seen, this function does not release rxe when
-	 * efa_rdm_ope_post_send_or_queue() was successful.
+	 * efa_proto_ope_post_send_or_queue() was successful.
 	 *
-	 * This is because that efa_rdm_ope_post_send_or_queue() might have
+	 * This is because that efa_proto_ope_post_send_or_queue() might have
 	 * queued the ctrl packet (due to out of resource), and progress
 	 * engine will resend the packet. In that case, progress engine
 	 * needs the rxe to construct the ctrl packet.
@@ -1159,16 +1433,16 @@ void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope)
 	 * Hence, the rxe can be safely released only when we got
 	 * the send completion of the ctrl packet.
 	 */
-	if (ope->internal_flags & EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED) {
-		assert(ope->type == EFA_RDM_RXE);
+	if (ope->internal_flags & EFA_PROTO_TXE_DELIVERY_COMPLETE_REQUESTED) {
+		assert(efa_proto_is_rx(ope));
 		rxe = ope; /* Intentionally assigned for easier understanding */
-		err = efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_RECEIPT_PKT);
+		err = efa_proto_ope_post_send_or_queue(rxe, EFA_RDM_RECEIPT_PKT);
 		if (OFI_UNLIKELY(err)) {
 			EFA_WARN(FI_LOG_CQ,
 				 "Posting of ctrl packet failed when complete rx! err=%s(%d)\n",
 				 fi_strerror(-err), -err);
-			efa_rdm_rxe_handle_error(rxe, -err, FI_EFA_ERR_PKT_POST);
-			efa_rdm_rxe_release(rxe);
+			efa_proto_rx_handle_error(rxe, -err, FI_EFA_ERR_PKT_POST);
+			efa_proto_rx_release(rxe);
 		}
 
 		return;
@@ -1184,15 +1458,15 @@ void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope)
 	 *
 	 * see #efa_rdm_pke_handle_eor_send_completion
 	 */
-	if (ope->internal_flags & EFA_RDM_RXE_EOR_IN_FLIGHT) {
+	if (ope->internal_flags & EFA_PROTO_RXE_EOR_IN_FLIGHT) {
 		return;
 	}
 
-	if (ope->type == EFA_RDM_TXE) {
-		efa_rdm_txe_release(ope);
+	if (efa_proto_is_tx(ope)) {
+		efa_proto_tx_release(ope);
 	} else {
-		assert(ope->type == EFA_RDM_RXE);
-		efa_rdm_rxe_release(ope);
+		assert(efa_proto_is_rx(ope));
+		efa_proto_rx_release(ope);
 	}
 }
 
@@ -1203,23 +1477,23 @@ void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope)
  *
  * First, it can be because user directly initiated a read requst
  * (by calling fi_readxxx() API). In this case the ope argument
- * will be a txe (ope->type == EFA_RDM_TXE)
+ * will be a txe (efa_proto_is_tx(ope))
  *
  * Second, it can be part of a read-base message protocol, such as
  * the longread message protocol. In this case, the ope argument
- * will be a rxe (ope->type == EFA_RDM_RXE)
+ * will be a rxe (efa_proto_is_rx(ope))
  *
  * @param[in,out]		ep		endpoint
  * @param[in,out]		ope	information of the operation the needs to post a read
  * @return		0 if the read request is posted successfully.
  * 			negative libfabric error code on failure.
  */
-int efa_rdm_ope_prepare_to_post_read(struct efa_rdm_ope *ope)
+int efa_proto_ope_prepare_to_post_read(struct efa_proto_ope_base *ope)
 {
 	int err;
 	size_t total_iov_len, total_rma_iov_len;
 
-	if (ope->type == EFA_RDM_RXE) {
+	if (efa_proto_is_rx(ope)) {
 		/* Often times, application will provide a receiving buffer that is larger
 		 * then the incoming message size. For read based message transfer, the
 		 * receiving buffer need to be registered. Thus truncating rxe->iov to
@@ -1238,14 +1512,14 @@ int efa_rdm_ope_prepare_to_post_read(struct efa_rdm_ope *ope)
 	total_iov_len = ofi_total_iov_len(ope->iov, ope->iov_count);
 	total_rma_iov_len = ofi_total_rma_iov_len(ope->rma_iov, ope->rma_iov_count);
 
-	if (ope->type == EFA_RDM_TXE)
-		ope->bytes_read_offset = 0;
+	if (efa_proto_is_tx(ope))
+		(*efa_proto_ope_bytes_read_offset_ptr(ope)) = 0;
 	else
-		ope->bytes_read_offset = ope->bytes_runt;
+		(*efa_proto_ope_bytes_read_offset_ptr(ope)) = (*efa_proto_ope_bytes_runt_ptr(ope));
 
-	ope->bytes_read_total_len = MIN(total_iov_len, total_rma_iov_len) - ope->bytes_read_offset;
-	ope->bytes_read_submitted = 0;
-	ope->bytes_read_completed = 0;
+	(*efa_proto_ope_bytes_read_total_len_ptr(ope)) = MIN(total_iov_len, total_rma_iov_len) - (*efa_proto_ope_bytes_read_offset_ptr(ope));
+	(*efa_proto_ope_bytes_read_submitted_ptr(ope)) = 0;
+	(*efa_proto_ope_bytes_read_completed_ptr(ope)) = 0;
 	return 0;
 }
 
@@ -1270,15 +1544,15 @@ int efa_rdm_ope_prepare_to_post_read(struct efa_rdm_ope *ope)
  *     On success, return 0
  *     On pack entry allocation failure, return -FI_EAGAIN
  */
-ssize_t efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe)
+ssize_t efa_proto_tx_prepare_local_read_pkt_entry(struct efa_proto_ope_base *txe)
 {
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_pke *pkt_entry_copy;
 
-	assert(txe->type == EFA_RDM_TXE);
+	assert(efa_proto_is_tx(txe));
 	assert(txe->rma_iov_count > 0 && txe->rma_iov_count <= efa_rdm_ep_domain(txe->ep)->info->tx_attr->rma_iov_limit);
 
-	pkt_entry = txe->local_read_pkt_entry;
+	pkt_entry = efa_proto_to_tx(txe)->local_read_pkt_entry;
 	if (pkt_entry->mr && !(txe->ep->sendrecv_in_order_aligned_128_bytes))
 		return 0;
 
@@ -1303,7 +1577,7 @@ ssize_t efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe)
 	efa_rdm_pke_release_rx(pkt_entry);
 
 	assert(pkt_entry_copy->mr);
-	txe->local_read_pkt_entry = pkt_entry_copy;
+	efa_proto_to_tx(txe)->local_read_pkt_entry = pkt_entry_copy;
 	/* pkt from read-copy pool only stores actual application data in wiredata */
 	assert(ofi_is_addr_aligned((void *)pkt_entry_copy->wiredata, EFA_RDM_IN_ORDER_ALIGNMENT));
 	txe->rma_iov[0].addr = (uint64_t)pkt_entry_copy->wiredata;
@@ -1316,16 +1590,16 @@ ssize_t efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe)
  *
  * An ope will post write request(s) after a user directly initiated a
  * write request (by calling fi_writexxx() API).  The ope->type will be
- * EFA_RDM_TXE
+ * EFA_PROTO_TXE
  *
  * @param[in,out]	ep		endpoint
  * @param[in,out]	ope	information the operation needs to post a write
  */
-void efa_rdm_ope_prepare_to_post_write(struct efa_rdm_ope *ope)
+void efa_proto_ope_prepare_to_post_write(struct efa_proto_ope_base *ope)
 {
 	size_t local_iov_len;
 
-	assert(ope->type == EFA_RDM_TXE);
+	assert(efa_proto_is_tx(ope));
 
 	local_iov_len = ofi_total_iov_len(ope->iov, ope->iov_count);
 #ifndef NDEBUG
@@ -1336,25 +1610,25 @@ void efa_rdm_ope_prepare_to_post_write(struct efa_rdm_ope *ope)
 	}
 #endif
 
-	ope->bytes_write_total_len = local_iov_len;
-	ope->bytes_write_submitted = 0;
-	ope->bytes_write_completed = 0;
+	efa_proto_to_tx_rma_write(ope)->bytes_write_total_len = local_iov_len;
+	efa_proto_to_tx_rma_write(ope)->bytes_write_submitted = 0;
+	efa_proto_to_tx_rma_write(ope)->bytes_write_completed = 0;
 }
 
 /**
  * @brief post read request(s)
  *
  * This function posts read request(s) according to information in ope.
- * Depend on ope->bytes_read_total_len and max read size of device. This function
+ * Depend on (*efa_proto_ope_bytes_read_total_len_ptr(ope)) and max read size of device. This function
  * might issue multiple read requdsts.
  *
  * @param[in,out]	ope	ope that has information of the read request.
  * 					If read request is successfully submitted,
- * 					ope->bytes_read_submitted will be updated.
+ * 					(*efa_proto_ope_bytes_read_submitted_ptr(ope)) will be updated.
  * @return	On success, return 0
  * 		On failure, return a negative error code.
  */
-int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
+int efa_proto_ope_post_read(struct efa_proto_ope_base *ope)
 {
 	int err;
 	int iov_idx = 0, rma_iov_idx = 0;
@@ -1369,10 +1643,10 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
 	 * Allow local iov count to be equal to 0 b/c bounce buffer's pre-registered buff/desc
 	 * will be passed to rdma-core
 	 */
-	assert((ope->iov_count == 0 && ope->bytes_read_total_len == 0) || ope->iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->iov_limit);
+	assert((ope->iov_count == 0 && (*efa_proto_ope_bytes_read_total_len_ptr(ope)) == 0) || ope->iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->iov_limit);
 	assert(ope->rma_iov_count > 0 && ope->rma_iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->rma_iov_limit);
 
-	if (ope->bytes_read_total_len == 0) {
+	if ((*efa_proto_ope_bytes_read_total_len_ptr(ope)) == 0) {
 
 		/* According to libfabric document
 		 *     https://ofiwg.github.io/libfabric/main/man/fi_rma.3.html
@@ -1398,23 +1672,23 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
 		return err;
 	}
 
-	assert(ope->bytes_read_submitted < ope->bytes_read_total_len);
+	assert((*efa_proto_ope_bytes_read_submitted_ptr(ope)) < (*efa_proto_ope_bytes_read_total_len_ptr(ope)));
 
-	if (ope->type == EFA_RDM_TXE &&
+	if (efa_proto_is_tx(ope) &&
 	    ope->op == ofi_op_read_req &&
 	    ope->peer == NULL) {
-		err = efa_rdm_txe_prepare_local_read_pkt_entry(ope);
+		err = efa_proto_tx_prepare_local_read_pkt_entry(ope);
 		if (err)
 			return err;
 	}
 
-	efa_rdm_ope_try_fill_desc(ope, 0, FI_RECV);
+	efa_proto_ope_try_fill_desc(ope, 0, FI_RECV);
 
 	max_read_once_len = MIN(efa_env.efa_read_segment_size, efa_rdm_ep_domain(ep)->device->max_rdma_size);
 	assert(max_read_once_len > 0);
 
 	err = ofi_iov_locate(ope->iov, ope->iov_count,
-			     ope->bytes_read_offset + ope->bytes_read_submitted + ep->msg_prefix_size,
+			     (*efa_proto_ope_bytes_read_offset_ptr(ope)) + (*efa_proto_ope_bytes_read_submitted_ptr(ope)) + ep->msg_prefix_size,
 			     &iov_idx, &iov_offset);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ, "ofi_iov_locate failed! err: %d\n", err);
@@ -1422,14 +1696,14 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
 	}
 
 	err = ofi_rma_iov_locate(ope->rma_iov, ope->rma_iov_count,
-				 ope->bytes_read_offset + ope->bytes_read_submitted,
+				 (*efa_proto_ope_bytes_read_offset_ptr(ope)) + (*efa_proto_ope_bytes_read_submitted_ptr(ope)),
 				 &rma_iov_idx, &rma_iov_offset);
 	if (err) {
 		EFA_WARN(FI_LOG_CQ, "ofi_rma_iov_locate failed! err: %d\n", err);
 		return err;
 	}
 
-	while (ope->bytes_read_submitted < ope->bytes_read_total_len) {
+	while ((*efa_proto_ope_bytes_read_submitted_ptr(ope)) < (*efa_proto_ope_bytes_read_total_len_ptr(ope))) {
 
 		assert(iov_idx < ope->iov_count);
 		assert(iov_offset < ope->iov[iov_idx].iov_len);
@@ -1440,7 +1714,7 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
 				return -FI_EAGAIN;
 
 			if (!ope->desc[iov_idx]) {
-				/* efa_rdm_ope_try_fill_desc() did not fill the desc,
+				/* efa_proto_ope_try_fill_desc() did not fill the desc,
 				 * which means memory registration failed.
 				 * return -FI_ENOMR here so that we fallback to emulated read.
 				 */
@@ -1469,7 +1743,7 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
 			return err;
 		}
 
-		ope->bytes_read_submitted += read_once_len;
+		(*efa_proto_ope_bytes_read_submitted_ptr(ope)) += read_once_len;
 
 		iov_offset += read_once_len;
 		assert(iov_offset <= ope->iov[iov_idx].iov_len);
@@ -1493,16 +1767,16 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
  * @brief post RDMA write request(s)
  *
  * This function posts write request(s) according to information in ope.
- * Depending on ope->bytes_write_total_len and max write size of device,
+ * Depending on efa_proto_to_tx_rma_write(ope)->bytes_write_total_len and max write size of device,
  * this function might issue multiple write requests.
  *
  * @param[in,out]	ope	ope that has information of the read request.
  * 					If write request is successfully submitted,
- * 					ope->bytes_write_submitted will be updated.
+ * 					efa_proto_to_tx_rma_write(ope)->bytes_write_submitted will be updated.
  * @return	On success, return 0
  * 		On failure, return a negative error code.
  */
-int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
+int efa_proto_ope_post_remote_write(struct efa_proto_ope_base *ope)
 {
 	int err;
 	int iov_idx = 0, rma_iov_idx = 0;
@@ -1518,10 +1792,10 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 	 * Allow local iov count to be equal to 0 b/c bounce buffer's pre-registered buff/desc
 	 * will be passed to rdma-core
 	 */
-	assert((ope->iov_count == 0 && ope->bytes_write_total_len == 0) || ope->iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->iov_limit);
+	assert((ope->iov_count == 0 && efa_proto_to_tx_rma_write(ope)->bytes_write_total_len == 0) || ope->iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->iov_limit);
 	assert(ope->rma_iov_count > 0 && ope->rma_iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->rma_iov_limit);
 
-	if (ope->bytes_write_total_len == 0) {
+	if (efa_proto_to_tx_rma_write(ope)->bytes_write_total_len == 0) {
 		/* According to libfabric document
 		 *     https://ofiwg.github.io/libfabric/main/man/fi_rma.3.html
 		 * write with 0 byte is allowed.
@@ -1548,15 +1822,15 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 	}
 
 	if (!(ope->fi_flags & FI_INJECT))
-		efa_rdm_ope_try_fill_desc(ope, 0, FI_WRITE);
+		efa_proto_ope_try_fill_desc(ope, 0, FI_WRITE);
 
-	assert(ope->bytes_write_submitted < ope->bytes_write_total_len);
+	assert(efa_proto_to_tx_rma_write(ope)->bytes_write_submitted < efa_proto_to_tx_rma_write(ope)->bytes_write_total_len);
 	max_write_once_len = MIN(efa_env.efa_write_segment_size, efa_rdm_ep_domain(ep)->device->max_rdma_size);
 
 	assert(max_write_once_len > 0);
 
 	err = ofi_iov_locate(ope->iov, ope->iov_count,
-				 ope->bytes_write_submitted,
+				 efa_proto_to_tx_rma_write(ope)->bytes_write_submitted,
 				 &iov_idx, &iov_offset);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ, "ofi_iov_locate failed! err: %d\n", err);
@@ -1564,14 +1838,14 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 	}
 
 	err = ofi_rma_iov_locate(ope->rma_iov, ope->rma_iov_count,
-				 ope->bytes_write_submitted,
+				 efa_proto_to_tx_rma_write(ope)->bytes_write_submitted,
 				 &rma_iov_idx, &rma_iov_offset);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ, "ofi_rma_iov_locate failed! err: %d\n", err);
 		return err;
 	}
 
-	while (ope->bytes_write_submitted < ope->bytes_write_total_len) {
+	while (efa_proto_to_tx_rma_write(ope)->bytes_write_submitted < efa_proto_to_tx_rma_write(ope)->bytes_write_total_len) {
 
 		assert(iov_idx < ope->iov_count);
 		assert(iov_offset < ope->iov[iov_idx].iov_len);
@@ -1582,7 +1856,7 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 			return -FI_EAGAIN;
 
 		if (!ope->desc[iov_idx] && !(ope->fi_flags & FI_INJECT)) {
-			/* efa_rdm_ope_try_fill_desc() did not fill the desc,
+			/* efa_proto_ope_try_fill_desc() did not fill the desc,
 			 * which means memory registration failed.
 			 * return -FI_EAGAIN here will cause user to run progress
 			 * engine, which will cause some memory registration
@@ -1625,7 +1899,7 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 			return err;
 		}
 
-		ope->bytes_write_submitted += write_once_len;
+		efa_proto_to_tx_rma_write(ope)->bytes_write_submitted += write_once_len;
 
 		iov_offset += write_once_len;
 		assert(iov_offset <= ope->iov[iov_idx].iov_len);
@@ -1645,22 +1919,22 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 	return 0;
 }
 
-int efa_rdm_ope_post_remote_read_or_queue(struct efa_rdm_ope *ope)
+int efa_proto_ope_post_remote_read_or_queue(struct efa_proto_ope_base *ope)
 {
 	int err;
 
-	err = efa_rdm_ope_prepare_to_post_read(ope);
+	err = efa_proto_ope_prepare_to_post_read(ope);
 	if (err) {
 		EFA_WARN(FI_LOG_CQ, "Prepare to post read failed. err=%d\n", err);
 		return err;
 	}
 
-	err = efa_rdm_ope_post_read(ope);
+	err = efa_proto_ope_post_read(ope);
 	switch (err) {
 	case -FI_EAGAIN:
 		dlist_insert_tail(&ope->queued_entry,
-				  &efa_rdm_ep_domain(ope->ep)->ope_queued_list);
-		ope->internal_flags |= EFA_RDM_OPE_QUEUED_READ;
+				  &efa_rdm_ep_domain(ope->ep)->proto_ope_queued_list);
+		ope->internal_flags |= EFA_PROTO_OPE_QUEUED_READ;
 		err = 0;
 		break;
 	case -FI_ENOMR:
@@ -1689,32 +1963,32 @@ int efa_rdm_ope_post_remote_read_or_queue(struct efa_rdm_ope *ope)
  * @param[in]		data_size	size of the data
  * @return		0 on success, negative error code on failure
  */
-int efa_rdm_rxe_post_local_read_or_queue(struct efa_rdm_ope *rxe,
+int efa_proto_rx_post_local_read_or_queue(struct efa_proto_ope_base *rxe,
 					  size_t rx_data_offset,
 					  struct efa_rdm_pke *pkt_entry,
 					  char *pkt_data, size_t data_size)
 {
 	int err;
-	struct iovec iov[EFA_RDM_IOV_LIMIT];
-	void *desc[EFA_RDM_IOV_LIMIT];
+	struct iovec iov[EFA_PROTO_IOV_LIMIT];
+	void *desc[EFA_PROTO_IOV_LIMIT];
 	size_t iov_count;
 	struct fi_rma_iov rma_iov;
 	struct fi_msg_rma msg_rma;
-	struct efa_rdm_ope *txe;
+	struct efa_proto_ope_base *txe;
 
 	efa_rdm_tracepoint(rx_pke_local_read_copy_payload_begin, (size_t) pkt_entry, pkt_entry->payload_size, rxe->msg_id, (size_t) rxe->cq_entry.op_context, rxe->total_len);
 	/* setup rma_iov, which is pointing to buffer in the packet entry */
 	rma_iov.addr = (uint64_t)pkt_data;
 	rma_iov.len = data_size;
-	/* if pkt_entry memory is not registered, efa_rdm_ope_prepare_local_read_pkt_entry_mr()
+	/* if pkt_entry memory is not registered, efa_proto_tx_prepare_local_read_pkt_entry()
 	 * will clone a packet entry from read_copy pkt pool, whose memory is registered.
 	 * The clone can fail due to temporary out of resource, therefore cannot be called
-	 * from inside efa_rdm_ope_post_read().
+	 * from inside efa_proto_ope_post_read().
 	 */
 	rma_iov.key = (pkt_entry->mr) ? fi_mr_key(pkt_entry->mr) : 0;
 
 	/* setup iov */
-	assert(pkt_entry->ope == rxe);
+	assert(pkt_entry->ope == EFA_PROTO_BASE_FROM_OPE(rxe));
 	assert(rxe->desc && efa_mr_is_hmem(rxe->desc[0]));
 	iov_count = rxe->iov_count;
 	memcpy(iov, rxe->iov, rxe->iov_count * sizeof(struct iovec));
@@ -1743,19 +2017,19 @@ int efa_rdm_rxe_post_local_read_or_queue(struct efa_rdm_ope *rxe,
 	msg_rma.rma_iov = &rma_iov;
 	msg_rma.rma_iov_count = 1;
 
-	txe = efa_rdm_rma_alloc_txe(rxe->ep, NULL, &msg_rma, ofi_op_read_req,
+	txe = efa_proto_rma_alloc_txe(rxe->ep, NULL, &msg_rma, ofi_op_read_req,
 				    0 /* flags*/);
 	if (!txe) {
 		return -FI_ENOBUFS;
 	}
 
-	txe->local_read_pkt_entry = pkt_entry;
-	txe->internal_flags |= EFA_RDM_OPE_INTERNAL;
-	err = efa_rdm_ope_post_remote_read_or_queue(txe);
+	efa_proto_to_tx(txe)->local_read_pkt_entry = pkt_entry;
+	txe->internal_flags |= EFA_PROTO_OPE_INTERNAL;
+	err = efa_proto_ope_post_remote_read_or_queue(txe);
 	/* The rx pkts are held until the local read completes */
 	if (err)
-		efa_rdm_txe_release(txe);
-	else if (txe->local_read_pkt_entry->alloc_type == EFA_RDM_PKE_FROM_EFA_RX_POOL)
+		efa_proto_tx_release(txe);
+	else if (efa_proto_to_tx(txe)->local_read_pkt_entry->alloc_type == EFA_RDM_PKE_FROM_EFA_RX_POOL)
 		txe->ep->efa_rx_pkts_held++;
 
 	return err;
@@ -1771,7 +2045,7 @@ int efa_rdm_rxe_post_local_read_or_queue(struct efa_rdm_ope *rxe,
  * @return      On success return 0, otherwise return a negative libfabric error code. Possible error codes include:
  *             -FI_EAGAIN      temporarily  out of resource
  */
-ssize_t efa_rdm_ope_post_send(struct efa_rdm_ope *ope, int pkt_type)
+ssize_t efa_proto_ope_post_send(struct efa_proto_ope_base *ope, int pkt_type)
 {
 	struct efa_rdm_ep *ep;
 	ssize_t err;
@@ -1783,12 +2057,12 @@ ssize_t efa_rdm_ope_post_send(struct efa_rdm_ope *ope, int pkt_type)
 	ep = ope->ep;
 	assert(ep);
 
-	err = efa_rdm_ope_prepare_to_post_send(ope, pkt_type, &pkt_entry_cnt, ep->send_pkt_entry_size_vec);
+	err = efa_proto_ope_prepare_to_post_send(ope, pkt_type, &pkt_entry_cnt, ep->send_pkt_entry_size_vec);
 	if (err)
 		return err;
 	assert(pkt_entry_cnt <= efa_base_ep_get_tx_pool_size(&ep->base_ep));
 
-	segment_offset = efa_rdm_pkt_type_contains_data(pkt_type) ? (int64_t) ope->bytes_sent : -1;
+	segment_offset = efa_rdm_pkt_type_contains_data(pkt_type) ? (int64_t) efa_proto_to_tx(ope)->bytes_sent : -1;
 	for (i = 0; i < pkt_entry_cnt; ++i) {
 		ep->send_pkt_entry_vec[i] = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool, EFA_RDM_PKE_FROM_EFA_TX_POOL);
 
@@ -1818,9 +2092,9 @@ ssize_t efa_rdm_ope_post_send(struct efa_rdm_ope *ope, int pkt_type)
 	/**
 	 * We currently respect FI_MORE only for eager pkt type because
 	 * 1. For some non-REQ pkts like CTSDATA, its current implementation
-	 * relies on the logic that efa_rdm_ope_post_send always rings the doorbell,
+	 * relies on the logic that efa_proto_ope_post_send always rings the doorbell,
 	 * because the ep progress call will keep calling this function until
-	 * ope->window is 0, but ope->window will only be decremented after
+	 * (*efa_proto_ope_window_ptr(ope)) is 0, but (*efa_proto_ope_window_ptr(ope)) will only be decremented after
 	 * the CTSDATA pkts are actually posted to rdma-core.
 	 * 2. For non-eager REQ packets, we already send multiple pkts that contain
 	 * data and make the firmware saturated, there is no meaning to queue
@@ -1843,7 +2117,7 @@ handle_err:
 	for (i = 0; i < pkt_entry_cnt_allocated; ++i)
 		efa_rdm_pke_release_tx(ep->send_pkt_entry_vec[i]);
 
-	return efa_rdm_ope_post_send_fallback(ope, pkt_type, err);
+	return efa_proto_ope_post_send_fallback(ope, pkt_type, err);
 }
 
 /**
@@ -1859,7 +2133,7 @@ handle_err:
  * @return      On success return 0, otherwise return a negative libfabric error code. Possible error codes include:
  *             -FI_EAGAIN      temporarily  out of resource
  */
-ssize_t efa_rdm_ope_post_send_fallback(struct efa_rdm_ope *ope,
+ssize_t efa_proto_ope_post_send_fallback(struct efa_proto_ope_base *ope,
 					   int pkt_type, ssize_t err)
 {
 	bool delivery_complete_requested = ope->fi_flags & FI_DELIVERY_COMPLETE;
@@ -1876,7 +2150,7 @@ ssize_t efa_rdm_ope_post_send_fallback(struct efa_rdm_ope *ope,
 				 "Sender fallback to long CTS untagged "
 				 "protocol because memory registration limit "
 				 "was reached on the sender\n");
-			return efa_rdm_ope_post_send_or_queue(
+			return efa_proto_ope_post_send_or_queue(
 				ope, delivery_complete_requested ?  EFA_RDM_DC_LONGCTS_MSGRTM_PKT : EFA_RDM_LONGCTS_MSGRTM_PKT);
 		case EFA_RDM_LONGREAD_TAGRTM_PKT:
 		case EFA_RDM_RUNTREAD_TAGRTM_PKT:
@@ -1884,7 +2158,7 @@ ssize_t efa_rdm_ope_post_send_fallback(struct efa_rdm_ope *ope,
 				 "Sender fallback to long CTS tagged protocol "
 				 "because memory registration limit was "
 				 "reached on the sender\n");
-			return efa_rdm_ope_post_send_or_queue(
+			return efa_proto_ope_post_send_or_queue(
 				ope, delivery_complete_requested ?  EFA_RDM_DC_LONGCTS_TAGRTM_PKT : EFA_RDM_LONGCTS_TAGRTM_PKT);
 		default:
 			return err;
@@ -1896,8 +2170,8 @@ ssize_t efa_rdm_ope_post_send_fallback(struct efa_rdm_ope *ope,
 /**
  * @brief post packet(s) according to packet type. Queue the post if -FI_EAGAIN is encountered.
  *
- * This function will call efa_rdm_ope_post_send() to post packet(s) according to packet type.
- * If efa_rdm_ope_post_send() returned -FI_EAGAIN, this function will put the txe in efa_domain's
+ * This function will call efa_proto_ope_post_send() to post packet(s) according to packet type.
+ * If efa_proto_ope_post_send() returned -FI_EAGAIN, this function will put the txe in efa_domain's
  * queued_list. The progress engine will try to post the packet later.
  *
  * This function is mainly used by packet handler to post responsive ctrl packet (such as EOR and CTS).
@@ -1906,17 +2180,17 @@ ssize_t efa_rdm_ope_post_send_fallback(struct efa_rdm_ope *ope,
  * @param[in]   pkt_type        packet type.
  * @return      On success return 0, otherwise return a negative libfabric error code.
  */
-ssize_t efa_rdm_ope_post_send_or_queue(struct efa_rdm_ope *ope, int pkt_type)
+ssize_t efa_proto_ope_post_send_or_queue(struct efa_proto_ope_base *ope, int pkt_type)
 {
 	ssize_t err;
 
-	err = efa_rdm_ope_post_send(ope, pkt_type);
+	err = efa_proto_ope_post_send(ope, pkt_type);
 	if (err == -FI_EAGAIN) {
-		assert(!(ope->internal_flags & EFA_RDM_OPE_QUEUED_RNR));
-		ope->internal_flags |= EFA_RDM_OPE_QUEUED_CTRL;
+		assert(!(ope->internal_flags & EFA_PROTO_OPE_QUEUED_RNR));
+		ope->internal_flags |= EFA_PROTO_OPE_QUEUED_CTRL;
 		ope->queued_ctrl_type = pkt_type;
 		dlist_insert_tail(&ope->queued_entry,
-				  &efa_rdm_ep_domain(ope->ep)->ope_queued_list);
+				  &efa_rdm_ep_domain(ope->ep)->proto_ope_queued_list);
 		err = 0;
 	}
 
@@ -1929,9 +2203,9 @@ ssize_t efa_rdm_ope_post_send_or_queue(struct efa_rdm_ope *ope, int pkt_type)
  * @param ope efa rdm ope
  * @return ssize_t 0 on success, negative integer on failure.
  */
-ssize_t efa_rdm_ope_repost_ope_queued_before_handshake(struct efa_rdm_ope *ope)
+ssize_t efa_proto_ope_repost_queued_before_handshake(struct efa_proto_ope_base *ope)
 {
-	assert(ope->internal_flags & EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE);
+	assert(ope->internal_flags & EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE);
 
 	if (!(ope->peer->flags & EFA_RDM_PEER_HANDSHAKE_RECEIVED))
 		return -FI_EAGAIN;
@@ -1939,44 +2213,44 @@ ssize_t efa_rdm_ope_repost_ope_queued_before_handshake(struct efa_rdm_ope *ope)
 	switch (ope->op) {
 	case ofi_op_msg: /* fall through */
 	case ofi_op_tagged:
-		return efa_rdm_msg_post_rtm(ope->ep, ope);
+		return efa_proto_msg_post_rtm(ope->ep, ope);
 	case ofi_op_write:
-		return efa_rdm_rma_post_write(ope->ep, ope);
+		return efa_proto_rma_post_write(ope->ep, ope);
 	case ofi_op_read_req:
-		return efa_rdm_rma_post_read(ope->ep, ope);
+		return efa_proto_rma_post_read(ope->ep, ope);
 	case ofi_op_atomic: /* fall through */
 	case ofi_op_atomic_fetch: /* fall through */
 	case ofi_op_atomic_compare:
-		return efa_rdm_atomic_post_atomic(ope->ep, ope);
+		return efa_proto_atomic_post_atomic(ope->ep, ope);
 	default:
 		EFA_WARN(FI_LOG_EP_DATA, "Unknown operation type: %d\n", ope->op);
 		return -FI_EINVAL;
 	}
 }
 
-int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope, uint32_t flag)
+int efa_proto_ope_process_queued(struct efa_proto_ope_base *ope, uint32_t flag)
 {
 	int ret = 0;
 
-	assert(flag & EFA_RDM_OPE_QUEUED_FLAGS);
+	assert(flag & EFA_PROTO_OPE_QUEUED_FLAGS);
 
 	if (!(ope->internal_flags & flag))
 		return 0;
 
 	switch (flag) {
-	case EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE:
-		ret = efa_rdm_ope_repost_ope_queued_before_handshake(ope);
-		--ope->ep->ope_queued_before_handshake_cnt;
+	case EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE:
+		ret = efa_proto_ope_repost_queued_before_handshake(ope);
+		--ope->ep->proto_ope_queued_before_handshake_cnt;
 		break;
-	case EFA_RDM_OPE_QUEUED_RNR:
+	case EFA_PROTO_OPE_QUEUED_RNR:
 		assert(!dlist_empty(&ope->queued_pkts));
 		ret = efa_rdm_ep_post_queued_pkts(ope->ep, &ope->queued_pkts);
 		break;
-	case EFA_RDM_OPE_QUEUED_CTRL:
-		ret = efa_rdm_ope_post_send(ope, ope->queued_ctrl_type);
+	case EFA_PROTO_OPE_QUEUED_CTRL:
+		ret = efa_proto_ope_post_send(ope, ope->queued_ctrl_type);
 		break;
-	case EFA_RDM_OPE_QUEUED_READ:
-		ret = efa_rdm_ope_post_read(ope);
+	case EFA_PROTO_OPE_QUEUED_READ:
+		ret = efa_proto_ope_post_read(ope);
 		break;
 	default:
 		break;
@@ -1986,11 +2260,11 @@ int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope, uint32_t flag)
 		if (ret == -FI_EAGAIN)
 			return ret;
 
-		assert(ope->type == EFA_RDM_TXE || ope->type == EFA_RDM_RXE);
-		if (ope->type == EFA_RDM_TXE)
-			efa_rdm_txe_handle_error(ope, -ret, FI_EFA_ERR_PKT_POST);
+		assert(efa_proto_is_tx(ope) || efa_proto_is_rx(ope));
+		if (efa_proto_is_tx(ope))
+			efa_proto_tx_handle_error(ope, -ret, FI_EFA_ERR_PKT_POST);
 		else
-			efa_rdm_rxe_handle_error(ope, -ret, FI_EFA_ERR_PKT_POST);
+			efa_proto_rx_handle_error(ope, -ret, FI_EFA_ERR_PKT_POST);
 		return ret;
 	}
 

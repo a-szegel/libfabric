@@ -80,7 +80,7 @@ void test_efa_srx_unexp_pkt(struct efa_resource **state)
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct util_srx_ctx *srx_ctx;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_ope_base *rxe;
 	struct efa_rdm_pke *pke;
 	struct efa_ep_addr raw_addr = {0};
 	size_t raw_addr_len = sizeof(raw_addr);
@@ -124,9 +124,9 @@ void test_efa_srx_unexp_pkt(struct efa_resource **state)
 	 */
 	ofi_genlock_lock(srx_ctx->lock);
 	rxe = efa_rdm_msg_alloc_rxe_for_msgrtm(efa_rdm_ep, &pke);
-	assert_true(rxe->state == EFA_RDM_RXE_UNEXP);
-	assert_true(rxe->unexp_pkt == pke);
-	srx_ctx->peer_srx.owner_ops->queue_msg(rxe->peer_rxe);
+	assert_true(rxe->state == EFA_PROTO_RXE_UNEXP);
+	assert_true(efa_proto_to_rx(rxe)->unexp_pkt == pke);
+	srx_ctx->peer_srx.owner_ops->queue_msg(efa_proto_to_rx(rxe)->peer_rxe);
 	ofi_genlock_unlock(srx_ctx->lock);
 
 	/* Fake an application posted receive */
@@ -134,12 +134,12 @@ void test_efa_srx_unexp_pkt(struct efa_resource **state)
 			      0);
 
 	/* Make sure rxe is updated as mateched and unexp_pkt is NULL */
-	assert_true(rxe->state == EFA_RDM_RXE_MATCHED);
-	assert_true(rxe->unexp_pkt == NULL);
+	assert_true(rxe->state == EFA_PROTO_RXE_MATCHED);
+	assert_true(efa_proto_to_rx(rxe)->unexp_pkt == NULL);
 
 	ofi_genlock_lock(srx_ctx->lock);
 	efa_rdm_pke_release_rx(pke);
-	efa_rdm_rxe_release(rxe);
+	efa_proto_rx_release(rxe);
 	ofi_genlock_unlock(srx_ctx->lock);
 
 	/* Destroy the fake peer constructed above */
