@@ -195,9 +195,9 @@ void efa_proto_tx_atomic_init(struct efa_proto_tx_atomic *entry,
 			       EFA_PROTO_TX_ATOMIC, op, flags);
 	efa_proto_tx_base_init(&entry->tx);
 
-	efa_proto_to_tx_atomic(entry)->atomic_hdr = *hdr;
+	entry->atomic_hdr = *hdr;
 	if (ex)
-		efa_proto_to_tx_atomic(entry)->atomic_ex = *ex;
+		entry->atomic_ex = *ex;
 
 	switch (op) {
 	case ofi_op_atomic:
@@ -284,7 +284,7 @@ void efa_proto_rx_rma_read_init(struct efa_proto_rx_rma_read *entry,
 
 	entry->rx.base.cq_entry.flags = FI_REMOTE_READ | FI_RMA;
 	entry->window = 0;
-	efa_proto_to_tx(entry)->bytes_sent = 0;
+	entry->bytes_sent = 0;
 }
 
 void efa_proto_rx_atomic_init(struct efa_proto_rx_atomic *entry,
@@ -298,9 +298,9 @@ void efa_proto_rx_atomic_init(struct efa_proto_rx_atomic *entry,
 			       EFA_PROTO_RX_ATOMIC, op, 0);
 	efa_proto_rx_base_init(&entry->rx);
 
-	efa_proto_to_tx_atomic(entry)->atomic_hdr.atomic_op = 0;
-	efa_proto_to_tx_atomic(entry)->atomic_hdr.datatype = 0;
-	efa_proto_to_rx_atomic(entry)->atomrsp_data = NULL;
+	entry->atomic_hdr.atomic_op = 0;
+	entry->atomic_hdr.datatype = 0;
+	entry->atomrsp_data = NULL;
 
 	switch (op) {
 	case ofi_op_atomic:
@@ -444,8 +444,8 @@ void efa_proto_rx_release_internal(struct efa_proto_ope_base *rxe)
 	if (rxe->state == EFA_PROTO_OPE_SEND)
 		dlist_remove(&rxe->entry);
 
-	if (efa_proto_to_rx(rx)->rxe_map)
-		efa_rdm_rxe_map_remove(efa_proto_to_rx(rx)->rxe_map, rxe->msg_id, rxe);
+	if (rx->rxe_map)
+		efa_rdm_rxe_map_remove(rx->rxe_map, rxe->msg_id, rxe);
 
 	for (i = 0; i < rxe->iov_count; i++) {
 		if (rxe->mr[i]) {
@@ -480,9 +480,9 @@ void efa_proto_rx_release(struct efa_proto_ope_base *rxe)
 {
 	struct efa_proto_rx_base *rx = (struct efa_proto_rx_base *)rxe;
 
-	if (efa_proto_to_rx(rx)->peer_rxe) {
-		efa_rdm_ep_get_peer_srx(rxe->ep)->owner_ops->free_entry(efa_proto_to_rx(rx)->peer_rxe);
-		efa_proto_to_rx(rx)->peer_rxe = NULL;
+	if (rx->peer_rxe) {
+		efa_rdm_ep_get_peer_srx(rxe->ep)->owner_ops->free_entry(rx->peer_rxe);
+		rx->peer_rxe = NULL;
 	}
 
 	efa_proto_rx_release_internal(rxe);
