@@ -295,12 +295,12 @@ EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_op_base) <= 448,
 #endif
 
 /*
- * Leaf struct size budgets.  The original monolithic efa_rdm_ope is 872 bytes
- * (14 cache lines).  Every leaf struct below is a significant reduction.
- * Non-atomic TX leaves target ≤ 528 bytes (8.25 CL, ~40% reduction).
- * RX leaves are larger due to rx_base overhead but still well under 872.
- * tx_atomic is the largest — acceptable since atomic is least perf-critical.
+ * Leaf struct size budgets (optimized builds only).
+ * The original monolithic efa_rdm_ope is 872 bytes (14 cache lines).
+ * Debug builds add pending_recv_entry (+16 bytes) to the base, so
+ * these budgets only apply to release builds.
  */
+#if !ENABLE_DEBUG
 EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_msg) <= 528,
 	"efa_proto_tx_msg size budget");
 EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_rma_read) <= 512,
@@ -319,6 +319,7 @@ EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_atomic) <= 568,
 /* tx_atomic is the largest — acceptable since atomic is least perf-critical */
 EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_atomic) <= 696,
 	"efa_proto_tx_atomic size budget");
+#endif
 
 /* Union must be at least as large as the old monolithic struct */
 EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_op_entry) >= sizeof(struct efa_proto_tx_atomic),
