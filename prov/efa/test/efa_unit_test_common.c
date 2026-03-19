@@ -395,7 +395,7 @@ void efa_unit_test_construct_handshake_pkt_for_receive(struct efa_rdm_pke *pkt_e
 }
 
 
-struct efa_rdm_ope *efa_unit_test_alloc_txe(struct efa_resource *resource, uint32_t op)
+struct efa_proto_op *efa_unit_test_alloc_txe(struct efa_resource *resource, uint32_t op)
 {
 	fi_addr_t peer_addr = 0;
 	struct efa_ep_addr raw_addr = {0};
@@ -418,7 +418,7 @@ struct efa_rdm_ope *efa_unit_test_alloc_txe(struct efa_resource *resource, uint3
 	return efa_proto_ep_alloc_txe(efa_rdm_ep, peer, &msg, op, 0, 0);
 }
 
-struct efa_rdm_ope *efa_unit_test_alloc_rxe(struct efa_resource *resource, uint32_t op)
+struct efa_proto_op *efa_unit_test_alloc_rxe(struct efa_resource *resource, uint32_t op)
 {
 	fi_addr_t peer_addr = 0;
 	struct efa_ep_addr raw_addr = {0};

@@ -230,17 +230,17 @@ ssize_t efa_mock_ofi_copy_from_hmem_iov_inc_counter(void *dest, size_t size,
 	return __real_ofi_copy_from_hmem_iov(dest, size, hmem_iface, device, hmem_iov, hmem_iov_count, hmem_iov_offset);
 }
 
-ssize_t efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock(struct efa_rdm_pke *pke, struct efa_rdm_ope *ope)
+ssize_t efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock(struct efa_rdm_pke *pke, struct efa_proto_op *ope)
 {
 	return mock_int();
 }
 
-int efa_mock_efa_rdm_pke_read_return_mock(struct efa_rdm_ope *ope)
+int efa_mock_efa_rdm_pke_read_return_mock(struct efa_proto_op *ope)
 {
 	return mock_int();
 }
 
-ssize_t efa_mock_efa_proto_op_post_send_return_mock(struct efa_rdm_ope *ope, int pkt_type)
+ssize_t efa_mock_efa_proto_op_post_send_return_mock(struct efa_proto_op *ope, int pkt_type)
 {
 	return mock_int();
 }
@@ -604,12 +604,12 @@ ssize_t __wrap_ofi_copy_from_hmem_iov(void *dest, size_t size,
 	return g_efa_unit_test_mocks.ofi_copy_from_hmem_iov(dest, size, hmem_iface, device, hmem_iov, hmem_iov_count, hmem_iov_offset);
 }
 
-ssize_t __wrap_efa_rdm_pke_copy_payload_to_ope(struct efa_rdm_pke *pke, struct efa_rdm_ope *ope)
+ssize_t __wrap_efa_rdm_pke_copy_payload_to_ope(struct efa_rdm_pke *pke, struct efa_proto_op *ope)
 {
 	return g_efa_unit_test_mocks.efa_rdm_pke_copy_payload_to_ope(pke, ope);
 }
 
-int __wrap_efa_rdm_pke_read(struct efa_rdm_ope *ope)
+int __wrap_efa_rdm_pke_read(struct efa_proto_op *ope)
 {
 	return g_efa_unit_test_mocks.efa_rdm_pke_read(ope);
 }
@@ -619,7 +619,7 @@ int __wrap_efa_rdm_pke_proc_matched_rtm(struct efa_rdm_pke *pkt_entry)
 	return g_efa_unit_test_mocks.efa_rdm_pke_proc_matched_rtm(pkt_entry);
 }
 
-int __wrap_efa_proto_op_post_send(struct efa_rdm_ope *ope, int pkt_type)
+int __wrap_efa_proto_op_post_send(struct efa_proto_op *ope, int pkt_type)
 {
 	return g_efa_unit_test_mocks.efa_proto_op_post_send(ope, pkt_type);
 }

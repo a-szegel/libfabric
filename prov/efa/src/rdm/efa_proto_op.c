@@ -6,7 +6,7 @@
  * @brief Init/release functions for the per-protocol operation entry structs.
  *
  * These functions are wired in during Task 11 (the atomic switchover from
- * struct efa_rdm_ope to the new hierarchy).  Until then they coexist with
+ * struct efa_proto_op to the new hierarchy).  Until then they coexist with
  * the old efa_proto_tx_construct / efa_proto_rx_release functions.
  */
 
@@ -16,7 +16,7 @@
 #include "efa.h"
 #include "efa_cntr.h"
 #include "efa_proto_op.h"
-#include "efa_rdm_ope.h"
+#include "efa_proto_op_legacy.h"
 #include "efa_rdm_ep.h"
 #include "efa_rdm_peer.h"
 #include "efa_rdm_pke.h"

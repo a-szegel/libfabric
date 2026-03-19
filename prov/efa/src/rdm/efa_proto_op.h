@@ -348,11 +348,11 @@ EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_atomic, rx) == 0,
 	"rx_atomic.rx must be at offset 0");
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Temporary bridge macros — removed in Task 11 when struct efa_rdm_ope is
+ * Temporary bridge macros — removed in Task 11 when struct efa_proto_op is
  * deleted.  These allow incremental migration: callers that still hold
- * struct efa_rdm_ope * can convert to/from struct efa_proto_op_base *.
+ * struct efa_proto_op * can convert to/from struct efa_proto_op_base *.
  * ──────────────────────────────────────────────────────────────────────────── */
-struct efa_rdm_ope; /* forward decl of the legacy type */
+struct efa_proto_op; /* forward decl of the legacy type */
 
 /** Cast legacy ope pointer to proto base pointer */
 #define EFA_PROTO_BASE_FROM_OPE(ope) \
@@ -360,7 +360,7 @@ struct efa_rdm_ope; /* forward decl of the legacy type */
 
 /** Cast proto base pointer back to legacy ope pointer */
 #define EFA_PROTO_OPE_FROM_BASE(base) \
-	((struct efa_rdm_ope *)(void *)(base))
+	((struct efa_proto_op *)(void *)(base))
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Inline helpers for type discrimination
@@ -437,7 +437,7 @@ void efa_proto_rx_base_release(struct efa_proto_rx_base *rx);
 /* ────────────────────────────────────────────────────────────────────────────
  * Task 12: Compile-time validation — before/after size comparison
  *
- * Original struct efa_rdm_ope: 872 bytes (14 cache lines) without debug.
+ * Original struct efa_proto_op: 872 bytes (14 cache lines) without debug.
  * The new hierarchy eliminates unused fields from each protocol path.
  *
  * After switchover, each protocol path only touches the cache lines it needs:

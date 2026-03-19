@@ -48,7 +48,7 @@
 #include "efa_user_info.h"
 #include "efa_fork_support.h"
 #include "rdm/efa_rdm_ep.h"
-#include "rdm/efa_rdm_ope.h"
+#include "rdm/efa_proto_op_legacy.h"
 #include "rdm/efa_rdm_pke.h"
 #include "rdm/efa_rdm_peer.h"
 #include "rdm/efa_rdm_util.h"

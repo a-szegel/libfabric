@@ -420,7 +420,7 @@ void test_efa_rdm_ep_dc_atomic_queue_before_handshake(struct efa_resource **stat
 	size_t raw_addr_len = sizeof(struct efa_ep_addr);
 	fi_addr_t peer_addr;
 	int buf[1] = {0}, err, numaddr;
-	struct efa_rdm_ope *txe;
+	struct efa_proto_op *txe;
 
 	/* disable shm to force using efa device to send */
 	efa_unit_test_resource_construct_rdm_shm_disabled(resource);
@@ -464,7 +464,7 @@ void test_efa_rdm_ep_dc_atomic_queue_before_handshake(struct efa_resource **stat
 	assert_int_equal(err, 0);
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list),  1);
 	assert_int_equal(efa_unit_test_get_dlist_length(&(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list)), 1);
-	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list.next, struct efa_rdm_ope, queued_entry);
+	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list.next, struct efa_proto_op, queued_entry);
 	assert_true((txe->op == ofi_op_atomic));
 	assert_true(txe->internal_flags & EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE);
 }
@@ -486,7 +486,7 @@ void test_efa_rdm_ep_dc_send_queue_before_handshake(struct efa_resource **state)
 	size_t raw_addr_len = sizeof(struct efa_ep_addr);
 	fi_addr_t peer_addr;
 	int err, numaddr;
-	struct efa_rdm_ope *txe;
+	struct efa_proto_op *txe;
 
 	/* disable shm to force using efa device to send */
 	efa_unit_test_resource_construct_rdm_shm_disabled(resource);
@@ -525,7 +525,7 @@ void test_efa_rdm_ep_dc_send_queue_before_handshake(struct efa_resource **state)
 	assert_int_equal(err, 0);
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list),  1);
 	assert_int_equal(efa_unit_test_get_dlist_length(&(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list)), 1);
-	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list.next, struct efa_rdm_ope, queued_entry);
+	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list.next, struct efa_proto_op, queued_entry);
 	assert_true((txe->op == ofi_op_msg));
 	assert_true(txe->internal_flags & EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE);
 }
@@ -609,7 +609,7 @@ void test_efa_rdm_ep_rma_queue_before_handshake(struct efa_resource **state, int
 	char buf[8] = {0};
 	int err;
 	uint64_t rma_addr, rma_key;
-	struct efa_rdm_ope *txe;
+	struct efa_proto_op *txe;
 	struct efa_rdm_peer *peer;
 
 	resource->hints = efa_unit_test_alloc_hints(FI_EP_RDM, EFA_FABRIC_NAME);
@@ -665,7 +665,7 @@ void test_efa_rdm_ep_rma_queue_before_handshake(struct efa_resource **state, int
 	assert_int_equal(err, 0);
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list),  1);
 	assert_int_equal(efa_unit_test_get_dlist_length(&(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list)), 1);
-	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list.next, struct efa_rdm_ope, queued_entry);
+	txe = container_of(efa_rdm_ep_domain(efa_rdm_ep)->proto_op_queued_list.next, struct efa_proto_op, queued_entry);
 	assert_true((txe->op == op));
 	assert_true(txe->internal_flags & EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE);
 }
@@ -688,7 +688,7 @@ void test_efa_rdm_ep_read_queue_before_handshake(struct efa_resource **state)
  */
 void test_efa_rdm_ep_trigger_handshake(struct efa_resource **state)
 {
-	struct efa_rdm_ope *txe;
+	struct efa_proto_op *txe;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer *peer;
@@ -730,7 +730,7 @@ void test_efa_rdm_ep_trigger_handshake(struct efa_resource **state)
 	assert_int_equal(efa_rdm_ep_trigger_handshake(efa_rdm_ep, peer), FI_SUCCESS);
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list),  1);
 
-	txe = container_of(efa_rdm_ep->txe_list.next, struct efa_rdm_ope, ep_entry);
+	txe = container_of(efa_rdm_ep->txe_list.next, struct efa_proto_op, ep_entry);
 
 	assert_true(txe->fi_flags & EFA_PROTO_TXE_NO_COMPLETION);
 	assert_true(txe->fi_flags & EFA_PROTO_TXE_NO_COUNTER);
@@ -2068,7 +2068,7 @@ void test_efa_rdm_ep_outstanding_tx_ops_decremented_with_error_completion(struct
 	struct efa_rdm_cq *efa_rdm_cq;
 	struct efa_ibv_cq *ibv_cq;
 	struct efa_rdm_pke *pkt_entry;
-	struct efa_rdm_ope *txe;
+	struct efa_proto_op *txe;
 	fi_addr_t peer_addr = 0;
 	struct efa_ep_addr raw_addr = {0};
 	size_t raw_addr_len = sizeof(raw_addr);

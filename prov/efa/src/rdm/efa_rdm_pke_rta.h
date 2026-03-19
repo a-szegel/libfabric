@@ -12,27 +12,27 @@ struct efa_rdm_rta_hdr *efa_rdm_pke_get_rta_hdr(struct efa_rdm_pke *pkt_entry)
 	return (struct efa_rdm_rta_hdr *)pkt_entry->wiredata;
 }
 
-ssize_t efa_rdm_pke_init_write_rta(struct efa_rdm_pke *pkt_entry, struct efa_rdm_ope *txe);
+ssize_t efa_rdm_pke_init_write_rta(struct efa_rdm_pke *pkt_entry, struct efa_proto_op *txe);
 
 void efa_rdm_pke_handle_write_rta_send_completion(struct efa_rdm_pke *pkt_entry);
 
 int efa_rdm_pke_proc_write_rta(struct efa_rdm_pke *pkt_entry);
 
 ssize_t efa_rdm_pke_init_dc_write_rta(struct efa_rdm_pke *pkt_entry,
-				      struct efa_rdm_ope *txe);
+				      struct efa_proto_op *txe);
 
 int efa_rdm_pke_proc_dc_write_rta(struct efa_rdm_pke *pkt_entry);
 
 ssize_t efa_rdm_pke_init_fetch_rta(struct efa_rdm_pke *pkt_entry,
-				   struct efa_rdm_ope *txe);
+				   struct efa_proto_op *txe);
 
 int efa_rdm_pke_proc_fetch_rta(struct efa_rdm_pke *pkt_entry);
 
 ssize_t efa_rdm_pke_init_compare_rta(struct efa_rdm_pke *pkt_entry,
-				     struct efa_rdm_ope *txe);
+				     struct efa_proto_op *txe);
 
 int efa_rdm_pke_proc_compare_rta(struct efa_rdm_pke *pkt_entry);
 
-struct efa_rdm_ope *efa_rdm_pke_alloc_rta_rxe(struct efa_rdm_pke *pkt_entry, int op);
+struct efa_proto_op *efa_rdm_pke_alloc_rta_rxe(struct efa_rdm_pke *pkt_entry, int op);
 
 #endif

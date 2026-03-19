@@ -36,7 +36,7 @@
  * 	FI_EINVAL invalid segment offset.
  */
 ssize_t efa_rdm_pke_init_payload_from_ope(struct efa_rdm_pke *pke,
-					  struct efa_rdm_ope *ope,
+					  struct efa_proto_op *ope,
 					  size_t payload_offset,
 					  size_t segment_offset,
 					  size_t data_size)
@@ -125,7 +125,7 @@ int efa_rdm_ep_flush_queued_blocking_copy_to_hmem(struct efa_rdm_ep *ep)
 	size_t i;
 	size_t bytes_copied[EFA_RDM_MAX_QUEUED_COPY] = {0};
 	struct efa_mr *desc;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_op *rxe;
 	struct efa_rdm_pke *pkt_entry;
 	char *data;
 	size_t segment_offset;
@@ -196,7 +196,7 @@ int efa_rdm_ep_flush_queued_blocking_copy_to_hmem(struct efa_rdm_ep *ep)
  */
 static inline
 int efa_rdm_pke_queued_copy_payload_to_hmem(struct efa_rdm_pke *pke,
-					    struct efa_rdm_ope *rxe)
+					    struct efa_proto_op *rxe)
 {
 	struct efa_rdm_ep *ep;
 
@@ -293,7 +293,7 @@ int efa_rdm_pke_get_available_copy_methods(struct efa_rdm_ep *ep,
  */
 static inline
 int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
-				     struct efa_rdm_ope *rxe)
+				     struct efa_proto_op *rxe)
 {
 	static const int max_blocking_copy_rxe_num = 4;
 	struct efa_mr *desc;
@@ -423,7 +423,7 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
  * 			On failure, return libfabric error code
  */
 ssize_t efa_rdm_pke_copy_payload_to_ope(struct efa_rdm_pke *pke,
-					struct efa_rdm_ope *ope)
+					struct efa_proto_op *ope)
 {
 	struct efa_mr *desc;
 	struct efa_rdm_ep *ep;

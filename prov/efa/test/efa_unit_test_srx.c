@@ -80,7 +80,7 @@ void test_efa_srx_unexp_pkt(struct efa_resource **state)
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct util_srx_ctx *srx_ctx;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_op *rxe;
 	struct efa_rdm_pke *pke;
 	struct efa_ep_addr raw_addr = {0};
 	size_t raw_addr_len = sizeof(raw_addr);

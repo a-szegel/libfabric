@@ -61,7 +61,7 @@ int efa_rdm_pkt_type_of_pke(struct efa_rdm_pke *pke)
  *         or 0 if no valid packet type is found
  */
 static inline
-int efa_rdm_pke_get_ctrl_pkt_type_from_queued_ope(struct efa_rdm_ope *ope)
+int efa_rdm_pke_get_ctrl_pkt_type_from_queued_ope(struct efa_proto_op *ope)
 {
 	struct efa_rdm_pke *pke;
 
@@ -134,7 +134,7 @@ size_t efa_rdm_pke_get_segment_offset(struct efa_rdm_pke *pke)
  */
 static inline size_t
 efa_rdm_pke_copy_from_hmem_iov(struct efa_mr *iov_mr, struct efa_rdm_pke *pke,
-			       struct efa_rdm_ope *ope, size_t payload_offset,
+			       struct efa_proto_op *ope, size_t payload_offset,
 			       size_t segment_offset, size_t data_size)
 {
 	size_t copied;
@@ -170,7 +170,7 @@ efa_rdm_pke_copy_from_hmem_iov(struct efa_mr *iov_mr, struct efa_rdm_pke *pke,
 static inline int
 efa_rdm_pke_post_remote_read_or_nack(struct efa_rdm_ep *ep,
 				     struct efa_rdm_pke *pkt_entry,
-				     struct efa_rdm_ope *rxe)
+				     struct efa_proto_op *rxe)
 {
 	int err = 0;
 	int pkt_type;
@@ -232,13 +232,13 @@ send_nack:
 size_t efa_rdm_pke_get_payload_offset(struct efa_rdm_pke *pkt_entry);
 
 ssize_t efa_rdm_pke_init_payload_from_ope(struct efa_rdm_pke *pke,
-					  struct efa_rdm_ope *ope,
+					  struct efa_proto_op *ope,
 					  size_t payload_offset,
 					  size_t segment_offset,
 					  size_t data_size);
 
 ssize_t efa_rdm_pke_copy_payload_to_ope(struct efa_rdm_pke *pke,
-					struct efa_rdm_ope *ope);
+					struct efa_proto_op *ope);
 
 uint32_t *efa_rdm_pke_connid_ptr(struct efa_rdm_pke *pkt_entry);
 

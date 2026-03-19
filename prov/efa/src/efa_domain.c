@@ -777,7 +777,7 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 {
 	struct efa_rdm_peer *peer;
 	struct dlist_entry *tmp;
-	struct efa_rdm_ope *ope;
+	struct efa_proto_op *ope;
 	int ret;
 
 	assert(domain->info->ep_attr->type == FI_EP_RDM);
@@ -826,7 +826,7 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 	 * Repost pkts for all queued op entries
 	 */
 	dlist_foreach_container_safe(&domain->proto_op_queued_list,
-				     struct efa_rdm_ope,
+				     struct efa_proto_op,
 				     ope, queued_entry, tmp) {
 
 		peer = ope->peer;
@@ -845,7 +845,7 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 	/*
 	 * Send data packets until window or data queue is exhausted.
 	 */
-	dlist_foreach_container(&domain->proto_op_longcts_send_list, struct efa_rdm_ope,
+	dlist_foreach_container(&domain->proto_op_longcts_send_list, struct efa_proto_op,
 				ope, entry) {
 		peer = ope->peer;
 		assert(peer);

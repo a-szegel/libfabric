@@ -35,14 +35,14 @@ static void efa_rdm_atomic_init_shm_msg(struct efa_rdm_ep *ep, struct fi_msg_ato
 }
 
 static
-struct efa_rdm_ope *
+struct efa_proto_op *
 efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 		      	 struct efa_rdm_peer *peer,
 			 const struct fi_msg_atomic *msg_atomic,
 			 const struct efa_proto_atomic_ex *atomic_ex,
 			 uint32_t op, uint64_t flags)
 {
-	struct efa_rdm_ope *txe;
+	struct efa_proto_op *txe;
 	struct fi_msg msg;
 	struct iovec iov[EFA_PROTO_IOV_LIMIT];
 	size_t datatype_size;
@@ -95,7 +95,7 @@ efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
  * @param txe tx entry
  * @return ssize_t 0 on success, negative integer on failure
  */
-ssize_t efa_proto_atomic_post_atomic(struct efa_rdm_ep *efa_rdm_ep, struct efa_rdm_ope *txe)
+ssize_t efa_proto_atomic_post_atomic(struct efa_rdm_ep *efa_rdm_ep, struct efa_proto_op *txe)
 {
 	bool delivery_complete_requested;
 	static int req_pkt_type_list[] = {
@@ -145,7 +145,7 @@ ssize_t efa_rdm_atomic_generic_efa(struct efa_rdm_ep *efa_rdm_ep,
 			       const struct efa_proto_atomic_ex *atomic_ex,
 			       uint32_t op, uint64_t flags)
 {
-	struct efa_rdm_ope *txe;
+	struct efa_proto_op *txe;
 	ssize_t err;
 	struct util_srx_ctx *srx_ctx;
 

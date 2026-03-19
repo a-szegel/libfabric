@@ -14,7 +14,7 @@
 #include "efa_rdm_pke_req.h"
 #include "efa_rdm_pkt_type.h"
 
-void efa_proto_tx_construct(struct efa_rdm_ope *txe,
+void efa_proto_tx_construct(struct efa_proto_op *txe,
 			   struct efa_rdm_ep *ep,
 			   struct efa_rdm_peer *peer,
 			   const struct fi_msg *msg,
@@ -96,7 +96,7 @@ void efa_proto_tx_construct(struct efa_rdm_ope *txe,
 	}
 }
 
-void efa_proto_tx_release(struct efa_rdm_ope *txe)
+void efa_proto_tx_release(struct efa_proto_op *txe)
 {
 	int i, err = 0;
 	struct dlist_entry *tmp;
@@ -152,7 +152,7 @@ void efa_proto_tx_release(struct efa_rdm_ope *txe)
  *
  * @param rxe efa_rdm_ope
  */
-void efa_proto_rx_release_internal(struct efa_rdm_ope *rxe)
+void efa_proto_rx_release_internal(struct efa_proto_op *rxe)
 {
 	struct efa_rdm_pke *pkt_entry;
 	struct dlist_entry *tmp;
@@ -203,7 +203,7 @@ void efa_proto_rx_release_internal(struct efa_rdm_ope *rxe)
 	ofi_buf_free(rxe);
 }
 
-void efa_proto_rx_release(struct efa_rdm_ope *rxe)
+void efa_proto_rx_release(struct efa_proto_op *rxe)
 {
 	/* release the resource created by util srx */
 	if (rxe->peer_rxe) {
@@ -278,7 +278,7 @@ void efa_proto_rx_release(struct efa_rdm_ope *rxe)
  * @param[in]		access			the access flag for the memory registation.
  *
  */
-void efa_proto_op_try_fill_desc(struct efa_rdm_ope *ope, int mr_iov_start, uint64_t access)
+void efa_proto_op_try_fill_desc(struct efa_proto_op *ope, int mr_iov_start, uint64_t access)
 {
 	struct efa_domain *domain;
 	int i, err;
@@ -312,7 +312,7 @@ void efa_proto_op_try_fill_desc(struct efa_rdm_ope *ope, int mr_iov_start, uint6
 	}
 }
 
-int efa_proto_tx_prepare_to_be_read(struct efa_rdm_ope *txe, struct fi_rma_iov *read_iov)
+int efa_proto_tx_prepare_to_be_read(struct efa_proto_op *txe, struct fi_rma_iov *read_iov)
 {
 	int i;
 
@@ -342,7 +342,7 @@ int efa_proto_tx_prepare_to_be_read(struct efa_rdm_ope *txe, struct fi_rma_iov *
  * @param[in,out]	txe	txe to be set
  */
 static inline
-void efa_proto_tx_set_runt_size(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe)
+void efa_proto_tx_set_runt_size(struct efa_rdm_ep *ep, struct efa_proto_op *txe)
 {
 	assert(txe->type == EFA_PROTO_TXE);
 
@@ -372,7 +372,7 @@ void efa_proto_tx_set_runt_size(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe)
  * @param[in]          pkt_type                REQ packet type
  * @return                     size of total data transfered by REQ packets
  */
-size_t efa_proto_op_mulreq_total_data_size(struct efa_rdm_ope *ope, int pkt_type)
+size_t efa_proto_op_mulreq_total_data_size(struct efa_proto_op *ope, int pkt_type)
 {
 	assert(efa_rdm_pkt_type_is_mulreq(pkt_type));
 
@@ -405,7 +405,7 @@ size_t efa_proto_op_mulreq_total_data_size(struct efa_rdm_ope *ope, int pkt_type
  * @return		maxiumum number of bytes of data can be save in a REQ packet
  * 			for given send operation and REQ packet type.
  */
-size_t efa_proto_tx_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe, int pkt_type)
+size_t efa_proto_tx_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_proto_op *txe, int pkt_type)
 {
 	uint16_t header_flags = 0;
 	int max_data_offset;
@@ -451,7 +451,7 @@ size_t efa_proto_tx_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_rdm_
  * On success, return 0
  * If there is not enough available packet entry in TX packet pool, return -FI_EAGAIN
  */
-ssize_t efa_proto_op_prepare_to_post_send(struct efa_rdm_ope *ope,
+ssize_t efa_proto_op_prepare_to_post_send(struct efa_proto_op *ope,
 					 int pkt_type,
 					 int *pkt_entry_cnt,
 					 int *pkt_entry_data_size_vec)
@@ -564,7 +564,7 @@ ssize_t efa_proto_op_prepare_to_post_send(struct efa_rdm_ope *ope,
  * @param[in]	err			positive libfabric error code
  * @param[in]	prov_errno	positive provider specific error code
  */
-void efa_proto_rx_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno)
+void efa_proto_rx_handle_error(struct efa_proto_op *rxe, int err, int prov_errno)
 {
 	struct efa_rdm_ep *ep;
 	struct fi_cq_err_entry err_entry;
@@ -703,7 +703,7 @@ void efa_proto_rx_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno)
  * @param[in]	err			positive libfabric error code
  * @param[in]	prov_errno	positive EFA provider specific error code
  */
-void efa_proto_tx_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
+void efa_proto_tx_handle_error(struct efa_proto_op *txe, int err, int prov_errno)
 {
 	struct efa_rdm_ep *ep;
 	struct fi_cq_err_entry err_entry;
@@ -823,7 +823,7 @@ void efa_proto_tx_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
  *
  * @param[in]		rxe	information of the completed RX operation
  */
-void efa_proto_rx_report_completion(struct efa_rdm_ope *rxe)
+void efa_proto_rx_report_completion(struct efa_proto_op *rxe)
 {
 	struct efa_rdm_ep *ep = rxe->ep;
 	struct util_cq *rx_cq = ep->base_ep.util_ep.rx_cq;
@@ -928,7 +928,7 @@ void efa_proto_rx_report_completion(struct efa_rdm_ope *rxe)
  * @return 		a boolean
  */
 static inline
-bool efa_proto_tx_should_update_cq(struct efa_rdm_ope *txe)
+bool efa_proto_tx_should_update_cq(struct efa_proto_op *txe)
 
 {
 	if (txe->fi_flags & EFA_PROTO_TXE_NO_COMPLETION)
@@ -960,7 +960,7 @@ bool efa_proto_tx_should_update_cq(struct efa_rdm_ope *txe)
  *
  * @param[in]	txe	information of the completed TX operation
  */
-void efa_proto_tx_report_completion(struct efa_rdm_ope *txe)
+void efa_proto_tx_report_completion(struct efa_proto_op *txe)
 {
 	struct util_cq *tx_cq = txe->ep->base_ep.util_ep.tx_cq;
 	int ret;
@@ -1037,10 +1037,10 @@ void efa_proto_tx_report_completion(struct efa_rdm_ope *txe)
  *
  * @param[in]	ope	inforatminon of op entry that sends data
  */
-void efa_proto_op_handle_send_completed(struct efa_rdm_ope *ope)
+void efa_proto_op_handle_send_completed(struct efa_proto_op *ope)
 {
 	struct efa_rdm_ep *ep;
-	struct efa_rdm_ope *rxe;
+	struct efa_proto_op *rxe;
 
 	ep = ope->ep;
 
@@ -1095,10 +1095,10 @@ void efa_proto_op_handle_send_completed(struct efa_rdm_ope *ope)
  *
  * @param[in,out]	ope	ope that contains information of a data receive operation
  */
-void efa_proto_op_handle_recv_completed(struct efa_rdm_ope *ope)
+void efa_proto_op_handle_recv_completed(struct efa_proto_op *ope)
 {
-	struct efa_rdm_ope *txe = NULL;
-	struct efa_rdm_ope *rxe = NULL;
+	struct efa_proto_op *txe = NULL;
+	struct efa_proto_op *rxe = NULL;
 	int err;
 
 	/* It is important to write completion before sending ctrl packet, because the
@@ -1215,7 +1215,7 @@ void efa_proto_op_handle_recv_completed(struct efa_rdm_ope *ope)
  * @return		0 if the read request is posted successfully.
  * 			negative libfabric error code on failure.
  */
-int efa_proto_op_prepare_to_post_read(struct efa_rdm_ope *ope)
+int efa_proto_op_prepare_to_post_read(struct efa_proto_op *ope)
 {
 	int err;
 	size_t total_iov_len, total_rma_iov_len;
@@ -1271,7 +1271,7 @@ int efa_proto_op_prepare_to_post_read(struct efa_rdm_ope *ope)
  *     On success, return 0
  *     On pack entry allocation failure, return -FI_EAGAIN
  */
-ssize_t efa_proto_tx_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe)
+ssize_t efa_proto_tx_prepare_local_read_pkt_entry(struct efa_proto_op *txe)
 {
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_pke *pkt_entry_copy;
@@ -1322,7 +1322,7 @@ ssize_t efa_proto_tx_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe)
  * @param[in,out]	ep		endpoint
  * @param[in,out]	ope	information the operation needs to post a write
  */
-void efa_proto_op_prepare_to_post_write(struct efa_rdm_ope *ope)
+void efa_proto_op_prepare_to_post_write(struct efa_proto_op *ope)
 {
 	size_t local_iov_len;
 
@@ -1355,7 +1355,7 @@ void efa_proto_op_prepare_to_post_write(struct efa_rdm_ope *ope)
  * @return	On success, return 0
  * 		On failure, return a negative error code.
  */
-int efa_proto_op_post_read(struct efa_rdm_ope *ope)
+int efa_proto_op_post_read(struct efa_proto_op *ope)
 {
 	int err;
 	int iov_idx = 0, rma_iov_idx = 0;
@@ -1503,7 +1503,7 @@ int efa_proto_op_post_read(struct efa_rdm_ope *ope)
  * @return	On success, return 0
  * 		On failure, return a negative error code.
  */
-int efa_proto_op_post_remote_write(struct efa_rdm_ope *ope)
+int efa_proto_op_post_remote_write(struct efa_proto_op *ope)
 {
 	int err;
 	int iov_idx = 0, rma_iov_idx = 0;
@@ -1646,7 +1646,7 @@ int efa_proto_op_post_remote_write(struct efa_rdm_ope *ope)
 	return 0;
 }
 
-int efa_proto_op_post_remote_read_or_queue(struct efa_rdm_ope *ope)
+int efa_proto_op_post_remote_read_or_queue(struct efa_proto_op *ope)
 {
 	int err;
 
@@ -1690,7 +1690,7 @@ int efa_proto_op_post_remote_read_or_queue(struct efa_rdm_ope *ope)
  * @param[in]		data_size	size of the data
  * @return		0 on success, negative error code on failure
  */
-int efa_proto_rx_post_local_read_or_queue(struct efa_rdm_ope *rxe,
+int efa_proto_rx_post_local_read_or_queue(struct efa_proto_op *rxe,
 					  size_t rx_data_offset,
 					  struct efa_rdm_pke *pkt_entry,
 					  char *pkt_data, size_t data_size)
@@ -1701,7 +1701,7 @@ int efa_proto_rx_post_local_read_or_queue(struct efa_rdm_ope *rxe,
 	size_t iov_count;
 	struct fi_rma_iov rma_iov;
 	struct fi_msg_rma msg_rma;
-	struct efa_rdm_ope *txe;
+	struct efa_proto_op *txe;
 
 	efa_rdm_tracepoint(rx_pke_local_read_copy_payload_begin, (size_t) pkt_entry, pkt_entry->payload_size, rxe->msg_id, (size_t) rxe->cq_entry.op_context, rxe->total_len);
 	/* setup rma_iov, which is pointing to buffer in the packet entry */
@@ -1772,7 +1772,7 @@ int efa_proto_rx_post_local_read_or_queue(struct efa_rdm_ope *rxe,
  * @return      On success return 0, otherwise return a negative libfabric error code. Possible error codes include:
  *             -FI_EAGAIN      temporarily  out of resource
  */
-ssize_t efa_proto_op_post_send(struct efa_rdm_ope *ope, int pkt_type)
+ssize_t efa_proto_op_post_send(struct efa_proto_op *ope, int pkt_type)
 {
 	struct efa_rdm_ep *ep;
 	ssize_t err;
@@ -1860,7 +1860,7 @@ handle_err:
  * @return      On success return 0, otherwise return a negative libfabric error code. Possible error codes include:
  *             -FI_EAGAIN      temporarily  out of resource
  */
-ssize_t efa_proto_op_post_send_fallback(struct efa_rdm_ope *ope,
+ssize_t efa_proto_op_post_send_fallback(struct efa_proto_op *ope,
 					   int pkt_type, ssize_t err)
 {
 	bool delivery_complete_requested = ope->fi_flags & FI_DELIVERY_COMPLETE;
@@ -1907,7 +1907,7 @@ ssize_t efa_proto_op_post_send_fallback(struct efa_rdm_ope *ope,
  * @param[in]   pkt_type        packet type.
  * @return      On success return 0, otherwise return a negative libfabric error code.
  */
-ssize_t efa_proto_op_post_send_or_queue(struct efa_rdm_ope *ope, int pkt_type)
+ssize_t efa_proto_op_post_send_or_queue(struct efa_proto_op *ope, int pkt_type)
 {
 	ssize_t err;
 
@@ -1930,7 +1930,7 @@ ssize_t efa_proto_op_post_send_or_queue(struct efa_rdm_ope *ope, int pkt_type)
  * @param ope efa rdm ope
  * @return ssize_t 0 on success, negative integer on failure.
  */
-ssize_t efa_proto_op_repost_queued_before_handshake(struct efa_rdm_ope *ope)
+ssize_t efa_proto_op_repost_queued_before_handshake(struct efa_proto_op *ope)
 {
 	assert(ope->internal_flags & EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE);
 
@@ -1955,7 +1955,7 @@ ssize_t efa_proto_op_repost_queued_before_handshake(struct efa_rdm_ope *ope)
 	}
 }
 
-int efa_proto_op_process_queued(struct efa_rdm_ope *ope, uint32_t flag)
+int efa_proto_op_process_queued(struct efa_proto_op *ope, uint32_t flag)
 {
 	int ret = 0;
 

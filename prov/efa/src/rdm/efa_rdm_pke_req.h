@@ -7,13 +7,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-struct efa_rdm_ope;
+struct efa_proto_op;
 
 struct efa_rdm_pke;
 
 void efa_rdm_pke_init_req_hdr_common(struct efa_rdm_pke *pkt_entry,
 			      int pkt_type,
-			      struct efa_rdm_ope *txe);
+			      struct efa_proto_op *txe);
 
 void *efa_rdm_pke_get_req_raw_addr(struct efa_rdm_pke *pkt_entry);
 

@@ -286,7 +286,7 @@ void test_rdm_cq_handshake_bad_send_status_impl(struct efa_resource **state, int
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_cq *efa_rdm_cq;
 	struct efa_ibv_cq *ibv_cq;
-	struct efa_rdm_ope *txe;
+	struct efa_proto_op *txe;
 
 	/* disable shm to force using efa device to send */
 	efa_unit_test_resource_construct_rdm_shm_disabled(resource);

@@ -7,7 +7,7 @@
 
 static bool test_efa_rdm_rma_should_write_using_rdma_helper(
 		struct efa_rdm_ep *ep, struct efa_rdm_peer *peer,
-		struct efa_rdm_ope *txe, bool use_device_rdma,
+		struct efa_proto_op *txe, bool use_device_rdma,
 		bool homogeneous_peers, bool use_p2p,
 		bool use_unsolicited_write_recv)
 {
@@ -41,7 +41,7 @@ void test_efa_rdm_rma_should_write_using_rdma_remote_cq_data_multiple_iovs_retur
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_proto_op txe = {0};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -71,7 +71,7 @@ void test_efa_rdm_rma_should_write_using_rdma_remote_cq_data_multiple_rma_iovs_r
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_proto_op txe = {0};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -101,7 +101,7 @@ void test_efa_rdm_rma_should_write_using_rdma_use_device_rdma_false_returns_fals
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_proto_op txe = {0};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -131,7 +131,7 @@ void test_efa_rdm_rma_should_write_using_rdma_peer_no_rdma_write_support_returns
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_proto_op txe = {0};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -161,7 +161,7 @@ void test_efa_rdm_rma_should_write_using_rdma_no_p2p_support_returns_false(
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_proto_op txe = {0};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -191,7 +191,7 @@ void test_efa_rdm_rma_should_write_using_rdma_p2p_and_rdma_write_support_returns
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_proto_op txe = {0};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -221,7 +221,7 @@ void test_efa_rdm_rma_should_write_using_rdma_remote_cq_data_single_iovs_with_rd
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_proto_op txe = {0};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -252,7 +252,7 @@ void test_efa_rdm_rma_should_write_using_rdma_unsolicited_write_recv_not_match(
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer *peer;
-	struct efa_rdm_ope txe = {0};
+	struct efa_proto_op txe = {0};
 	bool result;
 	struct efa_rdm_ep *ep;
 	struct efa_ep_addr raw_addr = {0};

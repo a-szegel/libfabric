@@ -15,7 +15,7 @@
 
 #include "efa_rdm_msg.h"
 #include "efa_rdm_rma.h"
-#include "efa_rdm_ope.h"
+#include "efa_proto_op_legacy.h"
 #include "efa_rdm_pke_cmd.h"
 #include "efa_rdm_pke_rtm.h"
 #include "efa_rdm_pke_nonreq.h"
@@ -584,7 +584,7 @@ int efa_rdm_pke_read(struct efa_rdm_pke *pkt_entry,
 	struct efa_qp *qp;
 	struct efa_conn *conn;
 	struct ibv_sge sge;
-	struct efa_rdm_ope *txe;
+	struct efa_proto_op *txe;
 	int err = 0;
 	struct efa_ah *ah;
 	uint32_t qpn, qkey;
@@ -657,7 +657,7 @@ int efa_rdm_pke_write(struct efa_rdm_pke *pkt_entry)
 	struct efa_conn *conn;
 	struct ibv_sge sge;
 	struct efa_rdm_rma_context_pkt *rma_context_pkt;
-	struct efa_rdm_ope *txe;
+	struct efa_proto_op *txe;
 	bool self_comm;
 	void *local_buf;
 	size_t len;
