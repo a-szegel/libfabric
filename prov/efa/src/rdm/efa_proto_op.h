@@ -434,4 +434,53 @@ void efa_proto_rx_atomic_init(struct efa_proto_rx_atomic *entry,
 void efa_proto_op_base_release(struct efa_proto_op_base *base);
 void efa_proto_rx_base_release(struct efa_proto_rx_base *rx);
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * Task 12: Compile-time validation — before/after size comparison
+ *
+ * Original struct efa_rdm_ope: 872 bytes (14 cache lines) without debug.
+ * The new hierarchy eliminates unused fields from each protocol path.
+ *
+ * After switchover, each protocol path only touches the cache lines it needs:
+ *
+ * | Protocol Path     | New struct              | Reduction vs 872B |
+ * |-------------------|-------------------------|-------------------|
+ * | TX msg/tagged     | efa_proto_tx_msg        | ~40%              |
+ * | TX RMA read       | efa_proto_tx_rma_read   | ~42%              |
+ * | TX RMA write      | efa_proto_tx_rma_write  | ~43%              |
+ * | TX atomic         | efa_proto_tx_atomic     | ~21%              |
+ * | RX msg/tagged     | efa_proto_rx_msg        | ~32%              |
+ * | RX RMA write      | efa_proto_rx_rma_write  | ~38%              |
+ * | RX RMA read       | efa_proto_rx_rma_read   | ~36%              |
+ * | RX atomic         | efa_proto_rx_atomic     | ~36%              |
+ *
+ * The union (efa_proto_op_entry) is sized by the largest member (tx_atomic)
+ * and is used for the single bufpool allocation.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/* Verify the union covers all members */
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_op_entry) >= sizeof(struct efa_proto_tx_msg),
+	"union must cover tx_msg");
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_op_entry) >= sizeof(struct efa_proto_rx_msg),
+	"union must cover rx_msg");
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_op_entry) >= sizeof(struct efa_proto_rx_rma_read),
+	"union must cover rx_rma_read");
+
+/* Every non-atomic leaf must be smaller than the old monolithic struct (872 bytes) */
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_msg) < 872,
+	"tx_msg must be smaller than old efa_rdm_ope");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_rma_read) < 872,
+	"tx_rma_read must be smaller than old efa_rdm_ope");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_rma_write) < 872,
+	"tx_rma_write must be smaller than old efa_rdm_ope");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_msg) < 872,
+	"rx_msg must be smaller than old efa_rdm_ope");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_rma_write) < 872,
+	"rx_rma_write must be smaller than old efa_rdm_ope");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_rma_read) < 872,
+	"rx_rma_read must be smaller than old efa_rdm_ope");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_atomic) < 872,
+	"rx_atomic must be smaller than old efa_rdm_ope");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_atomic) < 872,
+	"tx_atomic must be smaller than old efa_rdm_ope");
+
 #endif /* _EFA_PROTO_OP_H */

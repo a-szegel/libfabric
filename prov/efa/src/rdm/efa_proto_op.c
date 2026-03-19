@@ -95,6 +95,12 @@ efa_proto_op_base_init(struct efa_proto_op_base *base,
 		else
 			dlist_insert_tail(&base->peer_entry, &peer->rxe_list);
 	}
+
+	/* Insert into endpoint's tx/rx entry list */
+	if (type <= EFA_PROTO_TX_ATOMIC)
+		dlist_insert_tail(&base->ep_entry, &ep->txe_list);
+	else
+		dlist_insert_tail(&base->ep_entry, &ep->rxe_list);
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

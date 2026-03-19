@@ -5,6 +5,7 @@
 #include "rdm/efa_rdm_cq.h"
 #include "efa_rdm_pke_utils.h"
 #include "efa_data_path_direct_entry.h"
+#include "rdm/efa_proto_op.h"
 
 /**
  * @brief Verify the EFA RDM endpoint correctly parses the host id string
@@ -2097,7 +2098,7 @@ void test_efa_rdm_ep_outstanding_tx_ops_decremented_with_error_completion(struct
 	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
 	assert_non_null(txe);
 	txe->internal_flags |= EFA_RDM_OPE_INTERNAL;
-	pkt_entry->ope = txe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(txe);
 	pkt_entry->peer = peer;
 
 	/* Set up initial state: increment outstanding_tx_ops to simulate pending operation */

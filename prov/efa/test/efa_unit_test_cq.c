@@ -3,6 +3,7 @@
 
 #include "efa_unit_tests.h"
 #include "rdm/efa_rdm_cq.h"
+#include "rdm/efa_proto_op.h"
 #include "efa_av.h"
 #include "efa_data_path_direct_entry.h"
 
@@ -313,7 +314,7 @@ void test_rdm_cq_handshake_bad_send_status_impl(struct efa_resource **state, int
 	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
 	assert_non_null(txe);
 	txe->internal_flags |= EFA_RDM_OPE_INTERNAL;
-	pkt_entry->ope = txe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(txe);
 	pkt_entry->peer = peer;
 
 	pkt_attr.connid = raw_addr.qkey;

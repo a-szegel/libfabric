@@ -3,6 +3,7 @@
 #include "rdm/efa_rdm_pke_rta.h"
 #include "rdm/efa_rdm_pke_rtw.h"
 #include "rdm/efa_rdm_pke_utils.h"
+#include "rdm/efa_proto_op.h"
 
 
 /**
@@ -328,7 +329,7 @@ void test_efa_rdm_pke_flag_tracking(struct efa_resource **state)
 	/* Allocate a packet entry */
 	pkt_entry = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->efa_tx_pkt_pool, EFA_RDM_PKE_FROM_EFA_TX_POOL);
 	assert_non_null(pkt_entry);
-	pkt_entry->ope = txe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(txe);
 	pkt_entry->peer = peer;
 
 	/* Initially, packet should not be in any list */
@@ -404,7 +405,7 @@ void test_efa_rdm_pke_proc_matched_eager_rtm_error(struct efa_resource **state)
 	rxe->iov[0].iov_len = sizeof buf;
 	rxe->cq_entry.len = 1024;
 	rxe->total_len = 1024;
-	pkt_entry->ope = rxe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	g_efa_unit_test_mocks.efa_rdm_pke_copy_payload_to_ope = &efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock;
 	will_return_int(efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock, -FI_EINVAL);
@@ -482,7 +483,7 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_first_packet_error(struct efa_reso
 	rxe->total_len = 1024;
 	rxe->bytes_received = 0;
 	rxe->bytes_received_via_mulreq = 0;
-	pkt_entry->ope = rxe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	g_efa_unit_test_mocks.efa_rdm_pke_copy_payload_to_ope = &efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock;
 	will_return_int(efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock, -FI_EINVAL);
@@ -531,7 +532,7 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_second_packet_error(struct efa_res
 	rxe->total_len = 2048;
 	rxe->bytes_received = 0;
 	rxe->bytes_received_via_mulreq = 0; 
-	pkt_entry->ope = rxe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	g_efa_unit_test_mocks.efa_rdm_pke_copy_payload_to_ope = &efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock;
 

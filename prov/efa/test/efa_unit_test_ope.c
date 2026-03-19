@@ -3,6 +3,7 @@
 
 #include "efa_unit_tests.h"
 #include "rdm/efa_rdm_pke_cmd.h"
+#include "rdm/efa_proto_op.h"
 #include "rdm/efa_rdm_pke_nonreq.h"
 
 typedef void (*efa_rdm_ope_handle_error_func_t)(struct efa_rdm_ope *ope, int err, int prov_errno);
@@ -340,7 +341,7 @@ void test_efa_rdm_rxe_post_local_read_or_queue_impl(struct efa_resource *resourc
 	rxe->desc[0] = &cuda_mr;
 	rxe->iov_count = 1;
 	rxe->iov[0] = iov;
-	pkt_entry->ope = rxe;
+	pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(rxe);
 
 	assert_true(dlist_empty(&efa_rdm_ep->txe_list));
 
@@ -1207,7 +1208,7 @@ static void test_efa_rdm_txe_dc_release_common(struct efa_resource *resource, bo
 	/* Create fake DC packet entry */
 	dc_pkt_entry = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->efa_tx_pkt_pool, EFA_RDM_PKE_FROM_EFA_TX_POOL);
 	assert_non_null(dc_pkt_entry);
-	dc_pkt_entry->ope = txe;
+	dc_pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(txe);
 	dc_pkt_entry->ep = efa_rdm_ep;
 	dc_pkt_entry->peer = txe->peer;
 	/* Set DC packet type in wiredata */
@@ -1217,7 +1218,7 @@ static void test_efa_rdm_txe_dc_release_common(struct efa_resource *resource, bo
 	/* Create fake receipt packet entry */
 	receipt_pkt_entry = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->efa_rx_pkt_pool, EFA_RDM_PKE_FROM_EFA_RX_POOL);
 	assert_non_null(receipt_pkt_entry);
-	receipt_pkt_entry->ope = txe;
+	receipt_pkt_entry->ope = EFA_PROTO_BASE_FROM_OPE(txe);
 	receipt_pkt_entry->ep = efa_rdm_ep;
 
 	/* Verify TXE is not ready for release initially */
