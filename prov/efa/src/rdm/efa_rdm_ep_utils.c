@@ -20,7 +20,7 @@
 #include "efa_rdm_cq.h"
 #include "efa_rdm_pke_nonreq.h"
 #include "efa_rdm_pke_rtw.h"
-#include "efa_proto_op.h"
+#include "efa_proto_ope.h"
 
 struct efa_ep_addr *efa_rdm_ep_raw_addr(struct efa_rdm_ep *ep)
 {
@@ -169,9 +169,9 @@ out:
  * @return		if allocation succeeded, return pointer to rxe
  * 			if allocation failed, return NULL
  */
-struct efa_proto_op *efa_proto_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_peer *peer, uint32_t op)
+struct efa_proto_ope *efa_proto_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_peer *peer, uint32_t op)
 {
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 
 	rxe = ofi_buf_alloc(ep->proto_op_pool);
 	if (OFI_UNLIKELY(!rxe)) {
@@ -258,7 +258,7 @@ struct efa_proto_op *efa_proto_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rd
  * @param[in]	rxe	rxe that contain user buffer information
  * @param[in]	flags		user supplied flags passed to fi_recv
  */
-int efa_rdm_ep_post_user_recv_buf(struct efa_rdm_ep *ep, struct efa_proto_op *rxe, uint64_t flags)
+int efa_rdm_ep_post_user_recv_buf(struct efa_rdm_ep *ep, struct efa_proto_ope *rxe, uint64_t flags)
 {
 	struct efa_rdm_pke *pkt_entry = NULL;
 	size_t rx_iov_offset = 0;
@@ -319,14 +319,14 @@ err_free:
 
 
 /* create a new txe */
-struct efa_proto_op *efa_proto_ep_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
+struct efa_proto_ope *efa_proto_ep_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 					 struct efa_rdm_peer *peer,
 					 const struct fi_msg *msg,
 					 uint32_t op,
 					 uint64_t tag,
 					 uint64_t flags)
 {
-	struct efa_proto_op *txe;
+	struct efa_proto_ope *txe;
 
 	txe = ofi_buf_alloc(efa_rdm_ep->proto_op_pool);
 	if (OFI_UNLIKELY(!txe)) {
@@ -371,7 +371,7 @@ struct efa_proto_op *efa_proto_ep_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 void efa_rdm_ep_record_tx_op_submitted(struct efa_rdm_ep *ep, struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_peer *peer;
-	struct efa_proto_op *ope;
+	struct efa_proto_ope *ope;
 
 	ope = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 	assert(ope);
@@ -451,7 +451,7 @@ void efa_rdm_ep_record_tx_op_submitted(struct efa_rdm_ep *ep, struct efa_rdm_pke
  *
  * Sometimes we need release TX pkt_entry without
  * decreasing the tx_op counter. For example, when
- * efa_proto_op_post_send() failed to post a pkt entry.
+ * efa_proto_ope_post_send() failed to post a pkt entry.
  *
  * @param[in,out]	ep		endpoint
  * @param[in]		pkt_entry	TX pkt_entry, which contains
@@ -459,7 +459,7 @@ void efa_rdm_ep_record_tx_op_submitted(struct efa_rdm_ep *ep, struct efa_rdm_pke
  */
 void efa_rdm_ep_record_tx_op_completed(struct efa_rdm_ep *ep, struct efa_rdm_pke *pkt_entry)
 {
-	struct efa_proto_op *ope = NULL;
+	struct efa_proto_ope *ope = NULL;
 
 #if ENABLE_DEBUG
 	/*
@@ -570,7 +570,7 @@ void efa_rdm_ep_queue_rnr_pkt(struct efa_rdm_ep *ep, struct efa_rdm_pke *pkt_ent
 	static const int random_min_timeout = 40;
 	static const int random_max_timeout = 120;
 	struct efa_rdm_peer *peer;
-	struct efa_proto_op *ope = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
+	struct efa_proto_ope *ope = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 
 #if ENABLE_DEBUG
 	dlist_remove(&pkt_entry->dbg_entry);
@@ -658,7 +658,7 @@ void efa_rdm_ep_queue_rnr_pkt(struct efa_rdm_ep *ep, struct efa_rdm_pke *pkt_ent
  */
 static ssize_t efa_rdm_ep_handshake_common(struct efa_rdm_ep *ep, struct efa_rdm_peer *peer, bool trigger_mode)
 {
-	struct efa_proto_op *txe;
+	struct efa_proto_ope *txe;
 	struct efa_rdm_pke *pkt_entry;
 	struct fi_msg msg = {0};
 	ssize_t err;
@@ -1093,7 +1093,7 @@ size_t efa_rdm_ep_get_memory_alignment(struct efa_rdm_ep *ep, enum fi_hmem_iface
  * @param txe tx entry
  * @return int 0 on success, negative integer on failure.
  */
-int efa_rdm_ep_enforce_handshake_for_txe(struct efa_rdm_ep *ep, struct efa_proto_op *txe)
+int efa_rdm_ep_enforce_handshake_for_txe(struct efa_rdm_ep *ep, struct efa_proto_ope *txe)
 {
 	int ret;
 

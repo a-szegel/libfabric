@@ -9,13 +9,13 @@
 #include "efa_errno.h"
 #include "efa_base_ep.h"
 #include "efa_rdm_ep.h"
-#include "efa_proto_op_legacy.h"
+#include "efa_proto_ope_legacy.h"
 #include "efa_rdm_pke.h"
 #include "efa_rdm_rma.h"
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_pke_rta.h"
 #include "efa_rdm_pke_req.h"
-#include "efa_proto_op.h"
+#include "efa_proto_ope.h"
 
 /**
  * @brief initialize the common elements of WRITE_RTA, FETCH_RTA and COMPARE_RTA
@@ -34,7 +34,7 @@
  */
 ssize_t efa_rdm_pke_init_rta_common(struct efa_rdm_pke *pkt_entry,
 				    int pkt_type,
-				    struct efa_proto_op *txe)
+				    struct efa_proto_ope *txe)
 {
 	struct efa_rma_iov *rma_iov;
 	struct efa_rdm_rta_hdr *rta_hdr;
@@ -88,9 +88,9 @@ ssize_t efa_rdm_pke_init_rta_common(struct efa_rdm_pke *pkt_entry,
  * pointer to efa_rdm_ope on success.
  * NULL when rx entry pool is exhausted.
  */
-struct efa_proto_op *efa_rdm_pke_alloc_rta_rxe(struct efa_rdm_pke *pkt_entry, int op)
+struct efa_proto_ope *efa_rdm_pke_alloc_rta_rxe(struct efa_rdm_pke *pkt_entry, int op)
 {
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 	struct efa_rdm_rta_hdr *rta_hdr;
 
 	rxe = efa_proto_ep_alloc_rxe(pkt_entry->ep, pkt_entry->peer, op);
@@ -149,7 +149,7 @@ struct efa_proto_op *efa_rdm_pke_alloc_rta_rxe(struct efa_rdm_pke *pkt_entry, in
  * 	-FI_ETRUNC	user buffer is larger than maxium atomic message size
  */
 ssize_t efa_rdm_pke_init_write_rta(struct efa_rdm_pke *pkt_entry,
-				   struct efa_proto_op *txe)
+				   struct efa_proto_ope *txe)
 {
 	efa_rdm_pke_init_rta_common(pkt_entry, EFA_RDM_WRITE_RTA_PKT, txe);
 	return 0;
@@ -162,7 +162,7 @@ ssize_t efa_rdm_pke_init_write_rta(struct efa_rdm_pke *pkt_entry,
  */
 void efa_rdm_pke_handle_write_rta_send_completion(struct efa_rdm_pke *pkt_entry)
 {
-	efa_proto_op_handle_send_completed(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope));
+	efa_proto_ope_handle_send_completed(EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope));
 }
 
 static
@@ -257,7 +257,7 @@ int efa_rdm_pke_proc_write_rta(struct efa_rdm_pke *pkt_entry)
  * 	-FI_ETRUNC	user buffer is larger than maxium atomic message size
  */
 ssize_t efa_rdm_pke_init_dc_write_rta(struct efa_rdm_pke *pkt_entry,
-				      struct efa_proto_op *txe)
+				      struct efa_proto_ope *txe)
 
 {
 	struct efa_rdm_rta_hdr *rta_hdr;
@@ -276,7 +276,7 @@ ssize_t efa_rdm_pke_init_dc_write_rta(struct efa_rdm_pke *pkt_entry,
  */
 int efa_rdm_pke_proc_dc_write_rta(struct efa_rdm_pke *pkt_entry)
 {
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 	struct efa_rdm_rta_hdr *rta_hdr;
 	ssize_t err;
 	int ret;
@@ -298,7 +298,7 @@ int efa_rdm_pke_proc_dc_write_rta(struct efa_rdm_pke *pkt_entry)
 		return ret;
 	}
 
-	err = efa_proto_op_post_send_or_queue(rxe, EFA_RDM_RECEIPT_PKT);
+	err = efa_proto_ope_post_send_or_queue(rxe, EFA_RDM_RECEIPT_PKT);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ,
 			"Posting of receipt packet failed! err=%s\n",
@@ -324,7 +324,7 @@ int efa_rdm_pke_proc_dc_write_rta(struct efa_rdm_pke *pkt_entry)
  * 	-FI_ETRUNC	user buffer is larger than maxium atomic message size
  */
 ssize_t efa_rdm_pke_init_fetch_rta(struct efa_rdm_pke *pkt_entry,
-				   struct efa_proto_op *txe)
+				   struct efa_proto_ope *txe)
 
 {
 	struct efa_rdm_rta_hdr *rta_hdr;
@@ -369,7 +369,7 @@ int efa_rdm_fetch_atomic_hmem(struct efa_mr *efa_mr, struct iovec *dst, char *da
 int efa_rdm_pke_proc_fetch_rta(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ep *ep;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 	struct efa_mr *efa_mr;
 	char *data;
 	int op, dt, i;
@@ -416,7 +416,7 @@ int efa_rdm_pke_proc_fetch_rta(struct efa_rdm_pke *pkt_entry)
 		offset += rxe->iov[i].iov_len;
 	}
 
-	err = efa_proto_op_post_send_or_queue(rxe, EFA_RDM_ATOMRSP_PKT);
+	err = efa_proto_ope_post_send_or_queue(rxe, EFA_RDM_ATOMRSP_PKT);
 	if (OFI_UNLIKELY(err))
 		efa_proto_rx_handle_error(rxe, -err, FI_EFA_ERR_PKT_POST);
 
@@ -438,7 +438,7 @@ int efa_rdm_pke_proc_fetch_rta(struct efa_rdm_pke *pkt_entry)
  * 	-FI_ETRUNC	user buffer is larger than maxium atomic message size
  */
 ssize_t efa_rdm_pke_init_compare_rta(struct efa_rdm_pke *pkt_entry,
-				     struct efa_proto_op *txe)
+				     struct efa_proto_ope *txe)
 
 {
 	char *data;
@@ -501,7 +501,7 @@ int efa_rdm_pke_proc_compare_rta(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_mr *efa_mr;
 	struct efa_rdm_ep *ep;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 	char *src_data, *cmp_data;
 	int op, dt, i;
 	enum fi_hmem_iface hmem_iface;
@@ -551,7 +551,7 @@ int efa_rdm_pke_proc_compare_rta(struct efa_rdm_pke *pkt_entry)
 		}
 	}
 
-	err = efa_proto_op_post_send_or_queue(rxe, EFA_RDM_ATOMRSP_PKT);
+	err = efa_proto_ope_post_send_or_queue(rxe, EFA_RDM_ATOMRSP_PKT);
 	if (OFI_UNLIKELY(err)) {
 		efa_base_ep_write_eq_error(&ep->base_ep, err, FI_EFA_ERR_PKT_POST);
 		ofi_buf_free(rxe->atomrsp_data);

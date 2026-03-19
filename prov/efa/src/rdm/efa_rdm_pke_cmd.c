@@ -14,7 +14,7 @@
 #include "efa_rdm_pke_nonreq.h"
 #include "efa_rdm_pke_req.h"
 #include "efa_rdm_tracepoint.h"
-#include "efa_proto_op.h"
+#include "efa_proto_ope.h"
 
 /* Handshake wait timeout in microseconds */
 #define EFA_RDM_HANDSHAKE_WAIT_TIMEOUT 1000000
@@ -46,7 +46,7 @@
  */
 int efa_rdm_pke_fill_data(struct efa_rdm_pke *pkt_entry,
 			  int pkt_type,
-			  struct efa_proto_op *ope,
+			  struct efa_proto_ope *ope,
 			  int64_t data_offset,
 			  int data_size)
 {
@@ -340,7 +340,7 @@ void efa_rdm_pke_handle_sent(struct efa_rdm_pke *pkt_entry, int pkt_type, struct
  */
 void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry)
 {
-	struct efa_proto_op *ope;
+	struct efa_proto_ope *ope;
 	struct efa_rdm_ep *ep;
 
 	ope = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
@@ -359,7 +359,7 @@ void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry)
 			ep->blocking_copy_rxe_num -= 1;
 		}
 
-		efa_proto_op_handle_recv_completed(ope);
+		efa_proto_ope_handle_recv_completed(ope);
 	}
 }
 
@@ -400,7 +400,7 @@ void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry)
  */
 void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 {
-	struct efa_proto_op *txe;
+	struct efa_proto_ope *txe;
 	struct efa_rdm_ep *ep;
 
 	int err = to_fi_errno(prov_errno);
@@ -625,7 +625,7 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 	case EFA_RDM_SHORT_RTR_PKT:
 	case EFA_RDM_LONGCTS_RTR_PKT:
 		/* Unlike other protocol, for emulated read, txe
-		 * is released in efa_proto_op_handle_recv_completed().
+		 * is released in efa_proto_ope_handle_recv_completed().
 	         * Therefore there is nothing to be done here.
 		 */
 		break;
@@ -731,7 +731,7 @@ void efa_rdm_pke_handle_rx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 
 void efa_rdm_pke_proc_received_no_hdr(struct efa_rdm_pke *pkt_entry, bool has_imm_data, uint32_t imm_data)
 {
-	struct efa_proto_op *rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
+	struct efa_proto_ope *rxe = EFA_PROTO_OPE_FROM_BASE(pkt_entry->ope);
 
 	assert(pkt_entry->flags & EFA_RDM_PKE_HAS_NO_BASE_HDR);
 	assert(rxe);

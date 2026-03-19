@@ -11,7 +11,7 @@
 /**
  * @brief EFA RDM operation entry (ope) type
  */
-enum efa_proto_op_type_legacy {
+enum efa_proto_ope_type_legacy {
 	EFA_PROTO_TXE = 1, /**< this ope is for an TX operation */
 	EFA_PROTO_RXE,     /**< this ope is for an RX operation */
 };
@@ -19,7 +19,7 @@ enum efa_proto_op_type_legacy {
 /**
  * @brief EFA RDM operation entry (ope)'s state
  */
-enum efa_proto_op_state {
+enum efa_proto_ope_state {
 	EFA_PROTO_TXE_REQ = 1,	/**< txe sending REQ packet */
 	EFA_PROTO_OPE_SEND,	/**< ope sending data in progress */
 	EFA_PROTO_RXE_INIT,	/**< rxe ready to recv RTM */
@@ -67,8 +67,8 @@ enum efa_proto_cuda_copy_method {
  * @brief EFA RDM operation entry (ope)
  *
  */
-struct efa_proto_op {
-	enum efa_proto_op_type_legacy type;
+struct efa_proto_ope {
+	enum efa_proto_ope_type_legacy type;
 
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_peer *peer;
@@ -89,7 +89,7 @@ struct efa_proto_op {
 
 	uint64_t total_len;
 
-	enum efa_proto_op_state state;
+	enum efa_proto_ope_state state;
 	int queued_ctrl_type;
 
 	uint64_t fi_flags;
@@ -177,17 +177,17 @@ struct efa_proto_op {
 	struct efa_rdm_pke *local_read_pkt_entry;
 };
 
-void efa_proto_tx_construct(struct efa_proto_op *txe,
+void efa_proto_tx_construct(struct efa_proto_ope *txe,
 			   struct efa_rdm_ep *ep,
 		      	   struct efa_rdm_peer *peer,
 			   const struct fi_msg *msg,
 			   uint32_t op, uint64_t flags);
 
-void efa_proto_tx_release(struct efa_proto_op *txe);
+void efa_proto_tx_release(struct efa_proto_ope *txe);
 
-void efa_proto_rx_release(struct efa_proto_op *rxe);
+void efa_proto_rx_release(struct efa_proto_ope *rxe);
 
-void efa_proto_rx_release_internal(struct efa_proto_op *rxe);
+void efa_proto_rx_release_internal(struct efa_proto_ope *rxe);
 
 /* The follow flags are applied to the internal_flags field
  * of an efa_rdm_ope*/
@@ -293,28 +293,28 @@ void efa_proto_rx_release_internal(struct efa_proto_op *rxe);
  */
 #define EFA_PROTO_TXE_RECEIPT_RECEIVED		BIT_ULL(16)
 
-#define EFA_PROTO_OPE_QUEUED_FLAGS (EFA_RDM_OPE_QUEUED_RNR | EFA_RDM_OPE_QUEUED_CTRL | EFA_RDM_OPE_QUEUED_READ | EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE)
+#define EFA_PROTO_OPE_QUEUED_FLAGS (EFA_PROTO_OPE_QUEUED_RNR | EFA_PROTO_OPE_QUEUED_CTRL | EFA_PROTO_OPE_QUEUED_READ | EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE)
 
-void efa_proto_op_try_fill_desc(struct efa_proto_op *ope, int mr_iov_start, uint64_t access);
+void efa_proto_ope_try_fill_desc(struct efa_proto_ope *ope, int mr_iov_start, uint64_t access);
 
-int efa_proto_tx_prepare_to_be_read(struct efa_proto_op *txe,
+int efa_proto_tx_prepare_to_be_read(struct efa_proto_ope *txe,
 				    struct fi_rma_iov *read_iov);
 
-size_t efa_proto_op_mulreq_total_data_size(struct efa_proto_op *ope, int pkt_type);
+size_t efa_proto_ope_mulreq_total_data_size(struct efa_proto_ope *ope, int pkt_type);
 
-size_t efa_proto_tx_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_proto_op *txe, int pkt_type);
+size_t efa_proto_tx_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_proto_ope *txe, int pkt_type);
 
-void efa_proto_tx_handle_error(struct efa_proto_op *txe, int err, int prov_errno);
+void efa_proto_tx_handle_error(struct efa_proto_ope *txe, int err, int prov_errno);
 
-void efa_proto_rx_handle_error(struct efa_proto_op *rxe, int err, int prov_errno);
+void efa_proto_rx_handle_error(struct efa_proto_ope *rxe, int err, int prov_errno);
 
-void efa_proto_tx_report_completion(struct efa_proto_op *txe);
+void efa_proto_tx_report_completion(struct efa_proto_ope *txe);
 
-void efa_proto_rx_report_completion(struct efa_proto_op *rxe);
+void efa_proto_rx_report_completion(struct efa_proto_ope *rxe);
 
-void efa_proto_op_handle_recv_completed(struct efa_proto_op *ope);
+void efa_proto_ope_handle_recv_completed(struct efa_proto_ope *ope);
 
-void efa_proto_op_handle_send_completed(struct efa_proto_op *ope);
+void efa_proto_ope_handle_send_completed(struct efa_proto_ope *ope);
 
 /**
  * @brief Check if a delivery complete (DC) TXE is ready for release
@@ -331,43 +331,43 @@ void efa_proto_op_handle_send_completed(struct efa_proto_op *ope);
  * @param[in] txe TX operation entry to check
  * @return true if TXE is ready for release, false otherwise
  */
-static inline bool efa_proto_tx_dc_ready_for_release(struct efa_proto_op *txe)
+static inline bool efa_proto_tx_dc_ready_for_release(struct efa_proto_ope *txe)
 {
 	return (txe->efa_outstanding_tx_ops == 0) &&
 	       (txe->internal_flags & EFA_PROTO_TXE_RECEIPT_RECEIVED);
 }
 
-int efa_proto_op_prepare_to_post_read(struct efa_proto_op *ope);
+int efa_proto_ope_prepare_to_post_read(struct efa_proto_ope *ope);
 
-void efa_proto_op_prepare_to_post_write(struct efa_proto_op *ope);
+void efa_proto_ope_prepare_to_post_write(struct efa_proto_ope *ope);
 
-int efa_proto_op_post_read(struct efa_proto_op *ope);
+int efa_proto_ope_post_read(struct efa_proto_ope *ope);
 
-int efa_proto_op_post_remote_write(struct efa_proto_op *ope);
+int efa_proto_ope_post_remote_write(struct efa_proto_ope *ope);
 
-int efa_proto_op_post_remote_read_or_queue(struct efa_proto_op *ope);
+int efa_proto_ope_post_remote_read_or_queue(struct efa_proto_ope *ope);
 
-int efa_proto_rx_post_local_read_or_queue(struct efa_proto_op *rxe,
+int efa_proto_rx_post_local_read_or_queue(struct efa_proto_ope *rxe,
 					  size_t rx_data_offset,
 					  struct efa_rdm_pke *pkt_entry,
 					  char *pkt_data, size_t data_size);
 
-ssize_t efa_proto_op_prepare_to_post_send(struct efa_proto_op *ope,
+ssize_t efa_proto_ope_prepare_to_post_send(struct efa_proto_ope *ope,
 					 int pkt_type,
 					 int *pkt_entry_cnt,
 					 int *pkt_entry_data_size_vec);
 
-ssize_t efa_proto_op_post_send(struct efa_proto_op *ope, int pkt_type);
+ssize_t efa_proto_ope_post_send(struct efa_proto_ope *ope, int pkt_type);
 
-ssize_t efa_proto_op_post_send_fallback(struct efa_proto_op *ope,
+ssize_t efa_proto_ope_post_send_fallback(struct efa_proto_ope *ope,
 					   int pkt_type, ssize_t err);
 
-ssize_t efa_proto_op_post_send_or_queue(struct efa_proto_op *ope, int pkt_type);
+ssize_t efa_proto_ope_post_send_or_queue(struct efa_proto_ope *ope, int pkt_type);
 
-ssize_t efa_proto_op_repost_queued_before_handshake(struct efa_proto_op *ope);
+ssize_t efa_proto_ope_repost_queued_before_handshake(struct efa_proto_ope *ope);
 
-ssize_t efa_proto_tx_prepare_local_read_pkt_entry(struct efa_proto_op *txe);
+ssize_t efa_proto_tx_prepare_local_read_pkt_entry(struct efa_proto_ope *txe);
 
-int efa_proto_op_process_queued(struct efa_proto_op *ope, uint32_t flag);
+int efa_proto_ope_process_queued(struct efa_proto_ope *ope, uint32_t flag);
 
 #endif

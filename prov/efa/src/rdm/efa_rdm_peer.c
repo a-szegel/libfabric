@@ -57,8 +57,8 @@ void efa_rdm_peer_construct(struct efa_rdm_peer *peer, struct efa_rdm_ep *ep, st
 void efa_rdm_peer_destruct(struct efa_rdm_peer *peer, struct efa_rdm_ep *ep)
 {
 	struct dlist_entry *tmp;
-	struct efa_proto_op *txe;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *txe;
+	struct efa_proto_ope *rxe;
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_peer_overflow_pke_list_entry *overflow_pke_list_entry;
 
@@ -92,13 +92,13 @@ void efa_rdm_peer_destruct(struct efa_rdm_peer *peer, struct efa_rdm_ep *ep)
 	}
 
 	dlist_foreach_container_safe(&peer->txe_list,
-				     struct efa_proto_op,
+				     struct efa_proto_ope,
 				     txe, peer_entry, tmp) {
 		efa_proto_tx_release(txe);
 	}
 
 	dlist_foreach_container_safe(&peer->rxe_list,
-				     struct efa_proto_op,
+				     struct efa_proto_ope,
 				     rxe, peer_entry, tmp) {
 		efa_proto_rx_release(rxe);
 	}
@@ -330,7 +330,7 @@ void efa_rdm_peer_proc_pending_items_in_robuf(struct efa_rdm_peer *peer, struct 
  * @return size_t the number of bytes that can be runt
  */
 size_t efa_rdm_peer_get_runt_size(struct efa_rdm_peer *peer,
-				  struct efa_rdm_ep *ep, struct efa_proto_op *ope)
+				  struct efa_rdm_ep *ep, struct efa_proto_ope *ope)
 {
 	size_t runt_size;
 	size_t memory_alignment;
@@ -362,7 +362,7 @@ size_t efa_rdm_peer_get_runt_size(struct efa_rdm_peer *peer,
  * @return The read-based protocol to use based on inputs.
  */
 int efa_rdm_peer_select_readbase_rtm(struct efa_rdm_peer *peer,
-				     struct efa_rdm_ep *ep, struct efa_proto_op *ope)
+				     struct efa_rdm_ep *ep, struct efa_proto_ope *ope)
 {
 	int op = ope->op;
 

@@ -35,7 +35,7 @@ struct fid_mr;
 /**
  * @brief operation entry type — discriminator for the struct hierarchy
  */
-enum efa_proto_op_type {
+enum efa_proto_ope_type {
 	EFA_PROTO_TX_MSG = 1,
 	EFA_PROTO_TX_RMA_READ,
 	EFA_PROTO_TX_RMA_WRITE,
@@ -49,7 +49,7 @@ enum efa_proto_op_type {
 /**
  * @brief operation entry state (shared across all protocol structs)
  */
-enum efa_proto_op_state {
+enum efa_proto_ope_state {
 	EFA_PROTO_TXE_REQ = 1,
 	EFA_PROTO_OPE_SEND,
 	EFA_PROTO_RXE_INIT,
@@ -99,11 +99,11 @@ enum efa_proto_cuda_copy_method {
  * @brief Base operation entry shared by all protocol structs.
  *
  * Every leaf struct embeds this as its first member ("poor-man's inheritance"),
- * so a pointer to any leaf can be cast to struct efa_proto_op_base *.
+ * so a pointer to any leaf can be cast to struct efa_proto_ope_base *.
  */
-struct efa_proto_op_base {
+struct efa_proto_ope_base {
 	/* ── hot: first cache line (offset 0–63) ── */
-	enum efa_proto_op_type type;	/* 4  (0) */
+	enum efa_proto_ope_type type;	/* 4  (0) */
 	uint32_t op;			/* 4  (4) */
 	struct efa_rdm_ep *ep;		/* 8  (8) */
 	struct efa_rdm_peer *peer;	/* 8  (16) */
@@ -116,7 +116,7 @@ struct efa_proto_op_base {
 	uint64_t tag;			/* 8  (56) */
 	/* ── end first cache line ── */
 
-	enum efa_proto_op_state state;	/* 4  (64) */
+	enum efa_proto_ope_state state;	/* 4  (64) */
 	int queued_ctrl_type;		/* 4  (68) */
 	size_t efa_outstanding_tx_ops;	/* 8  (72) */
 	size_t iov_count;		/* 8  (80) */
@@ -148,7 +148,7 @@ struct efa_proto_op_base {
  * ──────────────────────────────────────────────────────────────────────────── */
 
 struct efa_proto_tx_base {
-	struct efa_proto_op_base base;
+	struct efa_proto_ope_base base;
 
 	uint64_t bytes_acked;			/* 8 */
 	uint64_t bytes_sent;			/* 8 */
@@ -160,7 +160,7 @@ struct efa_proto_tx_base {
  * ──────────────────────────────────────────────────────────────────────────── */
 
 struct efa_proto_rx_base {
-	struct efa_proto_op_base base;
+	struct efa_proto_ope_base base;
 
 	uint64_t bytes_received;		/* 8 */
 	uint64_t bytes_received_via_mulreq;	/* 8 */
@@ -252,8 +252,8 @@ struct efa_proto_rx_atomic {
  * Union — single bufpool allocation type
  * ──────────────────────────────────────────────────────────────────────────── */
 
-union efa_proto_op_entry {
-	struct efa_proto_op_base base;
+union efa_proto_ope_entry {
+	struct efa_proto_ope_base base;
 	struct efa_proto_tx_base tx_base;
 	struct efa_proto_rx_base rx_base;
 	struct efa_proto_tx_msg tx_msg;
@@ -271,27 +271,27 @@ union efa_proto_op_entry {
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /* Hot fields must be in the first cache line (64 bytes) */
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_op_base, type) < 64,
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, type) < 64,
 	"type must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_op_base, op) < 64,
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, op) < 64,
 	"op must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_op_base, ep) < 64,
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, ep) < 64,
 	"ep must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_op_base, peer) < 64,
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, peer) < 64,
 	"peer must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_op_base, fi_flags) < 64,
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, fi_flags) < 64,
 	"fi_flags must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_op_base, internal_flags) < 64,
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, internal_flags) < 64,
 	"internal_flags must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_op_base, total_len) < 64,
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, total_len) < 64,
 	"total_len must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_op_base, tag) < 64,
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, tag) < 64,
 	"tag must be in first cache line");
 
 /* Base struct: 7 cache lines (448 bytes) without debug */
 #if !ENABLE_DEBUG
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_op_base) <= 448,
-	"efa_proto_op_base must fit in 7 cache lines");
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_ope_base) <= 448,
+	"efa_proto_ope_base must fit in 7 cache lines");
 #endif
 
 /*
@@ -322,7 +322,7 @@ EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_atomic) <= 696,
 #endif
 
 /* Union must be at least as large as the old monolithic struct */
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_op_entry) >= sizeof(struct efa_proto_tx_atomic),
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_tx_atomic),
 	"union must cover largest member");
 
 /* First-member inheritance: base pointer cast is safe */
@@ -348,50 +348,50 @@ EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_atomic, rx) == 0,
 	"rx_atomic.rx must be at offset 0");
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Temporary bridge macros — removed in Task 11 when struct efa_proto_op is
+ * Temporary bridge macros — removed in Task 11 when struct efa_proto_ope is
  * deleted.  These allow incremental migration: callers that still hold
- * struct efa_proto_op * can convert to/from struct efa_proto_op_base *.
+ * struct efa_proto_ope * can convert to/from struct efa_proto_ope_base *.
  * ──────────────────────────────────────────────────────────────────────────── */
-struct efa_proto_op; /* forward decl of the legacy type */
+struct efa_proto_ope; /* forward decl of the legacy type */
 
 /** Cast legacy ope pointer to proto base pointer */
 #define EFA_PROTO_BASE_FROM_OPE(ope) \
-	((struct efa_proto_op_base *)(void *)(ope))
+	((struct efa_proto_ope_base *)(void *)(ope))
 
 /** Cast proto base pointer back to legacy ope pointer */
 #define EFA_PROTO_OPE_FROM_BASE(base) \
-	((struct efa_proto_op *)(void *)(base))
+	((struct efa_proto_ope *)(void *)(base))
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Inline helpers for type discrimination
  * ──────────────────────────────────────────────────────────────────────────── */
 
-static inline bool efa_proto_is_tx(const struct efa_proto_op_base *base)
+static inline bool efa_proto_is_tx(const struct efa_proto_ope_base *base)
 {
 	return base->type >= EFA_PROTO_TX_MSG && base->type <= EFA_PROTO_TX_ATOMIC;
 }
 
-static inline bool efa_proto_is_rx(const struct efa_proto_op_base *base)
+static inline bool efa_proto_is_rx(const struct efa_proto_ope_base *base)
 {
 	return base->type >= EFA_PROTO_RX_MSG && base->type <= EFA_PROTO_RX_ATOMIC;
 }
 
 /** Downcast base to tx_base — caller must ensure efa_proto_is_tx(base) */
 static inline struct efa_proto_tx_base *
-efa_proto_tx_base_of(struct efa_proto_op_base *base)
+efa_proto_tx_base_of(struct efa_proto_ope_base *base)
 {
 	return (struct efa_proto_tx_base *)base;
 }
 
 /** Downcast base to rx_base — caller must ensure efa_proto_is_rx(base) */
 static inline struct efa_proto_rx_base *
-efa_proto_rx_base_of(struct efa_proto_op_base *base)
+efa_proto_rx_base_of(struct efa_proto_ope_base *base)
 {
 	return (struct efa_proto_rx_base *)base;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Leaf init/release functions — implemented in efa_proto_op.c
+ * Leaf init/release functions — implemented in efa_proto_ope.c
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /* TX leaf constructors */
@@ -431,13 +431,13 @@ void efa_proto_rx_atomic_init(struct efa_proto_rx_atomic *entry,
 			      uint32_t op);
 
 /* Release functions */
-void efa_proto_op_base_release(struct efa_proto_op_base *base);
+void efa_proto_ope_base_release(struct efa_proto_ope_base *base);
 void efa_proto_rx_base_release(struct efa_proto_rx_base *rx);
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Task 12: Compile-time validation — before/after size comparison
  *
- * Original struct efa_proto_op: 872 bytes (14 cache lines) without debug.
+ * Original struct efa_proto_ope: 872 bytes (14 cache lines) without debug.
  * The new hierarchy eliminates unused fields from each protocol path.
  *
  * After switchover, each protocol path only touches the cache lines it needs:
@@ -453,16 +453,16 @@ void efa_proto_rx_base_release(struct efa_proto_rx_base *rx);
  * | RX RMA read       | efa_proto_rx_rma_read   | ~36%              |
  * | RX atomic         | efa_proto_rx_atomic     | ~36%              |
  *
- * The union (efa_proto_op_entry) is sized by the largest member (tx_atomic)
+ * The union (efa_proto_ope_entry) is sized by the largest member (tx_atomic)
  * and is used for the single bufpool allocation.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /* Verify the union covers all members */
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_op_entry) >= sizeof(struct efa_proto_tx_msg),
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_tx_msg),
 	"union must cover tx_msg");
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_op_entry) >= sizeof(struct efa_proto_rx_msg),
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_rx_msg),
 	"union must cover rx_msg");
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_op_entry) >= sizeof(struct efa_proto_rx_rma_read),
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_rx_rma_read),
 	"union must cover rx_rma_read");
 
 /* Every non-atomic leaf must be smaller than the old monolithic struct (872 bytes) */

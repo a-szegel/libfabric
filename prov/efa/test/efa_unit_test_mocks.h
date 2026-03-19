@@ -78,23 +78,23 @@ ssize_t efa_mock_ofi_copy_from_hmem_iov_inc_counter(void *dest, size_t size,
 						    const struct iovec *hmem_iov,
 						    size_t hmem_iov_count, uint64_t hmem_iov_offset);
 
-ssize_t __real_efa_rdm_pke_copy_payload_to_ope(struct efa_rdm_pke *pke, struct efa_proto_op *ope);
+ssize_t __real_efa_rdm_pke_copy_payload_to_ope(struct efa_rdm_pke *pke, struct efa_proto_ope *ope);
 
-ssize_t efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock(struct efa_rdm_pke *pke, struct efa_proto_op *ope);
+ssize_t efa_mock_efa_rdm_pke_copy_payload_to_ope_return_mock(struct efa_rdm_pke *pke, struct efa_proto_ope *ope);
 
-int __real_efa_rdm_pke_read(struct efa_proto_op *ope);
+int __real_efa_rdm_pke_read(struct efa_proto_ope *ope);
 
 bool __real_efa_device_support_unsolicited_write_recv();
 
-int efa_mock_efa_rdm_pke_read_return_mock(struct efa_proto_op *ope);
+int efa_mock_efa_rdm_pke_read_return_mock(struct efa_proto_ope *ope);
 
 ssize_t __real_efa_rdm_pke_proc_matched_rtm(struct efa_rdm_pke *pkt_entry);
 
 ssize_t efa_mock_efa_rdm_pke_proc_matched_rtm_no_op(struct efa_rdm_pke *pkt_entry);
 
-ssize_t __real_efa_proto_op_post_send(struct efa_proto_op *ope, int pkt_type);
+ssize_t __real_efa_proto_ope_post_send(struct efa_proto_ope *ope, int pkt_type);
 
-ssize_t efa_mock_efa_proto_op_post_send_return_mock(struct efa_proto_op *ope, int pkt_type);
+ssize_t efa_mock_efa_proto_ope_post_send_return_mock(struct efa_proto_ope *ope, int pkt_type);
 
 
 /* EFA data path ops real functions */
@@ -188,13 +188,13 @@ struct efa_unit_test_mocks
 					  const struct iovec *hmem_iov,
 					  size_t hmem_iov_count, uint64_t hmem_iov_offset);
 
-	ssize_t (*efa_rdm_pke_copy_payload_to_ope)(struct efa_rdm_pke *pke, struct efa_proto_op *ope);
+	ssize_t (*efa_rdm_pke_copy_payload_to_ope)(struct efa_rdm_pke *pke, struct efa_proto_ope *ope);
 
-	int (*efa_rdm_pke_read)(struct efa_proto_op *ope);
+	int (*efa_rdm_pke_read)(struct efa_proto_ope *ope);
 
 	ssize_t (*efa_rdm_pke_proc_matched_rtm)(struct efa_rdm_pke *pkt_entry);
 
-	ssize_t (*efa_proto_op_post_send)(struct efa_proto_op *ope, int pkt_type);
+	ssize_t (*efa_proto_ope_post_send)(struct efa_proto_ope *ope, int pkt_type);
 
 	bool (*efa_device_support_unsolicited_write_recv)(void);
 

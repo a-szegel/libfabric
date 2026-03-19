@@ -6,9 +6,9 @@
 #include "efa_rdm_msg.h"
 #include "efa_rdm_pke_rtm.h"
 #include "efa_rdm_pke_req.h"
-#include "efa_proto_op_legacy.h"
+#include "efa_proto_ope_legacy.h"
 #include "efa_rdm_tracepoint.h"
-#include "efa_proto_op.h"
+#include "efa_proto_ope.h"
 
 /**
  * @brief update an rxe for a peer rx entry.
@@ -16,10 +16,10 @@
  *
  * @param[in] ep	endpoint
  * @param[in] peer_rxe	fi_peer_rx_entry_msg contains iov,iov_count,context for ths operation
- * @param[in] rxe	efa_proto_op to be updated
+ * @param[in] rxe	efa_proto_ope to be updated
  */
 void efa_rdm_srx_update_rxe(struct fi_peer_rx_entry *peer_rxe,
-			    struct efa_proto_op *rxe)
+			    struct efa_proto_ope *rxe)
 {
 	rxe->fi_flags = peer_rxe->flags;
 
@@ -53,7 +53,7 @@ static int efa_rdm_srx_start(struct fi_peer_rx_entry *peer_rxe)
 {
 	int ret;
 	struct efa_rdm_pke *pkt_entry;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 
 	assert(ofi_genlock_held(efa_rdm_srx_get_srx_ctx(peer_rxe)->lock));
 
@@ -103,7 +103,7 @@ static int efa_rdm_srx_start(struct fi_peer_rx_entry *peer_rxe)
 static int efa_rdm_srx_discard(struct fi_peer_rx_entry *peer_rxe)
 {
 	struct efa_rdm_pke *pkt_entry;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 
 	assert(ofi_genlock_held(efa_rdm_srx_get_srx_ctx(peer_rxe)->lock));
 

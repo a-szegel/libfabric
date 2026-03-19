@@ -35,14 +35,14 @@ static void efa_rdm_atomic_init_shm_msg(struct efa_rdm_ep *ep, struct fi_msg_ato
 }
 
 static
-struct efa_proto_op *
+struct efa_proto_ope *
 efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 		      	 struct efa_rdm_peer *peer,
 			 const struct fi_msg_atomic *msg_atomic,
 			 const struct efa_proto_atomic_ex *atomic_ex,
 			 uint32_t op, uint64_t flags)
 {
-	struct efa_proto_op *txe;
+	struct efa_proto_ope *txe;
 	struct fi_msg msg;
 	struct iovec iov[EFA_PROTO_IOV_LIMIT];
 	size_t datatype_size;
@@ -95,7 +95,7 @@ efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
  * @param txe tx entry
  * @return ssize_t 0 on success, negative integer on failure
  */
-ssize_t efa_proto_atomic_post_atomic(struct efa_rdm_ep *efa_rdm_ep, struct efa_proto_op *txe)
+ssize_t efa_proto_atomic_post_atomic(struct efa_rdm_ep *efa_rdm_ep, struct efa_proto_ope *txe)
 {
 	bool delivery_complete_requested;
 	static int req_pkt_type_list[] = {
@@ -128,14 +128,14 @@ ssize_t efa_proto_atomic_post_atomic(struct efa_rdm_ep *efa_rdm_ep, struct efa_p
 	}
 
 	if (delivery_complete_requested && txe->op == ofi_op_atomic) {
-		return efa_proto_op_post_send(txe, EFA_RDM_DC_WRITE_RTA_PKT);
+		return efa_proto_ope_post_send(txe, EFA_RDM_DC_WRITE_RTA_PKT);
 	} else {
 		/*
 		 * Fetch atomic and compare atomic
 		 * support DELIVERY_COMPLETE
 		 * by nature
 		 */
-		return efa_proto_op_post_send(txe, req_pkt_type_list[txe->op]);
+		return efa_proto_ope_post_send(txe, req_pkt_type_list[txe->op]);
 	}
 }
 
@@ -145,7 +145,7 @@ ssize_t efa_rdm_atomic_generic_efa(struct efa_rdm_ep *efa_rdm_ep,
 			       const struct efa_proto_atomic_ex *atomic_ex,
 			       uint32_t op, uint64_t flags)
 {
-	struct efa_proto_op *txe;
+	struct efa_proto_ope *txe;
 	ssize_t err;
 	struct util_srx_ctx *srx_ctx;
 

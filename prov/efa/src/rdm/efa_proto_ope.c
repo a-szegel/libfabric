@@ -2,11 +2,11 @@
 /* SPDX-FileCopyrightText: Copyright Amazon.com, Inc. or its affiliates. All rights reserved. */
 
 /**
- * @file efa_proto_op.c
+ * @file efa_proto_ope.c
  * @brief Init/release functions for the per-protocol operation entry structs.
  *
  * These functions are wired in during Task 11 (the atomic switchover from
- * struct efa_proto_op to the new hierarchy).  Until then they coexist with
+ * struct efa_proto_ope to the new hierarchy).  Until then they coexist with
  * the old efa_proto_tx_construct / efa_proto_rx_release functions.
  */
 
@@ -15,8 +15,8 @@
 #include <ofi_iov.h>
 #include "efa.h"
 #include "efa_cntr.h"
-#include "efa_proto_op.h"
-#include "efa_proto_op_legacy.h"
+#include "efa_proto_ope.h"
+#include "efa_proto_ope_legacy.h"
 #include "efa_rdm_ep.h"
 #include "efa_rdm_peer.h"
 #include "efa_rdm_pke.h"
@@ -28,11 +28,11 @@
  * ──────────────────────────────────────────────────────────────────────────── */
 
 static void
-efa_proto_op_base_init(struct efa_proto_op_base *base,
+efa_proto_ope_base_init(struct efa_proto_ope_base *base,
 		       struct efa_rdm_ep *ep,
 		       struct efa_rdm_peer *peer,
 		       const struct fi_msg *msg,
-		       enum efa_proto_op_type type,
+		       enum efa_proto_ope_type type,
 		       uint32_t op, uint64_t flags)
 {
 	base->type = type;
@@ -120,7 +120,7 @@ void efa_proto_tx_msg_init(struct efa_proto_tx_msg *entry,
 			   const struct fi_msg *msg,
 			   uint32_t op, uint64_t flags)
 {
-	efa_proto_op_base_init(&entry->tx.base, ep, peer, msg,
+	efa_proto_ope_base_init(&entry->tx.base, ep, peer, msg,
 			       EFA_PROTO_TX_MSG, op, flags);
 	efa_proto_tx_base_init(&entry->tx);
 
@@ -149,7 +149,7 @@ void efa_proto_tx_rma_read_init(struct efa_proto_tx_rma_read *entry,
 				const struct fi_msg *msg,
 				uint64_t flags)
 {
-	efa_proto_op_base_init(&entry->tx.base, ep, peer, msg,
+	efa_proto_ope_base_init(&entry->tx.base, ep, peer, msg,
 			       EFA_PROTO_TX_RMA_READ, ofi_op_read_req, flags);
 	efa_proto_tx_base_init(&entry->tx);
 
@@ -166,7 +166,7 @@ void efa_proto_tx_rma_write_init(struct efa_proto_tx_rma_write *entry,
 				 const struct fi_msg *msg,
 				 uint64_t flags)
 {
-	efa_proto_op_base_init(&entry->tx.base, ep, peer, msg,
+	efa_proto_ope_base_init(&entry->tx.base, ep, peer, msg,
 			       EFA_PROTO_TX_RMA_WRITE, ofi_op_write, flags);
 	efa_proto_tx_base_init(&entry->tx);
 
@@ -184,7 +184,7 @@ void efa_proto_tx_atomic_init(struct efa_proto_tx_atomic *entry,
 			      const struct efa_proto_atomic_hdr *hdr,
 			      const struct efa_proto_atomic_ex *ex)
 {
-	efa_proto_op_base_init(&entry->tx.base, ep, peer, msg,
+	efa_proto_ope_base_init(&entry->tx.base, ep, peer, msg,
 			       EFA_PROTO_TX_ATOMIC, op, flags);
 	efa_proto_tx_base_init(&entry->tx);
 
@@ -229,7 +229,7 @@ void efa_proto_rx_msg_init(struct efa_proto_rx_msg *entry,
 {
 	struct fi_msg empty_msg = { 0 };
 
-	efa_proto_op_base_init(&entry->rx.base, ep, peer, &empty_msg,
+	efa_proto_ope_base_init(&entry->rx.base, ep, peer, &empty_msg,
 			       EFA_PROTO_RX_MSG, op, 0);
 	efa_proto_rx_base_init(&entry->rx);
 
@@ -258,7 +258,7 @@ void efa_proto_rx_rma_write_init(struct efa_proto_rx_rma_write *entry,
 {
 	struct fi_msg empty_msg = { 0 };
 
-	efa_proto_op_base_init(&entry->rx.base, ep, peer, &empty_msg,
+	efa_proto_ope_base_init(&entry->rx.base, ep, peer, &empty_msg,
 			       EFA_PROTO_RX_RMA_WRITE, ofi_op_write, 0);
 	efa_proto_rx_base_init(&entry->rx);
 
@@ -271,7 +271,7 @@ void efa_proto_rx_rma_read_init(struct efa_proto_rx_rma_read *entry,
 {
 	struct fi_msg empty_msg = { 0 };
 
-	efa_proto_op_base_init(&entry->rx.base, ep, peer, &empty_msg,
+	efa_proto_ope_base_init(&entry->rx.base, ep, peer, &empty_msg,
 			       EFA_PROTO_RX_RMA_READ, ofi_op_read_rsp, 0);
 	efa_proto_rx_base_init(&entry->rx);
 
@@ -287,7 +287,7 @@ void efa_proto_rx_atomic_init(struct efa_proto_rx_atomic *entry,
 {
 	struct fi_msg empty_msg = { 0 };
 
-	efa_proto_op_base_init(&entry->rx.base, ep, peer, &empty_msg,
+	efa_proto_ope_base_init(&entry->rx.base, ep, peer, &empty_msg,
 			       EFA_PROTO_RX_ATOMIC, op, 0);
 	efa_proto_rx_base_init(&entry->rx);
 
@@ -312,7 +312,7 @@ void efa_proto_rx_atomic_init(struct efa_proto_rx_atomic *entry,
  * Release helpers — common cleanup for base, tx_base, rx_base
  * ──────────────────────────────────────────────────────────────────────────── */
 
-void efa_proto_op_base_release(struct efa_proto_op_base *base)
+void efa_proto_ope_base_release(struct efa_proto_ope_base *base)
 {
 	int i, err;
 	struct dlist_entry *tmp;
@@ -347,7 +347,7 @@ void efa_proto_op_base_release(struct efa_proto_op_base *base)
 	}
 
 #ifdef ENABLE_EFA_POISONING
-	efa_rdm_poison_mem_region(base, sizeof(union efa_proto_op_entry));
+	efa_rdm_poison_mem_region(base, sizeof(union efa_proto_ope_entry));
 #endif
 	ofi_buf_free(base);
 }
@@ -363,5 +363,5 @@ void efa_proto_rx_base_release(struct efa_proto_rx_base *rx)
 		rx->peer_rxe = NULL;
 	}
 
-	efa_proto_op_base_release(&rx->base);
+	efa_proto_ope_base_release(&rx->base);
 }

@@ -3,7 +3,7 @@
 #include "rdm/efa_rdm_pke_rta.h"
 #include "rdm/efa_rdm_pke_rtw.h"
 #include "rdm/efa_rdm_pke_utils.h"
-#include "rdm/efa_proto_op.h"
+#include "rdm/efa_proto_ope.h"
 
 
 /**
@@ -27,7 +27,7 @@ void test_efa_rdm_pke_handle_longcts_rtm_send_completion(struct efa_resource **s
     size_t raw_addr_len = sizeof(struct efa_ep_addr);
     fi_addr_t peer_addr;
     int err, numaddr;
-    struct efa_proto_op *txe;
+    struct efa_proto_ope *txe;
 
     efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
 
@@ -119,7 +119,7 @@ void test_efa_rdm_pke_alloc_rta_rxe(struct efa_resource **state)
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pke;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 	struct efa_ep_addr raw_addr = {0};
 	size_t raw_addr_len = sizeof(raw_addr);
 	fi_addr_t peer_addr = 0;
@@ -160,7 +160,7 @@ void test_efa_rdm_pke_alloc_rtw_rxe(struct efa_resource **state)
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pke;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 	struct efa_ep_addr raw_addr = {0};
 	size_t raw_addr_len = sizeof(raw_addr);
 	fi_addr_t peer_addr = 0;
@@ -209,7 +209,7 @@ void test_efa_rdm_pke_alloc_rtr_rxe(struct efa_resource **state)
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pke;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 	struct efa_ep_addr raw_addr = {0};
 	size_t raw_addr_len = sizeof(raw_addr);
 	fi_addr_t peer_addr = 0;
@@ -292,7 +292,7 @@ void test_efa_rdm_pke_flag_tracking(struct efa_resource **state)
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_peer *peer;
-	struct efa_proto_op *txe;
+	struct efa_proto_ope *txe;
 	struct fi_msg msg = {0};
 	char buf[16];
 	struct iovec iov = {
@@ -381,7 +381,7 @@ void test_efa_rdm_pke_proc_matched_eager_rtm_error(struct efa_resource **state)
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pkt_entry;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 	struct efa_rdm_base_hdr *base_hdr;
 	char buf[16];
 	int err;
@@ -462,7 +462,7 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_first_packet_error(struct efa_reso
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pkt_entry;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 	char buf[16];
 	int err;
 
@@ -507,7 +507,7 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_second_packet_error(struct efa_res
 	struct efa_resource *resource = *state;
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_rdm_pke *pkt_entry, *second_pkt;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 	char buf[1024];
 	int err;
 

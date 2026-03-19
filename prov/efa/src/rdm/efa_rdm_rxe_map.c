@@ -14,7 +14,7 @@
  * @returns
  * pointer to an RX entry. If such RX entry does not exist, return NULL
 */
-struct efa_proto_op *efa_rdm_rxe_map_lookup(struct efa_rdm_rxe_map *rxe_map,
+struct efa_proto_ope *efa_rdm_rxe_map_lookup(struct efa_rdm_rxe_map *rxe_map,
 					   uint64_t msg_id)
 {
 	struct efa_rdm_rxe_map_entry *entry = NULL;
@@ -35,7 +35,7 @@ struct efa_proto_op *efa_rdm_rxe_map_lookup(struct efa_rdm_rxe_map *rxe_map,
  * @param[in]		rxe		RX entry
 */
 void efa_rdm_rxe_map_insert(struct efa_rdm_rxe_map *rxe_map,
-			    uint64_t msg_id, struct efa_proto_op *rxe)
+			    uint64_t msg_id, struct efa_proto_ope *rxe)
 {
 	struct efa_rdm_rxe_map_entry *entry;
 
@@ -74,7 +74,7 @@ void efa_rdm_rxe_map_insert(struct efa_rdm_rxe_map *rxe_map,
  * @param[in]		rxe		RX entry
  */
 void efa_rdm_rxe_map_remove(struct efa_rdm_rxe_map *rxe_map, uint64_t msg_id,
-			    struct efa_proto_op *rxe)
+			    struct efa_proto_ope *rxe)
 {
 	struct efa_rdm_rxe_map_entry *entry;
 

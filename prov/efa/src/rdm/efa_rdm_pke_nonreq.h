@@ -4,7 +4,7 @@
 #ifndef _EFA_RDM_PKE_NONREQ_H
 #define _EFA_RDM_PKE_NONREQ_H
 
-#include "efa_proto_op_legacy.h"
+#include "efa_proto_ope_legacy.h"
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_pke_utils.h"
 
@@ -132,7 +132,7 @@ void efa_rdm_pke_calc_cts_window_credits(struct efa_rdm_peer *peer,
 				     int *window, int *credits);
 
 ssize_t efa_rdm_pke_init_cts(struct efa_rdm_pke *pkt_entry,
-			     struct efa_proto_op *ope);
+			     struct efa_proto_ope *ope);
 
 void efa_rdm_pke_handle_cts_sent(struct efa_rdm_pke *pkt_entry);
 
@@ -145,7 +145,7 @@ struct efa_rdm_ctsdata_hdr *efa_rdm_pke_get_ctsdata_hdr(struct efa_rdm_pke *pke)
 }
 
 int efa_rdm_pke_init_ctsdata(struct efa_rdm_pke *pkt_entry,
-			     struct efa_proto_op *ope,
+			     struct efa_proto_ope *ope,
 			     size_t data_offset,
 			     int data_size);
 
@@ -162,7 +162,7 @@ static inline struct efa_rdm_readrsp_hdr *efa_rdm_pke_get_readrsp_hdr(struct efa
 }
 
 int efa_rdm_pke_init_readrsp(struct efa_rdm_pke *pkt_entry,
-			     struct efa_proto_op *txe);
+			     struct efa_proto_ope *txe);
 
 void efa_rdm_pke_handle_readrsp_sent(struct efa_rdm_pke *pkt_entry);
 
@@ -200,12 +200,12 @@ enum efa_rdm_rma_context_pkt_type {
 };
 
 void efa_rdm_pke_init_write_context(struct efa_rdm_pke *pkt_entry,
-				    struct efa_proto_op *txe, void *local_buf,
+				    struct efa_proto_ope *txe, void *local_buf,
 				    size_t seg_size, void *desc,
 				    uint64_t remote_buf, size_t remote_key);
 
 void efa_rdm_pke_init_read_context(struct efa_rdm_pke *pkt_entry,
-				   struct efa_proto_op *ope,
+				   struct efa_proto_ope *ope,
 				   int read_id,
 				   size_t seg_size);
 
@@ -219,7 +219,7 @@ struct efa_rdm_eor_hdr *efa_rdm_pke_get_eor_hdr(struct efa_rdm_pke *pke)
 }
 
 int efa_rdm_pke_init_eor(struct efa_rdm_pke *pkt_entry,
-			 struct efa_proto_op *rxe);
+			 struct efa_proto_ope *rxe);
 
 void efa_rdm_pke_handle_eor_send_completion(struct efa_rdm_pke *pkt_entry);
 
@@ -233,7 +233,7 @@ struct efa_rdm_read_nack_hdr *efa_rdm_pke_get_read_nack_hdr(struct efa_rdm_pke *
 	return (struct efa_rdm_read_nack_hdr *)pke->wiredata;
 }
 
-int efa_rdm_pke_init_read_nack(struct efa_rdm_pke *pkt_entry, struct efa_proto_op *rxe);
+int efa_rdm_pke_init_read_nack(struct efa_rdm_pke *pkt_entry, struct efa_proto_ope *rxe);
 
 void efa_rdm_pke_handle_read_nack_recv(struct efa_rdm_pke *pkt_entry);
 
@@ -243,7 +243,7 @@ static inline struct efa_rdm_atomrsp_hdr *efa_rdm_pke_get_atomrsp_hdr(struct efa
 	return (struct efa_rdm_atomrsp_hdr *)pke->wiredata;
 }
 
-int efa_rdm_pke_init_atomrsp(struct efa_rdm_pke *pkt_entry, struct efa_proto_op *rxe);
+int efa_rdm_pke_init_atomrsp(struct efa_rdm_pke *pkt_entry, struct efa_proto_ope *rxe);
 
 void efa_rdm_pke_handle_atomrsp_send_completion(struct efa_rdm_pke *pkt_entry);
 
@@ -256,7 +256,7 @@ struct efa_rdm_receipt_hdr *efa_rdm_pke_get_receipt_hdr(struct efa_rdm_pke *pke)
 	return (struct efa_rdm_receipt_hdr *)pke->wiredata;
 }
 
-int efa_rdm_pke_init_receipt(struct efa_rdm_pke *pkt_entry, struct efa_proto_op *rxe);
+int efa_rdm_pke_init_receipt(struct efa_rdm_pke *pkt_entry, struct efa_proto_ope *rxe);
 
 void efa_rdm_pke_handle_receipt_send_completion(struct efa_rdm_pke *pkt_entry);
 

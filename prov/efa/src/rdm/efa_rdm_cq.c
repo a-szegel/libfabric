@@ -12,7 +12,7 @@
 #include "efa_rdm_pke_nonreq.h"
 #include "efa_rdm_tracepoint.h"
 #include "efa_rdm_pke_print.h"
-#include "efa_proto_op.h"
+#include "efa_proto_ope.h"
 
 static
 const char *efa_rdm_cq_strerror(struct fid_cq *cq_fid, int prov_errno,

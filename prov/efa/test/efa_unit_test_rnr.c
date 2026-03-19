@@ -3,7 +3,7 @@
 
 #include "efa_unit_tests.h"
 #include "efa_rdm_pke_cmd.h"
-#include "rdm/efa_proto_op.h"
+#include "rdm/efa_proto_ope.h"
 
 void test_efa_rnr_queue_and_resend_impl(struct efa_resource **state, uint32_t op)
 {
@@ -11,7 +11,7 @@ void test_efa_rnr_queue_and_resend_impl(struct efa_resource **state, uint32_t op
 	struct efa_unit_test_buff send_buff;
 	struct efa_ep_addr raw_addr;
 	struct efa_rdm_ep *efa_rdm_ep;
-	struct efa_proto_op *txe;
+	struct efa_proto_ope *txe;
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_cq *efa_rdm_cq;
 	struct efa_ibv_cq *ibv_cq;
@@ -46,7 +46,7 @@ void test_efa_rnr_queue_and_resend_impl(struct efa_resource **state, uint32_t op
 	assert_false(dlist_empty(&efa_rdm_ep->txe_list));
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 1);
 
-	txe = container_of(efa_rdm_ep->txe_list.next, struct efa_proto_op, ep_entry);
+	txe = container_of(efa_rdm_ep->txe_list.next, struct efa_proto_ope, ep_entry);
 
 	efa_rdm_cq = container_of(resource->cq, struct efa_rdm_cq, efa_cq.util_cq.cq_fid.fid);
 	ibv_cq = &efa_rdm_cq->efa_cq.ibv_cq;

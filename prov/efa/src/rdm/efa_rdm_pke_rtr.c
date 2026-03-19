@@ -10,15 +10,15 @@
 #include "efa_base_ep.h"
 #include "efa_rdm_ep.h"
 #include "efa_rdm_rma.h"
-#include "efa_proto_op_legacy.h"
+#include "efa_proto_ope_legacy.h"
 #include "efa_rdm_pke.h"
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_pke_req.h"
-#include "efa_proto_op.h"
+#include "efa_proto_ope.h"
 
 void efa_rdm_pke_init_rtr_common(struct efa_rdm_pke *pkt_entry,
 				 int pkt_type,
-				 struct efa_proto_op *txe,
+				 struct efa_proto_ope *txe,
 				 int window)
 {
 	struct efa_rdm_rtr_hdr *rtr_hdr;
@@ -49,7 +49,7 @@ void efa_rdm_pke_init_rtr_common(struct efa_rdm_pke *pkt_entry,
  *
 */
 ssize_t efa_rdm_pke_init_short_rtr(struct efa_rdm_pke *pkt_entry,
-				   struct efa_proto_op *txe)
+				   struct efa_proto_ope *txe)
 {
 	efa_rdm_pke_init_rtr_common(pkt_entry,
 				    EFA_RDM_SHORT_RTR_PKT,
@@ -59,7 +59,7 @@ ssize_t efa_rdm_pke_init_short_rtr(struct efa_rdm_pke *pkt_entry,
 }
 
 ssize_t efa_rdm_pke_init_longcts_rtr(struct efa_rdm_pke *pkt_entry,
-				     struct efa_proto_op *txe)
+				     struct efa_proto_ope *txe)
 {
 	efa_rdm_pke_init_rtr_common(pkt_entry,
 				    EFA_RDM_LONGCTS_RTR_PKT,
@@ -79,10 +79,10 @@ ssize_t efa_rdm_pke_init_longcts_rtr(struct efa_rdm_pke *pkt_entry,
  * pointer to the newly allocated RX entry.
  * NULL when OP entry pool has been exhausted.
  */
-struct efa_proto_op *efa_rdm_pke_alloc_rtr_rxe(struct efa_rdm_pke *pkt_entry)
+struct efa_proto_ope *efa_rdm_pke_alloc_rtr_rxe(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ep *ep = pkt_entry->ep;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 	struct efa_rdm_rtr_hdr *rtr_hdr;
 
 	rxe = efa_proto_ep_alloc_rxe(ep, pkt_entry->peer, ofi_op_read_rsp);
@@ -108,7 +108,7 @@ void efa_rdm_pke_handle_rtr_recv(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_rtr_hdr *rtr_hdr;
-	struct efa_proto_op *rxe;
+	struct efa_proto_ope *rxe;
 	ssize_t err;
 
 	ep = pkt_entry->ep;
@@ -138,7 +138,7 @@ void efa_rdm_pke_handle_rtr_recv(struct efa_rdm_pke *pkt_entry)
 	rxe->cq_entry.buf = rxe->iov[0].iov_base;
 	rxe->total_len = rxe->cq_entry.len;
 
-	err = efa_proto_op_post_send_or_queue(rxe, EFA_RDM_READRSP_PKT);
+	err = efa_proto_ope_post_send_or_queue(rxe, EFA_RDM_READRSP_PKT);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ, "Posting of readrsp packet failed! err=%ld\n", err);
 		efa_base_ep_write_eq_error(&ep->base_ep, err, FI_EFA_ERR_PKT_POST);

@@ -9,7 +9,7 @@
 int efa_rdm_peer_srx_construct(struct efa_rdm_ep *efa_rdm_ep);
 
 void efa_rdm_srx_update_rxe(struct fi_peer_rx_entry *peer_rxe,
-			    struct efa_proto_op *rxe);
+			    struct efa_proto_ope *rxe);
 
 static inline struct util_srx_ctx *efa_rdm_srx_get_srx_ctx(struct fi_peer_rx_entry *peer_rxe)
 {

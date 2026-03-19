@@ -3,7 +3,7 @@
 
 #include "efa_unit_tests.h"
 #include "rdm/efa_rdm_cq.h"
-#include "rdm/efa_proto_op.h"
+#include "rdm/efa_proto_ope.h"
 #include "efa_av.h"
 #include "efa_data_path_direct_entry.h"
 
@@ -286,7 +286,7 @@ void test_rdm_cq_handshake_bad_send_status_impl(struct efa_resource **state, int
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_cq *efa_rdm_cq;
 	struct efa_ibv_cq *ibv_cq;
-	struct efa_proto_op *txe;
+	struct efa_proto_ope *txe;
 
 	/* disable shm to force using efa device to send */
 	efa_unit_test_resource_construct_rdm_shm_disabled(resource);
