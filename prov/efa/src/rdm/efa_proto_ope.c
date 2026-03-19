@@ -421,6 +421,7 @@ void efa_proto_tx_release(struct efa_proto_ope_base *txe)
 	efa_rdm_poison_mem_region(txe,
 			      EFA_PROTO_OPE_POOL_ENTRY_SIZE);
 #endif
+	fprintf(stderr, "DEBUG efa_proto_tx_release: freeing txe=%p type=%d\n", (void*)txe, txe->type);
 	ofi_buf_free(txe);
 }
 
