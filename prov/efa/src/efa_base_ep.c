@@ -89,6 +89,18 @@ int efa_base_ep_destruct_qp_unsafe(struct efa_base_ep *base_ep)
 	if (qp) {
 		domain = qp->base_ep->domain;
 		qp_num = qp->qp_num;
+#if HAVE_EFA_DATA_PATH_DIRECT
+		/* Invalidate any stale cur_wq pointers into this QP's work
+		 * queues before freeing. The CQ drain loop after destruction
+		 * may call next_poll which checks cur_wq. */
+		if (tx_cq && tx_cq->ibv_cq.data_path_direct.cur_wq &&
+		    tx_cq->ibv_cq.data_path_direct.cur_qp == qp)
+			tx_cq->ibv_cq.data_path_direct.cur_wq = NULL;
+		if (rx_cq && rx_cq != tx_cq &&
+		    rx_cq->ibv_cq.data_path_direct.cur_wq &&
+		    rx_cq->ibv_cq.data_path_direct.cur_qp == qp)
+			rx_cq->ibv_cq.data_path_direct.cur_wq = NULL;
+#endif
 		efa_qp_destruct(qp);
 		domain->device->qp_table[qp_num & domain->device->qp_table_sz_m1] = NULL;
 		base_ep->qp = NULL;
@@ -97,6 +109,15 @@ int efa_base_ep_destruct_qp_unsafe(struct efa_base_ep *base_ep)
 	if (user_recv_qp) {
 		domain = user_recv_qp->base_ep->domain;
 		qp_num = user_recv_qp->qp_num;
+#if HAVE_EFA_DATA_PATH_DIRECT
+		if (tx_cq && tx_cq->ibv_cq.data_path_direct.cur_wq &&
+		    tx_cq->ibv_cq.data_path_direct.cur_qp == user_recv_qp)
+			tx_cq->ibv_cq.data_path_direct.cur_wq = NULL;
+		if (rx_cq && rx_cq != tx_cq &&
+		    rx_cq->ibv_cq.data_path_direct.cur_wq &&
+		    rx_cq->ibv_cq.data_path_direct.cur_qp == user_recv_qp)
+			rx_cq->ibv_cq.data_path_direct.cur_wq = NULL;
+#endif
 		efa_qp_destruct(user_recv_qp);
 		domain->device->qp_table[qp_num & domain->device->qp_table_sz_m1] = NULL;
 		base_ep->user_recv_qp = NULL;
