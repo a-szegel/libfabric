@@ -181,7 +181,9 @@ AC_DEFUN([FI_ARG_ENABLE_SANITIZER],[
                LDFLAGS="-fsanitize=$2 $LDFLAGS"
                AC_MSG_CHECKING([for $3Sanitizer support])
                AC_LINK_IFELSE([AC_LANG_PROGRAM([[]], [[return 0;]])],
-                              [AC_MSG_RESULT([yes])],
+                              [AC_MSG_RESULT([yes])
+                               AC_DEFINE([ENABLE_]m4_toupper([$1]), [1],
+                                         [defined to 1 if $3Sanitizer is enabled])],
                               [AC_MSG_RESULT([no])
                                CFLAGS="$save_CFLAGS"
                                LDFLAGS="$save_LDFLAGS"

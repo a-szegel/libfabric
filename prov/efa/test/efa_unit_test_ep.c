@@ -1214,6 +1214,9 @@ void test_efa_rdm_ep_user_p2p_not_supported_zcpy_rx_happy(struct efa_resource **
 void test_efa_rdm_ep_user_zcpy_rx_unhappy_due_to_no_mr_local(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
+#if ENABLE_ASAN
+	int saved_mr_cache_enable = efa_mr_cache_enable;
+#endif
 
 	resource->hints = efa_unit_test_alloc_hints(FI_EP_RDM, EFA_FABRIC_NAME);
 	assert_non_null(resource->hints);
@@ -1221,7 +1224,19 @@ void test_efa_rdm_ep_user_zcpy_rx_unhappy_due_to_no_mr_local(struct efa_resource
 	resource->hints->caps = FI_MSG;
 	resource->hints->domain_attr->mr_mode &= ~FI_MR_LOCAL;
 
+#if ENABLE_ASAN
+	/*
+	 * Disable MR cache to avoid memhooks monitor patching, which is
+	 * incompatible with ASAN (both intercept mmap/mprotect).
+	 */
+	efa_mr_cache_enable = 0;
+#endif
+
 	test_efa_rdm_ep_use_zcpy_rx_impl(resource, false, true, false);
+
+#if ENABLE_ASAN
+	efa_mr_cache_enable = saved_mr_cache_enable;
+#endif
 }
 
 void test_efa_rdm_ep_close_discard_posted_recv(struct efa_resource **state)

@@ -817,6 +817,14 @@ static void test_info_reuse_fabric_domain(setup_hints_func_t setup_func,
 	struct fid_domain *domain = NULL;
 	struct util_domain *util_domain = NULL;
 	int err;
+#if ENABLE_ASAN
+	int saved_mr_cache_enable = efa_mr_cache_enable;
+	/*
+	 * Disable MR cache to avoid memhooks monitor patching, which is
+	 * incompatible with ASAN (both intercept mmap/mprotect).
+	 */
+	efa_mr_cache_enable = 0;
+#endif
 
 	hints1 = efa_unit_test_alloc_hints(FI_EP_RDM, EFA_FABRIC_NAME);
 	assert_non_null(hints1);
@@ -879,6 +887,10 @@ static void test_info_reuse_fabric_domain(setup_hints_func_t setup_func,
 
 	err = fi_close(&fabric->fid);
 	assert_int_equal(err, 0);
+
+#if ENABLE_ASAN
+	efa_mr_cache_enable = saved_mr_cache_enable;
+#endif
 }
 
 static void setup_fabric_attr_hints(struct fi_info *hints, struct fid_fabric *fabric, 
