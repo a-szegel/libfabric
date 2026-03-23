@@ -83,6 +83,7 @@ void test_efa_rdm_mr_reg_host_memory_no_mr_local(struct efa_resource **state)
 
 	efa_unit_test_resource_construct_with_hints(resource, FI_EP_RDM,
 						 FI_VERSION(2, 0), hints, true, true);
+	fi_freeinfo(hints);
 
 	efa_domain = container_of(resource->domain, struct efa_domain,
 				  util_domain.domain_fid);
