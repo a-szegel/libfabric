@@ -66,9 +66,20 @@ void test_efa_rdm_mr_reg_host_memory_no_mr_local(struct efa_resource **state)
 	void *buf;
 	struct fid_mr *mr = NULL;
 	int baseline_ct, baseline_sz;
+#if ENABLE_ASAN
+	int saved_mr_cache_enable = efa_mr_cache_enable;
+#endif
 
 	hints = efa_unit_test_alloc_hints(FI_EP_RDM, EFA_FABRIC_NAME);
 	hints->domain_attr->mr_mode &= ~FI_MR_LOCAL;
+
+#if ENABLE_ASAN
+	/*
+	 * Disable MR cache to avoid memhooks monitor patching, which is
+	 * incompatible with ASAN (both intercept mmap/mprotect).
+	 */
+	efa_mr_cache_enable = 0;
+#endif
 
 	efa_unit_test_resource_construct_with_hints(resource, FI_EP_RDM,
 						 FI_VERSION(2, 0), hints, true, true);
@@ -93,6 +104,10 @@ void test_efa_rdm_mr_reg_host_memory_no_mr_local(struct efa_resource **state)
 	assert_int_equal(fi_close(&mr->fid), 0);
 	test_efa_mr_impl(efa_domain, NULL, baseline_ct, baseline_sz, false);
 	free(buf);
+
+#if ENABLE_ASAN
+	efa_mr_cache_enable = saved_mr_cache_enable;
+#endif
 }
 
 void test_efa_rdm_mr_reg_host_memory_overlapping_buffers(struct efa_resource **state)
