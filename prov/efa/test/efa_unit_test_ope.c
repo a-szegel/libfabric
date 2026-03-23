@@ -1219,6 +1219,8 @@ static void test_efa_rdm_txe_dc_release_common(struct efa_resource *resource, bo
 	assert_non_null(receipt_pkt_entry);
 	receipt_pkt_entry->ope = txe;
 	receipt_pkt_entry->ep = efa_rdm_ep;
+	/* Set tx_id so efa_rdm_pke_handle_receipt_recv can look up the txe */
+	efa_rdm_pke_get_receipt_hdr(receipt_pkt_entry)->tx_id = txe->tx_id;
 
 	/* Verify TXE is not ready for release initially */
 	assert_false(efa_rdm_txe_dc_ready_for_release(txe));
