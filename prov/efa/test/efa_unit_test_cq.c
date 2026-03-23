@@ -170,6 +170,7 @@ static void test_rdm_cq_read_bad_send_status(struct efa_resource *resource,
 	}
 	/* Look for peer host id */
 	assert_non_null(strstr(strerror, host_id_str));
+	free(cq_err_entry.err_data);
 	efa_unit_test_buff_destruct(&send_buff);
 
 	assert_int_equal(fi_close(&resource->ep->fid), 0);
@@ -691,6 +692,11 @@ void test_rdm_cq_create_error_handling(struct efa_resource **state)
 	assert_int_not_equal(fi_cq_open(resource->domain, &cq_attr, &resource->cq, NULL), 0);
 	/* set cq as NULL to avoid double free by fi_close in cleanup stage */
 	resource->cq = NULL;
+	free(efa_device.qp_table);
+	free(efa_device.qp_gen_table);
+	fi_freeinfo(efa_device.rdm_info);
+	fi_freeinfo(efa_device.dgram_info);
+	ofi_genlock_destroy(&efa_device.qp_table_lock);
 	ibv_close_device(efa_device.ibv_ctx);
 	ibv_free_device_list(ibv_device_list);
 }
@@ -1342,6 +1348,7 @@ static void efa_cq_check_cq_err_entry(struct efa_resource *resource, int vendor_
 	assert_int_not_equal(cq_err_entry.err, FI_SUCCESS);
 	assert_int_equal(cq_err_entry.prov_errno, vendor_error);
 	assert_true(strlen(strerror) > 0);
+	free(cq_err_entry.err_data);
 }
 
 /**
