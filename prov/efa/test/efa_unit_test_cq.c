@@ -692,12 +692,7 @@ void test_rdm_cq_create_error_handling(struct efa_resource **state)
 	assert_int_not_equal(fi_cq_open(resource->domain, &cq_attr, &resource->cq, NULL), 0);
 	/* set cq as NULL to avoid double free by fi_close in cleanup stage */
 	resource->cq = NULL;
-	free(efa_device.qp_table);
-	free(efa_device.qp_gen_table);
-	fi_freeinfo(efa_device.rdm_info);
-	fi_freeinfo(efa_device.dgram_info);
-	ofi_genlock_destroy(&efa_device.qp_table_lock);
-	ibv_close_device(efa_device.ibv_ctx);
+	efa_device_destruct(&efa_device);
 	ibv_free_device_list(ibv_device_list);
 }
 

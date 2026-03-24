@@ -98,6 +98,8 @@ int efa_device_construct_gid(struct efa_device *efa_device,
 int efa_device_construct_data(struct efa_device *efa_device,
 			 struct ibv_device *ibv_device);
 
+void efa_device_destruct(struct efa_device *device);
+
 void efa_unit_test_buff_construct(struct efa_unit_test_buff *buff, struct efa_resource *resource, size_t buff_size);
 
 void efa_unit_test_buff_destruct(struct efa_unit_test_buff *buff);
