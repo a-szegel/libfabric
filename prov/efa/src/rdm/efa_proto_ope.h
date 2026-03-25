@@ -16,11 +16,6 @@
  * after config.h / efa.h so that the macro is defined for debug builds.
  */
 
-/*
- * Forward declarations — avoid pulling in heavy headers.
- * The full definitions are available via efa_rdm_ep.h / efa_rdm_pke.h
- * in translation units that need them.
- */
 struct efa_rdm_ep;
 struct efa_rdm_peer;
 struct efa_rdm_pke;
@@ -33,22 +28,32 @@ struct fid_mr;
 #define EFA_PROTO_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)
 
 /**
- * @brief operation entry type — discriminator for the struct hierarchy
+ * @brief operation entry type — discriminator for the struct hierarchy.
+ *
+ * Per-protocol types: each protocol vtable instance gets its own type value
+ * so leaf structs can be identified without knowing the protocol at compile time.
  */
 enum efa_proto_ope_type {
-	EFA_PROTO_TX_MSG = 1,
-	EFA_PROTO_TX_RMA_READ,
-	EFA_PROTO_TX_RMA_WRITE,
+	/* TX protocols */
+	EFA_PROTO_TX_EAGER_MSG = 1,
+	EFA_PROTO_TX_MEDIUM_MSG,
+	EFA_PROTO_TX_LONGCTS_MSG,
+	EFA_PROTO_TX_LONGREAD_MSG,
+	EFA_PROTO_TX_RUNTREAD_MSG,
+	EFA_PROTO_TX_EAGER_WRITE,
+	EFA_PROTO_TX_LONGCTS_WRITE,
+	EFA_PROTO_TX_LONGREAD_READ,
 	EFA_PROTO_TX_ATOMIC,
-	EFA_PROTO_RX_MSG,
-	EFA_PROTO_RX_RMA_WRITE,
-	EFA_PROTO_RX_RMA_READ,
+	/* RX protocols */
+	EFA_PROTO_RX_EAGER_MSG,
+	EFA_PROTO_RX_LONGCTS_MSG,
+	EFA_PROTO_RX_LONGREAD_MSG,
+	EFA_PROTO_RX_RUNTREAD_MSG,
+	EFA_PROTO_RX_RTW,
+	EFA_PROTO_RX_RTR,
 	EFA_PROTO_RX_ATOMIC,
 };
 
-/**
- * @brief operation entry state (shared across all protocol structs)
- */
 enum efa_proto_ope_state {
 	EFA_PROTO_TXE_REQ = 1,
 	EFA_PROTO_OPE_SEND,
@@ -59,17 +64,11 @@ enum efa_proto_ope_state {
 	EFA_PROTO_OPE_ERR,
 };
 
-/**
- * @brief basic information of an atomic operation
- */
 struct efa_proto_atomic_hdr {
 	uint32_t atomic_op;
 	uint32_t datatype;
 };
 
-/**
- * @brief extra information for fetch/compare atomic
- */
 struct efa_proto_atomic_ex {
 	struct iovec resp_iov[EFA_PROTO_IOV_LIMIT];
 	int resp_iov_count;
@@ -79,9 +78,6 @@ struct efa_proto_atomic_ex {
 	void *compare_desc[EFA_PROTO_IOV_LIMIT];
 };
 
-/**
- * @brief how to copy data from bounce buffer to CUDA receive buffer
- */
 enum efa_proto_cuda_copy_method {
 	EFA_PROTO_CUDA_COPY_UNSPEC = 0,
 	EFA_PROTO_CUDA_COPY_BLOCKING,
@@ -89,18 +85,20 @@ enum efa_proto_cuda_copy_method {
 };
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Base struct — fields accessed by every protocol path.
+ * Minimal base struct — ONLY fields used by every protocol path.
  *
- * Layout: hot fields first (first cache line), then cold.
- * Within each zone, largest-to-smallest to minimise padding.
+ * Fields removed from old base (moved to leaves that need them):
+ *   rx_id (4)           → longcts, RTR responder leaves
+ *   queued_ctrl_type (4) → longcts leaves
+ *   mr[4] (32)          → all non-eager leaves
+ *   rma_iov_count (8)   → RMA/longread/runtread/atomic leaves
+ *   rma_iov[4] (96)     → RMA/longread/runtread/atomic leaves
+ *   entry (16)          → longcts leaves (longcts_send_list)
+ *
+ * Total removed: 160 bytes. New base: 288 bytes (4.5 cache lines)
+ * vs old base: 448 bytes (7 cache lines) = 36% reduction.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/**
- * @brief Base operation entry shared by all protocol structs.
- *
- * Every leaf struct embeds this as its first member ("poor-man's inheritance"),
- * so a pointer to any leaf can be cast to struct efa_proto_ope_base *.
- */
 struct efa_proto_ope_base {
 	/* ── hot: first cache line (offset 0–63) ── */
 	enum efa_proto_ope_type type;	/* 4  (0) */
@@ -110,140 +108,214 @@ struct efa_proto_ope_base {
 	uint64_t fi_flags;		/* 8  (24) */
 	uint32_t internal_flags;	/* 4  (32) */
 	uint32_t tx_id;			/* 4  (36) */
-	uint32_t rx_id;			/* 4  (40) */
-	uint32_t msg_id;		/* 4  (44) */
+	uint32_t msg_id;		/* 4  (40) */
+	enum efa_proto_ope_state state;	/* 4  (44) */
 	uint64_t total_len;		/* 8  (48) */
 	uint64_t tag;			/* 8  (56) */
-	/* ── end first cache line ── */
+	/* ── end first cache line (64 bytes, zero padding) ── */
 
-	enum efa_proto_ope_state state;	/* 4  (64) */
-	int queued_ctrl_type;		/* 4  (68) */
-	size_t efa_outstanding_tx_ops;	/* 8  (72) */
-	size_t iov_count;		/* 8  (80) */
+	size_t efa_outstanding_tx_ops;	/* 8  (64) */
+	size_t iov_count;		/* 8  (72) */
+	struct iovec iov[EFA_PROTO_IOV_LIMIT];	/* 64 (80) */
+	void *desc[EFA_PROTO_IOV_LIMIT];	/* 32 (144) */
 
-	struct iovec iov[EFA_PROTO_IOV_LIMIT];		/* 64 (88) */
-	void *desc[EFA_PROTO_IOV_LIMIT];		/* 32 (152) */
-	struct fid_mr *mr[EFA_PROTO_IOV_LIMIT];		/* 32 (184) */
+	struct fi_cq_tagged_entry cq_entry;	/* 48 (176) */
 
-	size_t rma_iov_count;				/* 8  (216) */
-	struct fi_rma_iov rma_iov[EFA_PROTO_IOV_LIMIT];/* 96 (224) */
-
-	struct fi_cq_tagged_entry cq_entry;		/* 48 (320) */
-
-	/* dlist entries used by all paths */
-	struct dlist_entry entry;		/* 16 (368) — proto_ope_longcts_send_list */
-	struct dlist_entry ep_entry;		/* 16 (384) — tx/rxe_list in ep */
-	struct dlist_entry queued_entry;	/* 16 (400) — proto_ope_queued_list */
-	struct dlist_entry queued_pkts;		/* 16 (416) — queued pkt list head */
-	struct dlist_entry peer_entry;		/* 16 (432) — tx/rxe_list in peer */
+	struct dlist_entry ep_entry;		/* 16 (224) */
+	struct dlist_entry peer_entry;		/* 16 (240) */
+	struct dlist_entry queued_pkts;		/* 16 (256) */
+	struct dlist_entry queued_entry;	/* 16 (272) */
 
 #if ENABLE_DEBUG
-	struct dlist_entry pending_recv_entry;	/* 16 (448) — debug only */
+	struct dlist_entry pending_recv_entry;	/* 16 (288) — debug only */
 #endif
 };
-/* base size: 448 bytes without debug, 464 with debug (7 / 7.25 cache lines) */
+/* base size: 288 bytes without debug (4.5 cache lines) */
 
 /* ────────────────────────────────────────────────────────────────────────────
- * TX intermediate base — adds fields common to all TX leaf structs
+ * Composable field groups — embedded in leaves that need them.
+ * These are NOT intermediate base structs; they are plain structs
+ * composed into leaves via direct embedding.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-struct efa_proto_tx_base {
-	struct efa_proto_ope_base base;
-
-	uint64_t bytes_acked;			/* 8 */
-	uint64_t bytes_sent;			/* 8 */
-	struct efa_rdm_pke *local_read_pkt_entry; /* 8 */
+/** MR array — needed by all protocols that register memory (everything except eager) */
+struct efa_proto_mr_fields {
+	struct fid_mr *mr[EFA_PROTO_IOV_LIMIT];		/* 32 */
 };
 
-/* ────────────────────────────────────────────────────────────────────────────
- * RX intermediate base — adds fields common to all RX leaf structs
- * ──────────────────────────────────────────────────────────────────────────── */
+/** RMA IOV — needed by longread, runtread, RMA, atomic */
+struct efa_proto_rma_fields {
+	size_t rma_iov_count;				/* 8 */
+	struct fi_rma_iov rma_iov[EFA_PROTO_IOV_LIMIT];/* 96 */
+};
 
-struct efa_proto_rx_base {
-	struct efa_proto_ope_base base;
+/** CTS flow control — needed by longcts and RTR responder */
+struct efa_proto_cts_fields {
+	uint32_t rx_id;			/* 4 */
+	int queued_ctrl_type;		/* 4 */
+	int64_t window;			/* 8 */
+	struct dlist_entry entry;	/* 16 — longcts_send_list */
+};
 
+/** Read progress counters — needed by longread and runtread */
+struct efa_proto_read_fields {
+	uint64_t bytes_read_completed;	/* 8 */
+	uint64_t bytes_read_submitted;	/* 8 */
+	uint64_t bytes_read_total_len;	/* 8 */
+	uint64_t bytes_read_offset;	/* 8 */
+};
+
+/** RX common fields — needed by all RX msg protocols */
+struct efa_proto_rx_common {
 	uint64_t bytes_received;		/* 8 */
-	uint64_t bytes_received_via_mulreq;	/* 8 */
 	uint64_t bytes_copied;			/* 8 */
-	uint64_t bytes_queued_blocking_copy;	/* 8 */
 	uint64_t ignore;			/* 8 */
 	struct efa_rdm_pke *unexp_pkt;		/* 8 */
-	struct efa_rdm_rxe_map *rxe_map;	/* 8 */
 	struct fi_peer_rx_entry *peer_rxe;	/* 8 */
-	struct dlist_entry ack_list_entry;	/* 16 */
-	enum efa_proto_cuda_copy_method cuda_copy_method; /* 4 + 4 pad */
 };
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Leaf TX structs
+ * TX leaf structs — one per protocol
  * ──────────────────────────────────────────────────────────────────────────── */
 
-struct efa_proto_tx_msg {
-	struct efa_proto_tx_base tx;
+/** TX eager msg/tagged — minimal, base only */
+struct efa_proto_tx_eager_msg {
+	struct efa_proto_ope_base base;
+	/* no additional fields */
+};
 
-	int64_t window;
+/** TX medium msg/tagged */
+struct efa_proto_tx_medium_msg {
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	uint64_t bytes_acked;
+	uint64_t bytes_sent;
 	uint64_t bytes_runt;
-	uint64_t bytes_read_completed;
-	uint64_t bytes_read_submitted;
-	uint64_t bytes_read_total_len;
-	uint64_t bytes_read_offset;
 };
 
-struct efa_proto_tx_rma_read {
-	struct efa_proto_tx_base tx;
-
-	uint64_t bytes_read_completed;
-	uint64_t bytes_read_submitted;
-	uint64_t bytes_read_total_len;
-	uint64_t bytes_read_offset;
+/** TX longcts msg/tagged */
+struct efa_proto_tx_longcts_msg {
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	struct efa_proto_cts_fields cts;
+	uint64_t bytes_acked;
+	uint64_t bytes_sent;
+	struct efa_rdm_pke *local_read_pkt_entry;
 };
 
-struct efa_proto_tx_rma_write {
-	struct efa_proto_tx_base tx;
-
-	uint64_t bytes_write_completed;
-	uint64_t bytes_write_submitted;
-	uint64_t bytes_write_total_len;
+/** TX longread — shared by msg/tagged longread and RMA read (RTR) */
+struct efa_proto_tx_longread {
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	struct efa_proto_rma_fields rma;
+	struct efa_proto_read_fields read;
 };
 
+/** TX runtread msg/tagged */
+struct efa_proto_tx_runtread_msg {
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	struct efa_proto_rma_fields rma;
+	struct efa_proto_read_fields read;
+	uint64_t bytes_acked;
+	uint64_t bytes_sent;
+	uint64_t bytes_runt;
+};
+
+/** TX eager RMA write (RTW) */
+struct efa_proto_tx_eager_write {
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	struct efa_proto_rma_fields rma;
+};
+
+/** TX longcts RMA write */
+struct efa_proto_tx_longcts_write {
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	struct efa_proto_rma_fields rma;
+	struct efa_proto_cts_fields cts;
+	uint64_t bytes_acked;
+	uint64_t bytes_sent;
+	struct efa_rdm_pke *local_read_pkt_entry;
+};
+
+/** TX atomic */
 struct efa_proto_tx_atomic {
-	struct efa_proto_tx_base tx;
-
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	struct efa_proto_rma_fields rma;
 	struct efa_proto_atomic_hdr atomic_hdr;
 	struct efa_proto_atomic_ex atomic_ex;
 };
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Leaf RX structs
+ * RX leaf structs — one per protocol
  * ──────────────────────────────────────────────────────────────────────────── */
 
-struct efa_proto_rx_msg {
-	struct efa_proto_rx_base rx;
+/** RX eager msg/tagged */
+struct efa_proto_rx_eager_msg {
+	struct efa_proto_ope_base base;
+	struct efa_proto_rx_common rx;
+};
 
-	int64_t window;
+/** RX longcts msg/tagged */
+struct efa_proto_rx_longcts_msg {
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	struct efa_proto_cts_fields cts;
+	struct efa_proto_rx_common rx;
+	uint64_t bytes_received_via_mulreq;
+	uint64_t bytes_queued_blocking_copy;
+	struct efa_rdm_rxe_map *rxe_map;
+	struct dlist_entry ack_list_entry;
+	enum efa_proto_cuda_copy_method cuda_copy_method;
+};
+
+/** RX longread msg/tagged */
+struct efa_proto_rx_longread_msg {
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	struct efa_proto_rma_fields rma;
+	struct efa_proto_read_fields read;
+	struct efa_proto_rx_common rx;
+};
+
+/** RX runtread msg/tagged */
+struct efa_proto_rx_runtread_msg {
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	struct efa_proto_rma_fields rma;
+	struct efa_proto_read_fields read;
+	struct efa_proto_rx_common rx;
 	uint64_t bytes_runt;
-	uint64_t bytes_read_completed;
-	uint64_t bytes_read_submitted;
-	uint64_t bytes_read_total_len;
-	uint64_t bytes_read_offset;
+	uint64_t bytes_received_via_mulreq;
+	struct efa_rdm_rxe_map *rxe_map;
 };
 
-struct efa_proto_rx_rma_write {
-	struct efa_proto_rx_base rx;
-	/* no additional fields — RTW responder only needs rx_base */
+/** RX RTW (RMA write responder) */
+struct efa_proto_rx_rtw {
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	struct efa_proto_rma_fields rma;
+	struct efa_proto_rx_common rx;
+	struct dlist_entry ack_list_entry;
 };
 
-struct efa_proto_rx_rma_read {
-	struct efa_proto_rx_base rx;
-
-	int64_t window;
-	/* RTR responder sends data, so it needs bytes_sent */
+/** RX RTR (RMA read responder) */
+struct efa_proto_rx_rtr {
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	struct efa_proto_rma_fields rma;
+	struct efa_proto_cts_fields cts;
 	uint64_t bytes_sent;
 };
 
+/** RX atomic (RTA responder) */
 struct efa_proto_rx_atomic {
-	struct efa_proto_rx_base rx;
-
+	struct efa_proto_ope_base base;
+	struct efa_proto_mr_fields mr;
+	struct efa_proto_rma_fields rma;
 	struct efa_proto_atomic_hdr atomic_hdr;
 	char *atomrsp_data;
 };
@@ -254,199 +326,97 @@ struct efa_proto_rx_atomic {
 
 union efa_proto_ope_entry {
 	struct efa_proto_ope_base base;
-	struct efa_proto_tx_base tx_base;
-	struct efa_proto_rx_base rx_base;
-	struct efa_proto_tx_msg tx_msg;
-	struct efa_proto_tx_rma_read tx_rma_read;
-	struct efa_proto_tx_rma_write tx_rma_write;
+	struct efa_proto_tx_eager_msg tx_eager_msg;
+	struct efa_proto_tx_medium_msg tx_medium_msg;
+	struct efa_proto_tx_longcts_msg tx_longcts_msg;
+	struct efa_proto_tx_longread tx_longread;
+	struct efa_proto_tx_runtread_msg tx_runtread_msg;
+	struct efa_proto_tx_eager_write tx_eager_write;
+	struct efa_proto_tx_longcts_write tx_longcts_write;
 	struct efa_proto_tx_atomic tx_atomic;
-	struct efa_proto_rx_msg rx_msg;
-	struct efa_proto_rx_rma_write rx_rma_write;
-	struct efa_proto_rx_rma_read rx_rma_read;
+	struct efa_proto_rx_eager_msg rx_eager_msg;
+	struct efa_proto_rx_longcts_msg rx_longcts_msg;
+	struct efa_proto_rx_longread_msg rx_longread_msg;
+	struct efa_proto_rx_runtread_msg rx_runtread_msg;
+	struct efa_proto_rx_rtw rx_rtw;
+	struct efa_proto_rx_rtr rx_rtr;
 	struct efa_proto_rx_atomic rx_atomic;
 };
 
-/**
- * @brief Size of each bufpool entry — the union of all leaf types.
- */
 #define EFA_PROTO_OPE_POOL_ENTRY_SIZE sizeof(union efa_proto_ope_entry)
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Static assertions — size budgets and hot-field placement
+ * Static assertions
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/* Hot fields must be in the first cache line (64 bytes) */
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, type) < 64,
-	"type must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, op) < 64,
-	"op must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, ep) < 64,
-	"ep must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, peer) < 64,
-	"peer must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, fi_flags) < 64,
-	"fi_flags must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, internal_flags) < 64,
-	"internal_flags must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, total_len) < 64,
-	"total_len must be in first cache line");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, tag) < 64,
-	"tag must be in first cache line");
-
-/* Base struct: 7 cache lines (448 bytes) without debug */
-#if !ENABLE_DEBUG
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_ope_base) <= 448,
-	"efa_proto_ope_base must fit in 7 cache lines");
-#endif
-
-/*
- * Leaf struct size budgets (optimized builds only).
- * The original monolithic efa_rdm_ope is 872 bytes (14 cache lines).
- * Debug builds add pending_recv_entry (+16 bytes) to the base, so
- * these budgets only apply to release builds.
- */
-#if !ENABLE_DEBUG
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_msg) <= 528,
-	"efa_proto_tx_msg size budget");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_rma_read) <= 512,
-	"efa_proto_tx_rma_read size budget");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_rma_write) <= 504,
-	"efa_proto_tx_rma_write size budget");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_msg) <= 600,
-	"efa_proto_rx_msg size budget");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_rma_write) <= 552,
-	"efa_proto_rx_rma_write size budget");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_rma_read) <= 568,
-	"efa_proto_rx_rma_read size budget");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_atomic) <= 568,
-	"efa_proto_rx_atomic size budget");
-
-/* tx_atomic is the largest — acceptable since atomic is least perf-critical */
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_atomic) <= 696,
-	"efa_proto_tx_atomic size budget");
-#endif
-
-/* First-member inheritance: base pointer cast is safe */
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_base, base) == 0,
-	"tx_base.base must be at offset 0");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_base, base) == 0,
-	"rx_base.base must be at offset 0");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_msg, tx) == 0,
-	"tx_msg.tx must be at offset 0");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_rma_read, tx) == 0,
-	"tx_rma_read.tx must be at offset 0");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_rma_write, tx) == 0,
-	"tx_rma_write.tx must be at offset 0");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_atomic, tx) == 0,
-	"tx_atomic.tx must be at offset 0");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_msg, rx) == 0,
-	"rx_msg.rx must be at offset 0");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_rma_write, rx) == 0,
-	"rx_rma_write.rx must be at offset 0");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_rma_read, rx) == 0,
-	"rx_rma_read.rx must be at offset 0");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_atomic, rx) == 0,
-	"rx_atomic.rx must be at offset 0");
-
-/* ────────────────────────────────────────────────────────────────────────────
- * Cache line layout enforcement (64 bytes per cache line)
- *
- * Base: hot fields in CL0, iov/desc/mr in CL1-3, rma_iov in CL3-5,
- *       cq_entry+dlists in CL5-7.
- * TX/RX base: leaf-specific fields start right after base (CL7+).
- * Goal: non-atomic leaf structs ≤ ~8 CL, vs 14 CL for the old monolithic struct.
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/* --- Base struct field ordering --- */
+/* Hot fields in first cache line */
 EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, type) == 0,
 	"type at offset 0");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, op) == 4,
-	"op at offset 4");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, ep) == 8,
-	"ep at offset 8");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, peer) == 16,
-	"peer at offset 16");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, fi_flags) == 24,
-	"fi_flags at offset 24");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, internal_flags) == 32,
-	"internal_flags at offset 32");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, total_len) == 48,
-	"total_len at offset 48");
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, tag) == 56,
-	"tag at offset 56");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, ep) < 64,
+	"ep in first cache line");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, peer) < 64,
+	"peer in first cache line");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, fi_flags) < 64,
+	"fi_flags in first cache line");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, total_len) < 64,
+	"total_len in first cache line");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, tag) < 64,
+	"tag in first cache line");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, state) < 64,
+	"state in first cache line");
 
-/* state starts at CL1 boundary */
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, state) == 64,
-	"state at CL1 boundary");
+/* Base size: 288 bytes (4.5 cache lines) without debug */
+#if !ENABLE_DEBUG
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_ope_base) == 288,
+	"base must be exactly 288 bytes (zero waste)");
+#endif
 
-/* iov array starts within CL1 */
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, iov) == 88,
-	"iov at offset 88");
+/* First-member inheritance: all leaves start with base at offset 0 */
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_eager_msg, base) == 0,
+	"tx_eager_msg.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_medium_msg, base) == 0,
+	"tx_medium_msg.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_longcts_msg, base) == 0,
+	"tx_longcts_msg.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_longread, base) == 0,
+	"tx_longread.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_runtread_msg, base) == 0,
+	"tx_runtread_msg.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_eager_write, base) == 0,
+	"tx_eager_write.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_longcts_write, base) == 0,
+	"tx_longcts_write.base at offset 0");
+/* tx_longread_read uses struct efa_proto_tx_longread (same layout) */
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_atomic, base) == 0,
+	"tx_atomic.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_eager_msg, base) == 0,
+	"rx_eager_msg.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_longcts_msg, base) == 0,
+	"rx_longcts_msg.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_longread_msg, base) == 0,
+	"rx_longread_msg.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_runtread_msg, base) == 0,
+	"rx_runtread_msg.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_rtw, base) == 0,
+	"rx_rtw.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_rtr, base) == 0,
+	"rx_rtr.base at offset 0");
+EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_atomic, base) == 0,
+	"rx_atomic.base at offset 0");
 
-/* cq_entry in CL5 */
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_ope_base, cq_entry) == 320,
-	"cq_entry at offset 320");
+/* TX eager msg = base only (hottest path, zero waste) */
+EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_eager_msg) == sizeof(struct efa_proto_ope_base),
+	"tx_eager_msg is exactly base size");
 
-/* --- TX base: leaf fields start right after base --- */
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_tx_base, bytes_acked) ==
-	sizeof(struct efa_proto_ope_base),
-	"tx_base fields start immediately after base");
-
-/* --- RX base: leaf fields start right after base --- */
-EFA_PROTO_STATIC_ASSERT(offsetof(struct efa_proto_rx_base, bytes_received) ==
-	sizeof(struct efa_proto_ope_base),
-	"rx_base fields start immediately after base");
-
-/* --- No padding holes in intermediate bases --- */
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_base) ==
-	sizeof(struct efa_proto_ope_base) + 8 + 8 + 8,
-	"tx_base has no padding holes (base + 3 fields)");
-
-/* --- Leaf sizes: every non-atomic leaf < old struct (888 bytes) --- */
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_msg) < 888,
-	"tx_msg smaller than old monolithic struct");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_rma_read) < 888,
-	"tx_rma_read smaller than old monolithic struct");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_rma_write) < 888,
-	"tx_rma_write smaller than old monolithic struct");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_tx_atomic) < 888,
-	"tx_atomic smaller than old monolithic struct");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_msg) < 888,
-	"rx_msg smaller than old monolithic struct");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_rma_write) < 888,
-	"rx_rma_write smaller than old monolithic struct");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_rma_read) < 888,
-	"rx_rma_read smaller than old monolithic struct");
-EFA_PROTO_STATIC_ASSERT(sizeof(struct efa_proto_rx_atomic) < 888,
-	"rx_atomic smaller than old monolithic struct");
-
-/* --- Union sized by largest member (tx_atomic) --- */
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) == sizeof(struct efa_proto_tx_atomic),
-	"union sized by tx_atomic (largest member)");
-
-/* --- Verify union covers all members --- */
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_tx_msg),
-	"union covers tx_msg");
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_rx_msg),
-	"union covers rx_msg");
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_rx_rma_read),
-	"union covers rx_rma_read");
-EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_rx_atomic),
-	"union covers rx_atomic");
-
-/* ────────────────────────────────────────────────────────────────────────────
- * Legacy monolithic struct — still the active memory layout.
- * Will be removed after the per-protocol layout switchover.
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/**
- * @brief Legacy 2-value type discriminator.
- * Will be replaced by enum efa_proto_ope_type (8 values) after layout switchover.
- */
-enum efa_proto_ope_type_legacy {
-	EFA_PROTO_TXE = 1,
-	EFA_PROTO_RXE,
-};
+/* Union sized by largest member (tx_atomic) */
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_tx_atomic),
+	"union covers tx_atomic");
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_tx_runtread_msg),
+	"union covers tx_runtread_msg");
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_rx_longcts_msg),
+	"union covers rx_longcts_msg");
+EFA_PROTO_STATIC_ASSERT(sizeof(union efa_proto_ope_entry) >= sizeof(struct efa_proto_rx_runtread_msg),
+	"union covers rx_runtread_msg");
 
 /* ────────────────────────────────────────────────────────────────────────────
  * internal_flags bit definitions
@@ -471,7 +441,41 @@ enum efa_proto_ope_type_legacy {
 	 EFA_PROTO_OPE_QUEUED_READ | EFA_PROTO_OPE_QUEUED_BEFORE_HANDSHAKE)
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Legacy function declarations (operate on struct efa_proto_ope)
+ * Inline helpers for type discrimination
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+static inline bool efa_proto_is_tx(const struct efa_proto_ope_base *base)
+{
+	return base->type >= EFA_PROTO_TX_EAGER_MSG &&
+	       base->type <= EFA_PROTO_TX_ATOMIC;
+}
+
+static inline bool efa_proto_is_rx(const struct efa_proto_ope_base *base)
+{
+	return base->type >= EFA_PROTO_RX_EAGER_MSG &&
+	       base->type <= EFA_PROTO_RX_ATOMIC;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Backward-compatible enum aliases
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+#define EFA_PROTO_TX_MSG       EFA_PROTO_TX_LONGCTS_MSG
+#define EFA_PROTO_RX_MSG       EFA_PROTO_RX_LONGCTS_MSG
+#define EFA_PROTO_TX_RMA_READ  EFA_PROTO_TX_LONGREAD_READ
+#define EFA_PROTO_TX_RMA_WRITE EFA_PROTO_TX_LONGCTS_WRITE
+#define EFA_PROTO_RX_RMA_WRITE EFA_PROTO_RX_RTW
+#define EFA_PROTO_RX_RMA_READ  EFA_PROTO_RX_RTR
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Bridge macros
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+#define EFA_PROTO_BASE_FROM_OPE(ope) (ope)
+#define EFA_PROTO_OPE_FROM_BASE(base) (base)
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Function declarations
  * ──────────────────────────────────────────────────────────────────────────── */
 
 void efa_proto_tx_release(struct efa_proto_ope_base *txe);
@@ -511,199 +515,5 @@ ssize_t efa_proto_ope_post_send_or_queue(struct efa_proto_ope_base *ope, int pkt
 ssize_t efa_proto_ope_repost_queued_before_handshake(struct efa_proto_ope_base *ope);
 ssize_t efa_proto_tx_prepare_local_read_pkt_entry(struct efa_proto_ope_base *txe);
 int efa_proto_ope_process_queued(struct efa_proto_ope_base *ope, uint32_t flag);
-
-/* ────────────────────────────────────────────────────────────────────────────
- * Bridge macros — cast between legacy struct and new base struct
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/** Identity cast — both sides are now struct efa_proto_ope_base * */
-#define EFA_PROTO_BASE_FROM_OPE(ope) (ope)
-#define EFA_PROTO_OPE_FROM_BASE(base) (base)
-
-/* ────────────────────────────────────────────────────────────────────────────
- * Leaf-type cast helpers — access non-base fields from ope_base pointer
- * ──────────────────────────────────────────────────────────────────────────── */
-
-static inline struct efa_proto_tx_base *efa_proto_to_tx(struct efa_proto_ope_base *b)
-{ return (struct efa_proto_tx_base *)b; }
-
-static inline struct efa_proto_rx_base *efa_proto_to_rx(struct efa_proto_ope_base *b)
-{ return (struct efa_proto_rx_base *)b; }
-
-static inline struct efa_proto_tx_msg *efa_proto_to_tx_msg(struct efa_proto_ope_base *b)
-{ return (struct efa_proto_tx_msg *)b; }
-
-static inline struct efa_proto_rx_msg *efa_proto_to_rx_msg(struct efa_proto_ope_base *b)
-{ return (struct efa_proto_rx_msg *)b; }
-
-static inline struct efa_proto_tx_rma_read *efa_proto_to_tx_rma_read(struct efa_proto_ope_base *b)
-{ return (struct efa_proto_tx_rma_read *)b; }
-
-static inline struct efa_proto_tx_rma_write *efa_proto_to_tx_rma_write(struct efa_proto_ope_base *b)
-{ return (struct efa_proto_tx_rma_write *)b; }
-
-static inline struct efa_proto_tx_atomic *efa_proto_to_tx_atomic(struct efa_proto_ope_base *b)
-{ return (struct efa_proto_tx_atomic *)b; }
-
-static inline struct efa_proto_rx_rma_read *efa_proto_to_rx_rma_read(struct efa_proto_ope_base *b)
-{ return (struct efa_proto_rx_rma_read *)b; }
-
-static inline struct efa_proto_rx_atomic *efa_proto_to_rx_atomic(struct efa_proto_ope_base *b)
-{ return (struct efa_proto_rx_atomic *)b; }
-
-/**
- * @brief Access the window field from a generic ope pointer.
- * Window exists in tx_msg, rx_msg, and rx_rma_read leaf types.
- */
-static inline int64_t *efa_proto_ope_window_ptr(struct efa_proto_ope_base *b)
-{
-	if (b->type <= EFA_PROTO_TX_ATOMIC)
-		return &((struct efa_proto_tx_msg *)b)->window;
-	else
-		return &((struct efa_proto_rx_msg *)b)->window;
-}
-
-/**
- * @brief Access the bytes_runt field from a generic ope pointer.
- */
-static inline uint64_t *efa_proto_ope_bytes_runt_ptr(struct efa_proto_ope_base *b)
-{
-	if (b->type <= EFA_PROTO_TX_ATOMIC)
-		return &((struct efa_proto_tx_msg *)b)->bytes_runt;
-	else
-		return &((struct efa_proto_rx_msg *)b)->bytes_runt;
-}
-
-/**
- * @brief Read-counter accessors for generic ope pointer.
- * These fields exist in tx_msg, tx_rma_read, rx_msg.
- * For TX, we cast to tx_msg (tx_rma_read has same layout for these fields).
- */
-static inline uint64_t *efa_proto_ope_bytes_read_completed_ptr(struct efa_proto_ope_base *b)
-{
-	if (b->type <= EFA_PROTO_TX_ATOMIC)
-		return &((struct efa_proto_tx_msg *)b)->bytes_read_completed;
-	else
-		return &((struct efa_proto_rx_msg *)b)->bytes_read_completed;
-}
-
-static inline uint64_t *efa_proto_ope_bytes_read_submitted_ptr(struct efa_proto_ope_base *b)
-{
-	if (b->type <= EFA_PROTO_TX_ATOMIC)
-		return &((struct efa_proto_tx_msg *)b)->bytes_read_submitted;
-	else
-		return &((struct efa_proto_rx_msg *)b)->bytes_read_submitted;
-}
-
-static inline uint64_t *efa_proto_ope_bytes_read_total_len_ptr(struct efa_proto_ope_base *b)
-{
-	if (b->type <= EFA_PROTO_TX_ATOMIC)
-		return &((struct efa_proto_tx_msg *)b)->bytes_read_total_len;
-	else
-		return &((struct efa_proto_rx_msg *)b)->bytes_read_total_len;
-}
-
-static inline uint64_t *efa_proto_ope_bytes_read_offset_ptr(struct efa_proto_ope_base *b)
-{
-	if (b->type <= EFA_PROTO_TX_ATOMIC)
-		return &((struct efa_proto_tx_msg *)b)->bytes_read_offset;
-	else
-		return &((struct efa_proto_rx_msg *)b)->bytes_read_offset;
-}
-
-/* ────────────────────────────────────────────────────────────────────────────
- * Inline helpers for type discrimination
- * ──────────────────────────────────────────────────────────────────────────── */
-
-static inline bool efa_proto_is_tx(const struct efa_proto_ope_base *base)
-{
-	return base->type >= EFA_PROTO_TX_MSG && base->type <= EFA_PROTO_TX_ATOMIC;
-}
-
-static inline bool efa_proto_is_rx(const struct efa_proto_ope_base *base)
-{
-	return base->type >= EFA_PROTO_RX_MSG && base->type <= EFA_PROTO_RX_ATOMIC;
-}
-
-/** Downcast base to tx_base — caller must ensure efa_proto_is_tx(base) */
-static inline struct efa_proto_tx_base *
-efa_proto_tx_base_of(struct efa_proto_ope_base *base)
-{
-	return (struct efa_proto_tx_base *)base;
-}
-
-/** Downcast base to rx_base — caller must ensure efa_proto_is_rx(base) */
-static inline struct efa_proto_rx_base *
-efa_proto_rx_base_of(struct efa_proto_ope_base *base)
-{
-	return (struct efa_proto_rx_base *)base;
-}
-
-/* ────────────────────────────────────────────────────────────────────────────
- * Leaf init/release functions — implemented in efa_proto_ope.c
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/* TX leaf constructors */
-void efa_proto_tx_msg_init(struct efa_proto_tx_msg *entry,
-			   struct efa_rdm_ep *ep, struct efa_rdm_peer *peer,
-			   const struct fi_msg *msg,
-			   uint32_t op, uint64_t flags);
-
-void efa_proto_tx_rma_read_init(struct efa_proto_tx_rma_read *entry,
-				struct efa_rdm_ep *ep, struct efa_rdm_peer *peer,
-				const struct fi_msg *msg, uint64_t flags);
-
-void efa_proto_tx_rma_write_init(struct efa_proto_tx_rma_write *entry,
-				 struct efa_rdm_ep *ep, struct efa_rdm_peer *peer,
-				 const struct fi_msg *msg, uint64_t flags);
-
-void efa_proto_tx_atomic_init(struct efa_proto_tx_atomic *entry,
-			      struct efa_rdm_ep *ep, struct efa_rdm_peer *peer,
-			      const struct fi_msg *msg,
-			      uint32_t op, uint64_t flags,
-			      const struct efa_proto_atomic_hdr *hdr,
-			      const struct efa_proto_atomic_ex *ex);
-
-/* RX leaf constructors */
-void efa_proto_rx_msg_init(struct efa_proto_rx_msg *entry,
-			   struct efa_rdm_ep *ep, struct efa_rdm_peer *peer,
-			   uint32_t op);
-
-void efa_proto_rx_rma_write_init(struct efa_proto_rx_rma_write *entry,
-				 struct efa_rdm_ep *ep, struct efa_rdm_peer *peer);
-
-void efa_proto_rx_rma_read_init(struct efa_proto_rx_rma_read *entry,
-				struct efa_rdm_ep *ep, struct efa_rdm_peer *peer);
-
-void efa_proto_rx_atomic_init(struct efa_proto_rx_atomic *entry,
-			      struct efa_rdm_ep *ep, struct efa_rdm_peer *peer,
-			      uint32_t op);
-
-/* Release functions */
-void efa_proto_ope_base_release(struct efa_proto_ope_base *base);
-void efa_proto_rx_base_release(struct efa_proto_rx_base *rx);
-
-/* ────────────────────────────────────────────────────────────────────────────
- * Task 12: Compile-time validation — before/after size comparison
- *
- * Original struct efa_proto_ope: 872 bytes (14 cache lines) without debug.
- * The new hierarchy eliminates unused fields from each protocol path.
- *
- * After switchover, each protocol path only touches the cache lines it needs:
- *
- * | Protocol Path     | New struct              | Reduction vs 872B |
- * |-------------------|-------------------------|-------------------|
- * | TX msg/tagged     | efa_proto_tx_msg        | ~40%              |
- * | TX RMA read       | efa_proto_tx_rma_read   | ~42%              |
- * | TX RMA write      | efa_proto_tx_rma_write  | ~43%              |
- * | TX atomic         | efa_proto_tx_atomic     | ~21%              |
- * | RX msg/tagged     | efa_proto_rx_msg        | ~32%              |
- * | RX RMA write      | efa_proto_rx_rma_write  | ~38%              |
- * | RX RMA read       | efa_proto_rx_rma_read   | ~36%              |
- * | RX atomic         | efa_proto_rx_atomic     | ~36%              |
- *
- * The union (efa_proto_ope_entry) is sized by the largest member (tx_atomic)
- * and is used for the single bufpool allocation.
- * ──────────────────────────────────────────────────────────────────────────── */
 
 #endif /* _EFA_PROTO_OPE_H */
