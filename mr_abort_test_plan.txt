@@ -1,0 +1,122 @@
+## Test Plan: mr_abort
+
+### Command-Line Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| -S <bytes> | Transfer size per operation | 1MB |
+| -W <count> | Number of MR/buffer pairs to allocate (should be ≥ 2x expected WQ depth) | 128 |
+| -I <count> | Number of test iterations | 1 |
+| -o <op> | RMA op: write, read, writedata | write |
+| -C <mode> | MR close order: reverse, random | reverse |
+
+### Per-Operation Tracking
+
+c
+struct mr_abort_ctx {
+    char *buf;
+    struct fid_mr *mr;
+    void *desc;
+    struct fi_rma_iov remote;
+    struct fi_context2 context;
+    bool posted;
+    bool mr_closed;
+    bool completed;
+    int status;       /* 0 = success, negative = error code */
+};
+
+
+### Setup (once)
+
+1. Init fabric with FI_RMA | FI_MSG caps, OOB sync enabled
+2. Allocate W buffers of size S, register W MRs (1 per buffer)
+3. Exchange all W remote MR keys/addresses with peer over OOB socket
+
+### Iteration Loop
+
+For each iteration 1..I:
+
+Phase 1 — Fill TX WQ:
+
+posted = 0
+for i in 0..W:
+    ret = fi_write/fi_read/fi_writedata(ctx[i])
+    if ret == -FI_EAGAIN:
+        break
+    if ret < 0:
+        fail
+    ctx[i].posted = true
+    posted++
+
+
+Phase 2 — Build cancel order from posted operations:
+
+cancel_order = [0, 1, ..., posted-1]
+
+if mode == reverse:
+    reverse(cancel_order)
+else if mode == random:
+    shuffle(cancel_order)
+
+
+Phase 3 — Close MRs as fast as possible:
+
+for i in cancel_order:
+    fi_close(&ctx[i].mr->fid)
+    ctx[i].mr = NULL
+    ctx[i].mr_closed = true
+
+
+Phase 4 — Drain CQ with timeout:
+
+remaining = posted
+deadline = now + 30s
+while remaining > 0 and now < deadline:
+    ret = fi_cq_read(txcq, &comp, 1)
+    if ret > 0:
+        find ctx by comp.op_context
+        ctx.completed = true, ctx.status = 0
+        remaining--
+    else if ret == -FI_EAVAIL:
+        fi_cq_readerr(txcq, &err, 0)
+        find ctx by err.op_context
+        ctx.completed = true, ctx.status = -err.err
+        remaining--
+
+
+Phase 5 — Report:
+
+completed_ok  = count where completed && status == 0
+completed_err = count where completed && status < 0
+missing       = posted - completed_ok - completed_err
+
+Iteration N: op=write size=1048576 posted=64 ok=3 err=61 missing=0 cancel=reverse ... PASS/FAIL
+
+
+FAIL if missing > 0 (silent drop) or timeout.
+
+Phase 6 — Sync with server, re-register MRs for next iteration:
+
+ft_sync()
+for each ctx where mr_closed:
+    re-register MR, re-exchange key with peer
+    reset posted/mr_closed/completed/status
+
+
+### After All Iterations — Endpoint Reuse Check
+
+1. Register a fresh MR
+2. Do one normal fi_write + completion + data verification
+3. Do one normal fi_read + completion + data verification
+4. Confirms endpoint didn't enter permanent error state
+
+### Server Side (all iterations)
+
+1. Wait on ft_sync() per iteration — passive during client's fill/close/drain phases
+2. After final sync, participate in endpoint reuse check (verify received write data, provide read data)
+
+### Output
+
+Iteration 1: op=write size=1048576 posted=64 ok=3 err=61 missing=0 cancel=reverse ... PASS
+Iteration 2: op=write size=1048576 posted=62 ok=5 err=57 missing=0 cancel=reverse ... PASS
+Reuse: write ok, read ok, data verified ... PASS
