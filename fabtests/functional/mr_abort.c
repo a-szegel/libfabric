@@ -810,10 +810,10 @@ static int reuse_check_client(void)
 	}
 
 	do {
-		ret = fi_cq_sread(txcq, &comp, 1, NULL, CQ_TIMEOUT_MS);
+		ret = fi_cq_read(txcq, &comp, 1);
 	} while (ret == -FI_EAGAIN);
 	if (ret < 0) {
-		FT_PRINTERR("fi_cq_sread (reuse write)", ret);
+		FT_PRINTERR("fi_cq_read (reuse write)", ret);
 		return ret;
 	}
 
@@ -832,10 +832,10 @@ static int reuse_check_client(void)
 	}
 
 	do {
-		ret = fi_cq_sread(txcq, &comp, 1, NULL, CQ_TIMEOUT_MS);
+		ret = fi_cq_read(txcq, &comp, 1);
 	} while (ret == -FI_EAGAIN);
 	if (ret < 0) {
-		FT_PRINTERR("fi_cq_sread (reuse read)", ret);
+		FT_PRINTERR("fi_cq_read (reuse read)", ret);
 		return ret;
 	}
 
