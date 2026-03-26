@@ -60,6 +60,8 @@ enum close_side {
 enum test_mode {
 	TEST_ABORT,
 	TEST_PARTIAL,
+	TEST_SEND,
+	TEST_TAGGED,
 };
 
 /*
@@ -282,6 +284,36 @@ static ssize_t post_rma_op(int op_idx, int mr_idx)
 	default:
 		return -FI_EINVAL;
 	}
+}
+
+static ssize_t post_send_op(int op_idx, int mr_idx)
+{
+	struct mr_slot *s = &slots[mr_idx];
+	struct op_ctx *o = &op_arr[op_idx];
+
+	o->mr_idx = mr_idx;
+
+	if (test_mode == TEST_TAGGED)
+		return fi_tsend(ep, s->buf, opts.transfer_size, s->desc,
+				remote_fi_addr, 0xCAFE, &o->context);
+	else
+		return fi_send(ep, s->buf, opts.transfer_size, s->desc,
+			       remote_fi_addr, &o->context);
+}
+
+static ssize_t post_recv_op(int op_idx, int mr_idx)
+{
+	struct mr_slot *s = &slots[mr_idx];
+	struct op_ctx *o = &op_arr[op_idx];
+
+	o->mr_idx = mr_idx;
+
+	if (test_mode == TEST_TAGGED)
+		return fi_trecv(ep, s->buf, opts.transfer_size, s->desc,
+				remote_fi_addr, 0xCAFE, 0, &o->context);
+	else
+		return fi_recv(ep, s->buf, opts.transfer_size, s->desc,
+			       remote_fi_addr, &o->context);
 }
 
 static void shuffle(int *arr, int n)
@@ -831,22 +863,178 @@ static int reuse_check_server(void)
 }
 
 /*
+ * Test 4: Send/Tagged abort
+ *
+ * Client fills TX queue with fi_send/fi_tsend, then closes sender MRs.
+ * Server pre-posts fi_recv/fi_trecv. If target-close, server closes
+ * its recv MRs instead.
+ */
+static int run_send_abort_client(int iter)
+{
+	int i, mr_idx, op_idx, ret;
+	int total_posted, mrs_used;
+	int completed_ok, completed_err, missing;
+	const char *mode_str = (test_mode == TEST_TAGGED) ? "tagged" : "send";
+
+	reset_test_state();
+
+	total_posted = 0;
+	mrs_used = 0;
+	op_idx = 0;
+
+	/* Sync so server has recvs posted before we start sending */
+	ret = ft_sync();
+	if (ret)
+		return ret;
+
+	/* Fill TX queue with sends */
+	for (mr_idx = 0; mr_idx < wq_depth; mr_idx++) {
+		int posted_this_mr = 0;
+		int eagain = 0;
+
+		for (i = 0; i < ops_per_mr; i++) {
+			ret = post_send_op(op_idx, mr_idx);
+			if (ret == -FI_EAGAIN) {
+				eagain = 1;
+				break;
+			}
+			if (ret) {
+				FT_PRINTERR("post_send_op", ret);
+				return ret;
+			}
+			posted_this_mr++;
+			op_idx++;
+			total_posted++;
+		}
+		if (posted_this_mr > 0) {
+			slots[mr_idx].posted = posted_this_mr;
+			mrs_used++;
+		}
+		if (eagain)
+			break;
+	}
+
+	if (total_posted == 0) {
+		FT_ERR("could not post any send operations");
+		return -FI_EINVAL;
+	}
+
+	/* Close sender MRs (initiator mode) */
+	if (close_side == CLOSE_INITIATOR) {
+		build_cancel_order(mrs_used);
+		for (i = 0; i < mrs_used; i++) {
+			int idx = cancel_order[i];
+
+			ret = fi_close(&slots[idx].mr->fid);
+			if (ret)
+				FT_PRINTERR("fi_close(mr)", ret);
+			slots[idx].mr = NULL;
+			slots[idx].mr_closed = 1;
+		}
+	}
+
+	/* Drain TX CQ */
+	missing = drain_cq(txcq, total_posted);
+
+	completed_ok = 0;
+	completed_err = 0;
+	for (i = 0; i < total_posted; i++) {
+		if (op_arr[i].completed) {
+			if (op_arr[i].status == 0)
+				completed_ok++;
+			else
+				completed_err++;
+		}
+	}
+
+	printf("Iteration %d: mode=%s size=%zu posted=%d mrs=%d "
+	       "ok=%d err=%d missing=%d side=%s ... %s\n",
+	       iter, mode_str, opts.transfer_size, total_posted,
+	       mrs_used, completed_ok, completed_err,
+	       missing, side_str(),
+	       missing == 0 ? "PASS" : "FAIL");
+
+	return missing == 0 ? 0 : -FI_EOTHER;
+}
+
+static int run_send_abort_server(int iter)
+{
+	int i, mr_idx, op_idx, ret;
+	int total_posted, mrs_used;
+	int missing;
+
+	reset_test_state();
+
+	total_posted = 0;
+	mrs_used = 0;
+	op_idx = 0;
+
+	/* Pre-post receives */
+	for (mr_idx = 0; mr_idx < wq_depth; mr_idx++) {
+		int posted_this_mr = 0;
+
+		for (i = 0; i < ops_per_mr; i++) {
+			ret = post_recv_op(op_idx, mr_idx);
+			if (ret) {
+				FT_PRINTERR("post_recv_op", ret);
+				return ret;
+			}
+			posted_this_mr++;
+			op_idx++;
+			total_posted++;
+		}
+		if (posted_this_mr > 0) {
+			slots[mr_idx].posted = posted_this_mr;
+			mrs_used++;
+		}
+	}
+
+	/* Sync to let client start sending */
+	ret = ft_sync();
+	if (ret)
+		return ret;
+
+	/* Close recv MRs (target mode) */
+	if (close_side == CLOSE_TARGET) {
+		build_cancel_order(mrs_used);
+		for (i = 0; i < mrs_used; i++) {
+			int idx = cancel_order[i];
+
+			ret = fi_close(&slots[idx].mr->fid);
+			if (ret)
+				FT_PRINTERR("fi_close(mr)", ret);
+			slots[idx].mr = NULL;
+			slots[idx].mr_closed = 1;
+		}
+	}
+
+	/* Drain RX CQ — expect mix of success and errors */
+	missing = drain_cq(rxcq, total_posted);
+
+	printf("Server iter %d: recvs=%d missing=%d ... %s\n",
+	       iter, total_posted, missing,
+	       missing == 0 ? "PASS" : "FAIL");
+
+	return missing == 0 ? 0 : -FI_EOTHER;
+}
+
+/*
  * Top-level client and server flows.
  */
 static int run_client(void)
 {
 	int i, ret;
 
-	ret = register_mrs(local_access_for_op());
-	if (ret)
-		return ret;
-
-	ret = exchange_mr_keys();
-	if (ret)
-		return ret;
-
 	switch (test_mode) {
 	case TEST_ABORT:
+		ret = register_mrs(local_access_for_op());
+		if (ret)
+			return ret;
+
+		ret = exchange_mr_keys();
+		if (ret)
+			return ret;
+
 		for (i = 0; i < opts.iterations; i++) {
 			ret = run_fill_abort_client(i + 1);
 			if (ret)
@@ -869,6 +1057,14 @@ static int run_client(void)
 		break;
 
 	case TEST_PARTIAL:
+		ret = register_mrs(local_access_for_op());
+		if (ret)
+			return ret;
+
+		ret = exchange_mr_keys();
+		if (ret)
+			return ret;
+
 		for (i = 0; i < opts.iterations; i++) {
 			ret = run_partial_close_client();
 			if (ret)
@@ -889,6 +1085,29 @@ static int run_client(void)
 			}
 		}
 		break;
+
+	case TEST_SEND:
+	case TEST_TAGGED:
+		ret = register_mrs(FI_SEND);
+		if (ret)
+			return ret;
+
+		for (i = 0; i < opts.iterations; i++) {
+			ret = run_send_abort_client(i + 1);
+			if (ret)
+				return ret;
+
+			ret = ft_sync();
+			if (ret)
+				return ret;
+
+			if (i < opts.iterations - 1) {
+				ret = register_mrs(FI_SEND);
+				if (ret)
+					return ret;
+			}
+		}
+		break;
 	}
 
 	/* Endpoint reuse check */
@@ -903,16 +1122,16 @@ static int run_server(void)
 {
 	int i, ret;
 
-	ret = register_mrs(remote_access_for_op());
-	if (ret)
-		return ret;
-
-	ret = exchange_mr_keys();
-	if (ret)
-		return ret;
-
 	switch (test_mode) {
 	case TEST_ABORT:
+		ret = register_mrs(remote_access_for_op());
+		if (ret)
+			return ret;
+
+		ret = exchange_mr_keys();
+		if (ret)
+			return ret;
+
 		for (i = 0; i < opts.iterations; i++) {
 			ret = run_fill_abort_server();
 			if (ret)
@@ -935,6 +1154,14 @@ static int run_server(void)
 		break;
 
 	case TEST_PARTIAL:
+		ret = register_mrs(remote_access_for_op());
+		if (ret)
+			return ret;
+
+		ret = exchange_mr_keys();
+		if (ret)
+			return ret;
+
 		for (i = 0; i < opts.iterations; i++) {
 			ret = run_partial_close_server();
 			if (ret)
@@ -950,6 +1177,29 @@ static int run_server(void)
 					return ret;
 
 				ret = exchange_mr_keys();
+				if (ret)
+					return ret;
+			}
+		}
+		break;
+
+	case TEST_SEND:
+	case TEST_TAGGED:
+		ret = register_mrs(FI_RECV);
+		if (ret)
+			return ret;
+
+		for (i = 0; i < opts.iterations; i++) {
+			ret = run_send_abort_server(i + 1);
+			if (ret)
+				return ret;
+
+			ret = ft_sync();
+			if (ret)
+				return ret;
+
+			if (i < opts.iterations - 1) {
+				ret = register_mrs(FI_RECV);
 				if (ret)
 					return ret;
 			}
@@ -1043,6 +1293,10 @@ int main(int argc, char **argv)
 				test_mode = TEST_ABORT;
 			else if (!strcmp(optarg, "partial"))
 				test_mode = TEST_PARTIAL;
+			else if (!strcmp(optarg, "send"))
+				test_mode = TEST_SEND;
+			else if (!strcmp(optarg, "tagged"))
+				test_mode = TEST_TAGGED;
 			else {
 				FT_ERR("Unknown test mode: %s", optarg);
 				return EXIT_FAILURE;
@@ -1058,10 +1312,10 @@ int main(int argc, char **argv)
 		case '?':
 		case 'h':
 			ft_csusage(argv[0],
-				"Test aborting in-flight RMA operations by "
+				"Test aborting in-flight operations by "
 				"closing MRs.");
 			FT_PRINT_OPTS_USAGE("-T <test>",
-				"Test mode: abort|partial "
+				"Test mode: abort|partial|send|tagged "
 				"(default: abort)");
 			FT_PRINT_OPTS_USAGE("-o <op>",
 				"RMA op: write|read|writedata "
@@ -1085,9 +1339,20 @@ int main(int argc, char **argv)
 	if (optind < argc)
 		opts.dst_addr = argv[optind];
 
-	hints->caps = FI_MSG | FI_RMA;
-	if (opts.rma_op == FT_RMA_WRITEDATA || close_side == CLOSE_TARGET)
-		hints->caps |= FI_RMA_EVENT;
+	hints->caps = FI_MSG;
+	switch (test_mode) {
+	case TEST_ABORT:
+	case TEST_PARTIAL:
+		hints->caps |= FI_RMA;
+		if (opts.rma_op == FT_RMA_WRITEDATA || close_side == CLOSE_TARGET)
+			hints->caps |= FI_RMA_EVENT;
+		break;
+	case TEST_TAGGED:
+		hints->caps |= FI_TAGGED;
+		break;
+	case TEST_SEND:
+		break;
+	}
 	hints->mode = FI_CONTEXT | FI_CONTEXT2;
 	hints->domain_attr->mr_mode = opts.mr_mode;
 	hints->domain_attr->resource_mgmt = FI_RM_ENABLED;
