@@ -803,7 +803,8 @@ static int reuse_check_client(void)
 		}
 	} while (ret != -FI_EAGAIN);
 
-	ret = register_mrs(local_access_for_op());
+	/* Need both write and read access for the reuse check */
+	ret = register_mrs(FI_WRITE | FI_READ);
 	if (ret)
 		return ret;
 
@@ -873,7 +874,8 @@ static int reuse_check_server(void)
 {
 	int ret;
 
-	ret = register_mrs(remote_access_for_op());
+	/* Need both remote write and read access for the reuse check */
+	ret = register_mrs(FI_REMOTE_WRITE | FI_REMOTE_READ);
 	if (ret)
 		return ret;
 
