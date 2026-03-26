@@ -85,7 +85,7 @@ struct mr_slot {
 static struct mr_slot *slots;
 static struct op_ctx *op_arr;
 static int *cancel_order;
-static int wq_depth = 128;
+static int wq_depth = 8192;
 static int ops_per_mr = 1;
 static enum cancel_mode cancel_mode = CANCEL_REVERSE;
 static enum close_side close_side = CLOSE_INITIATOR;
@@ -1000,7 +1000,7 @@ int main(int argc, char **argv)
 
 	opts = INIT_OPTS;
 	opts.options |= FT_OPT_OOB_SYNC | FT_OPT_SKIP_MSG_ALLOC | FT_OPT_SIZE;
-	opts.transfer_size = 1024 * 1024; /* 1MB default */
+	opts.transfer_size = 4096; /* 4KB default — override with -S */
 	opts.iterations = 1;
 
 	hints = fi_allocinfo();
