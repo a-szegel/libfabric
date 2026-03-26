@@ -789,7 +789,19 @@ static int reuse_check_client(void)
 {
 	struct fi_context2 reuse_ctx;
 	struct fi_cq_tagged_entry comp;
+	struct fi_cq_err_entry err;
 	int ret;
+
+	/* Drain any residual error entries from the abort test */
+	do {
+		ret = fi_cq_read(txcq, &comp, 1);
+		if (ret == -FI_EAVAIL) {
+			memset(&err, 0, sizeof(err));
+			fi_cq_readerr(txcq, &err, 0);
+			printf("Reuse drain: residual error %d (%s)\n",
+			       err.err, fi_strerror(err.err));
+		}
+	} while (ret != -FI_EAGAIN);
 
 	ret = register_mrs(local_access_for_op());
 	if (ret)
@@ -811,6 +823,13 @@ static int reuse_check_client(void)
 
 	do {
 		ret = fi_cq_read(txcq, &comp, 1);
+		if (ret == -FI_EAVAIL) {
+			memset(&err, 0, sizeof(err));
+			fi_cq_readerr(txcq, &err, 0);
+			FT_ERR("Unexpected CQ error during reuse write: %d (%s)",
+			       err.err, fi_strerror(err.err));
+			return -err.err;
+		}
 	} while (ret == -FI_EAGAIN);
 	if (ret < 0) {
 		FT_PRINTERR("fi_cq_read (reuse write)", ret);
@@ -833,6 +852,13 @@ static int reuse_check_client(void)
 
 	do {
 		ret = fi_cq_read(txcq, &comp, 1);
+		if (ret == -FI_EAVAIL) {
+			memset(&err, 0, sizeof(err));
+			fi_cq_readerr(txcq, &err, 0);
+			FT_ERR("Unexpected CQ error during reuse read: %d (%s)",
+			       err.err, fi_strerror(err.err));
+			return -err.err;
+		}
 	} while (ret == -FI_EAGAIN);
 	if (ret < 0) {
 		FT_PRINTERR("fi_cq_read (reuse read)", ret);
