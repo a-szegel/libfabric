@@ -26,16 +26,13 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  *
- * Test aborting in-flight RMA operations by closing local MRs.
+ * Test aborting in-flight RMA operations by closing MRs.
  *
- * Workflow:
- *   1. Allocate W MR/buffer pairs (1 MR per operation)
- *   2. Post fi_write/fi_read/fi_writedata until TX WQ returns -FI_EAGAIN
- *   3. Build cancel order array from posted operations (reverse or random)
- *   4. Close all posted MRs as fast as possible
- *   5. Drain CQ — every posted op must produce a completion (success or error)
- *   6. Re-register MRs, repeat for I iterations
- *   7. Verify endpoint is still usable with a normal write+read round-trip
+ * Test modes:
+ *   - Initiator close: client posts RMA ops, client closes its local MRs
+ *   - Target close: client posts RMA ops, server closes its remote MRs
+ *   - Multi-op per MR: N ops share 1 MR, close aborts all remaining
+ *   - Partial close: 2 MRs on same buffer, close only 1, other completes
  */
 
 #include <stdio.h>
@@ -55,40 +52,70 @@ enum cancel_mode {
 	CANCEL_RANDOM,
 };
 
-struct mr_abort_ctx {
+enum close_side {
+	CLOSE_INITIATOR,
+	CLOSE_TARGET,
+};
+
+enum test_mode {
+	TEST_ABORT,
+	TEST_PARTIAL,
+};
+
+/*
+ * Each MR slot can have ops_per_mr operations posted against it.
+ * op_ctx tracks per-operation state; mr_slot tracks per-MR state.
+ */
+struct op_ctx {
+	struct fi_context2 context;
+	int mr_idx;	/* which mr_slot this op belongs to */
+	int completed;
+	int status;	/* 0 = success, negative = error code */
+};
+
+struct mr_slot {
 	char *buf;
 	struct fid_mr *mr;
 	void *desc;
 	uint64_t key;
-	struct fi_context2 context;
-	int posted;
+	int posted;	/* number of ops posted using this MR */
 	int mr_closed;
-	int completed;
-	int status;
 };
 
-static struct mr_abort_ctx *ctx_arr;
+static struct mr_slot *slots;
+static struct op_ctx *op_arr;
 static int *cancel_order;
 static int wq_depth = 128;
+static int ops_per_mr = 1;
 static enum cancel_mode cancel_mode = CANCEL_REVERSE;
+static enum close_side close_side = CLOSE_INITIATOR;
+static enum test_mode test_mode = TEST_ABORT;
 
-/* Remote side MR info — exchanged over OOB */
+/* Remote side MR info */
 static struct fi_rma_iov *remote_arr;
 
-/* Key base offset to avoid colliding with the shared.c default MR keys */
 #define MR_ABORT_KEY_BASE 0x1000
+#define CQ_TIMEOUT_MS 30000
 
-static uint64_t mr_access_for_op(void)
+static uint64_t local_access_for_op(void)
 {
+	uint64_t access = 0;
+
 	switch (opts.rma_op) {
 	case FT_RMA_WRITE:
 	case FT_RMA_WRITEDATA:
-		return FI_WRITE;
+		access = FI_WRITE;
+		break;
 	case FT_RMA_READ:
-		return FI_READ;
+		access = FI_READ;
+		break;
 	default:
-		return FI_WRITE | FI_READ;
+		access = FI_WRITE | FI_READ;
+		break;
 	}
+	if (fi->domain_attr->mr_mode & FI_MR_LOCAL)
+		access |= FI_READ | FI_WRITE;
+	return access;
 }
 
 static uint64_t remote_access_for_op(void)
@@ -104,12 +131,21 @@ static uint64_t remote_access_for_op(void)
 	}
 }
 
-static int alloc_ctx_arr(void)
+static int max_ops(void)
+{
+	return wq_depth * ops_per_mr;
+}
+
+static int alloc_test_res(void)
 {
 	int i;
 
-	ctx_arr = calloc(wq_depth, sizeof(*ctx_arr));
-	if (!ctx_arr)
+	slots = calloc(wq_depth, sizeof(*slots));
+	if (!slots)
+		return -FI_ENOMEM;
+
+	op_arr = calloc(max_ops(), sizeof(*op_arr));
+	if (!op_arr)
 		return -FI_ENOMEM;
 
 	cancel_order = calloc(wq_depth, sizeof(*cancel_order));
@@ -121,27 +157,29 @@ static int alloc_ctx_arr(void)
 		return -FI_ENOMEM;
 
 	for (i = 0; i < wq_depth; i++) {
-		ctx_arr[i].buf = calloc(1, opts.transfer_size);
-		if (!ctx_arr[i].buf)
+		slots[i].buf = calloc(1, opts.transfer_size);
+		if (!slots[i].buf)
 			return -FI_ENOMEM;
-		ctx_arr[i].key = MR_ABORT_KEY_BASE + i;
+		slots[i].key = MR_ABORT_KEY_BASE + i;
 	}
 
 	return 0;
 }
 
-static void free_ctx_arr(void)
+static void free_test_res(void)
 {
 	int i;
 
-	if (ctx_arr) {
+	if (slots) {
 		for (i = 0; i < wq_depth; i++) {
-			FT_CLOSE_FID(ctx_arr[i].mr);
-			free(ctx_arr[i].buf);
+			FT_CLOSE_FID(slots[i].mr);
+			free(slots[i].buf);
 		}
-		free(ctx_arr);
-		ctx_arr = NULL;
+		free(slots);
+		slots = NULL;
 	}
+	free(op_arr);
+	op_arr = NULL;
 	free(cancel_order);
 	cancel_order = NULL;
 	free(remote_arr);
@@ -152,16 +190,13 @@ static int register_mrs(uint64_t access)
 {
 	int i, ret;
 
-	if (fi->domain_attr->mr_mode & FI_MR_LOCAL)
-		access |= FI_READ | FI_WRITE;
-
 	for (i = 0; i < wq_depth; i++) {
-		if (ctx_arr[i].mr)
+		if (slots[i].mr)
 			continue;
 
-		ret = ft_reg_mr(fi, ctx_arr[i].buf, opts.transfer_size,
-				access, ctx_arr[i].key, opts.iface,
-				opts.device, &ctx_arr[i].mr, &ctx_arr[i].desc);
+		ret = ft_reg_mr(fi, slots[i].buf, opts.transfer_size,
+				access, slots[i].key, opts.iface,
+				opts.device, &slots[i].mr, &slots[i].desc);
 		if (ret) {
 			FT_PRINTERR("ft_reg_mr", ret);
 			return ret;
@@ -170,10 +205,6 @@ static int register_mrs(uint64_t access)
 	return 0;
 }
 
-/*
- * Exchange per-MR keys over OOB socket.
- * Both sides send their key + address info, receive the peer's.
- */
 static int exchange_mr_keys(void)
 {
 	struct fi_rma_iov *local_info;
@@ -184,9 +215,10 @@ static int exchange_mr_keys(void)
 		return -FI_ENOMEM;
 
 	for (i = 0; i < wq_depth; i++) {
-		local_info[i].key = fi_mr_key(ctx_arr[i].mr);
-		local_info[i].addr = (fi->domain_attr->mr_mode & FI_MR_VIRT_ADDR) ?
-			(uintptr_t) ctx_arr[i].buf : 0;
+		local_info[i].key = fi_mr_key(slots[i].mr);
+		local_info[i].addr =
+			(fi->domain_attr->mr_mode & FI_MR_VIRT_ADDR) ?
+			(uintptr_t) slots[i].buf : 0;
 		local_info[i].len = opts.transfer_size;
 	}
 
@@ -211,36 +243,42 @@ out:
 	return ret;
 }
 
-static void reset_ctx_arr(void)
+static void reset_test_state(void)
 {
 	int i;
 
 	for (i = 0; i < wq_depth; i++) {
-		ctx_arr[i].posted = 0;
-		ctx_arr[i].mr_closed = 0;
-		ctx_arr[i].completed = 0;
-		ctx_arr[i].status = 0;
+		slots[i].posted = 0;
+		slots[i].mr_closed = 0;
+	}
+	for (i = 0; i < max_ops(); i++) {
+		op_arr[i].completed = 0;
+		op_arr[i].status = 0;
+		op_arr[i].mr_idx = -1;
 	}
 }
 
-static ssize_t post_rma_op(int idx)
+static ssize_t post_rma_op(int op_idx, int mr_idx)
 {
-	struct mr_abort_ctx *c = &ctx_arr[idx];
+	struct mr_slot *s = &slots[mr_idx];
+	struct op_ctx *o = &op_arr[op_idx];
+
+	o->mr_idx = mr_idx;
 
 	switch (opts.rma_op) {
 	case FT_RMA_WRITE:
-		return fi_write(ep, c->buf, opts.transfer_size, c->desc,
-				remote_fi_addr, remote_arr[idx].addr,
-				remote_arr[idx].key, &c->context);
+		return fi_write(ep, s->buf, opts.transfer_size, s->desc,
+				remote_fi_addr, remote_arr[mr_idx].addr,
+				remote_arr[mr_idx].key, &o->context);
 	case FT_RMA_WRITEDATA:
-		return fi_writedata(ep, c->buf, opts.transfer_size, c->desc,
+		return fi_writedata(ep, s->buf, opts.transfer_size, s->desc,
 				    remote_cq_data, remote_fi_addr,
-				    remote_arr[idx].addr, remote_arr[idx].key,
-				    &c->context);
+				    remote_arr[mr_idx].addr,
+				    remote_arr[mr_idx].key, &o->context);
 	case FT_RMA_READ:
-		return fi_read(ep, c->buf, opts.transfer_size, c->desc,
-			       remote_fi_addr, remote_arr[idx].addr,
-			       remote_arr[idx].key, &c->context);
+		return fi_read(ep, s->buf, opts.transfer_size, s->desc,
+			       remote_fi_addr, remote_arr[mr_idx].addr,
+			       remote_arr[mr_idx].key, &o->context);
 	default:
 		return -FI_EINVAL;
 	}
@@ -258,72 +296,72 @@ static void shuffle(int *arr, int n)
 	}
 }
 
-static void build_cancel_order(int posted)
+static void build_cancel_order(int num_mrs)
 {
 	int i, tmp;
 
-	for (i = 0; i < posted; i++)
+	for (i = 0; i < num_mrs; i++)
 		cancel_order[i] = i;
 
 	switch (cancel_mode) {
 	case CANCEL_REVERSE:
-		for (i = 0; i < posted / 2; i++) {
+		for (i = 0; i < num_mrs / 2; i++) {
 			tmp = cancel_order[i];
-			cancel_order[i] = cancel_order[posted - 1 - i];
-			cancel_order[posted - 1 - i] = tmp;
+			cancel_order[i] = cancel_order[num_mrs - 1 - i];
+			cancel_order[num_mrs - 1 - i] = tmp;
 		}
 		break;
 	case CANCEL_RANDOM:
-		shuffle(cancel_order, posted);
+		shuffle(cancel_order, num_mrs);
 		break;
 	}
 }
 
-static struct mr_abort_ctx *find_ctx_by_context(void *op_context)
+static struct op_ctx *find_op_by_context(void *op_context)
 {
 	int i;
 
-	for (i = 0; i < wq_depth; i++) {
-		if (&ctx_arr[i].context == op_context)
-			return &ctx_arr[i];
+	for (i = 0; i < max_ops(); i++) {
+		if (&op_arr[i].context == op_context)
+			return &op_arr[i];
 	}
 	return NULL;
 }
 
-static int drain_cq(int posted)
+static int drain_cq(struct fid_cq *cq, int expected)
 {
 	struct fi_cq_tagged_entry comp;
 	struct fi_cq_err_entry err;
-	struct mr_abort_ctx *c;
+	struct op_ctx *o;
 	uint64_t deadline;
 	int remaining, ret;
 
-	remaining = posted;
-	deadline = ft_gettime_ms() + 30000; /* 30 second timeout */
+	remaining = expected;
+	deadline = ft_gettime_ms() + CQ_TIMEOUT_MS;
 
 	while (remaining > 0 && ft_gettime_ms() < deadline) {
-		ret = fi_cq_read(txcq, &comp, 1);
+		ret = fi_cq_read(cq, &comp, 1);
 		if (ret > 0) {
-			c = find_ctx_by_context(comp.op_context);
-			if (c) {
-				c->completed = 1;
-				c->status = 0;
-				remaining--;
+			o = find_op_by_context(comp.op_context);
+			if (o) {
+				o->completed = 1;
+				o->status = 0;
 			}
+			remaining--;
 		} else if (ret == -FI_EAVAIL) {
 			memset(&err, 0, sizeof(err));
-			ret = fi_cq_readerr(txcq, &err, 0);
+			ret = fi_cq_readerr(cq, &err, 0);
 			if (ret < 0 && ret != -FI_EAGAIN) {
 				FT_PRINTERR("fi_cq_readerr", ret);
 				return ret;
 			}
 			if (ret == 1) {
-				c = find_ctx_by_context(err.op_context);
-				if (c) {
-					c->completed = 1;
-					c->status = -err.err;
-					remaining--;
+				o = find_op_by_context(err.op_context);
+				if (o) {
+					o->completed = 1;
+					o->status = -err.err;
 				}
+				remaining--;
 			}
 		} else if (ret < 0 && ret != -FI_EAGAIN) {
 			FT_PRINTERR("fi_cq_read", ret);
@@ -349,77 +387,377 @@ static const char *cancel_str(void)
 	return cancel_mode == CANCEL_REVERSE ? "reverse" : "random";
 }
 
-static int run_abort_iteration(int iter)
+static const char *side_str(void)
 {
-	int i, idx, posted, ret;
+	return close_side == CLOSE_INITIATOR ? "initiator" : "target";
+}
+
+/*
+ * Test 1: Fill-and-abort
+ *
+ * Initiator mode: post ops until EAGAIN, then close local MRs.
+ * Target mode: for each MR, client sends a 0-byte write-with-imm
+ *   followed by the large write/read. Server watches for the
+ *   write-with-imm completions and closes the corresponding MR
+ *   immediately, racing the large transfer.
+ */
+static int run_fill_abort_client(int iter)
+{
+	int i, mr_idx, op_idx, ret;
+	int total_posted, mrs_used;
 	int completed_ok, completed_err, missing;
+	struct fi_context2 signal_ctx;
 
-	reset_ctx_arr();
+	reset_test_state();
 
-	/* Phase 1: Fill TX WQ */
-	posted = 0;
-	for (i = 0; i < wq_depth; i++) {
-		ret = post_rma_op(i);
-		if (ret == -FI_EAGAIN)
-			break;
-		if (ret) {
-			FT_PRINTERR("post_rma_op", ret);
-			return ret;
+	total_posted = 0;
+	mrs_used = 0;
+	op_idx = 0;
+
+	if (close_side == CLOSE_TARGET) {
+		/*
+		 * Target-close: for each MR slot, post a 0-byte
+		 * write-with-imm (signal) then the large op.
+		 * The imm data carries the MR index so the server
+		 * knows which MR to close.
+		 */
+		for (mr_idx = 0; mr_idx < wq_depth; mr_idx++) {
+			int posted_this_mr = 0;
+			int eagain = 0;
+
+			for (i = 0; i < ops_per_mr; i++) {
+				/* Signal: 0-byte writedata with mr_idx as imm */
+				ret = fi_writedata(ep, NULL, 0, NULL,
+						   (uint64_t) mr_idx,
+						   remote_fi_addr,
+						   remote_arr[mr_idx].addr,
+						   remote_arr[mr_idx].key,
+						   &signal_ctx);
+				if (ret == -FI_EAGAIN) {
+					eagain = 1;
+					break;
+				}
+				if (ret) {
+					FT_PRINTERR("fi_writedata (signal)", ret);
+					return ret;
+				}
+				/* Don't track signal completions — fire and forget.
+				 * Drain them later along with everything else. */
+				total_posted++;
+
+				/* Large op */
+				ret = post_rma_op(op_idx, mr_idx);
+				if (ret == -FI_EAGAIN) {
+					eagain = 1;
+					break;
+				}
+				if (ret) {
+					FT_PRINTERR("post_rma_op", ret);
+					return ret;
+				}
+				posted_this_mr++;
+				op_idx++;
+				total_posted++;
+			}
+			if (posted_this_mr > 0) {
+				slots[mr_idx].posted = posted_this_mr;
+				mrs_used++;
+			}
+			if (eagain)
+				break;
 		}
-		ctx_arr[i].posted = 1;
-		posted++;
+	} else {
+		/* Initiator-close: just fill the WQ */
+		for (mr_idx = 0; mr_idx < wq_depth; mr_idx++) {
+			int posted_this_mr = 0;
+			int eagain = 0;
+
+			for (i = 0; i < ops_per_mr; i++) {
+				ret = post_rma_op(op_idx, mr_idx);
+				if (ret == -FI_EAGAIN) {
+					eagain = 1;
+					break;
+				}
+				if (ret) {
+					FT_PRINTERR("post_rma_op", ret);
+					return ret;
+				}
+				posted_this_mr++;
+				op_idx++;
+				total_posted++;
+			}
+			if (posted_this_mr > 0) {
+				slots[mr_idx].posted = posted_this_mr;
+				mrs_used++;
+			}
+			if (eagain)
+				break;
+		}
 	}
 
-	if (posted == 0) {
+	if (total_posted == 0) {
 		FT_ERR("could not post any operations");
 		return -FI_EINVAL;
 	}
 
-	/* Phase 2: Build cancel order from posted operations */
-	build_cancel_order(posted);
+	/* Phase 2: Build cancel order from MR slots that have posted ops */
+	build_cancel_order(mrs_used);
 
-	/* Phase 3: Close MRs as fast as possible */
-	for (i = 0; i < posted; i++) {
-		idx = cancel_order[i];
-		ret = fi_close(&ctx_arr[idx].mr->fid);
-		if (ret)
-			FT_PRINTERR("fi_close(mr)", ret);
-		ctx_arr[idx].mr = NULL;
-		ctx_arr[idx].mr_closed = 1;
+	/* Phase 3: Close MRs (initiator mode only) */
+	if (close_side == CLOSE_INITIATOR) {
+		for (i = 0; i < mrs_used; i++) {
+			int idx = cancel_order[i];
+
+			ret = fi_close(&slots[idx].mr->fid);
+			if (ret)
+				FT_PRINTERR("fi_close(mr)", ret);
+			slots[idx].mr = NULL;
+			slots[idx].mr_closed = 1;
+		}
 	}
 
 	/* Phase 4: Drain CQ */
-	missing = drain_cq(posted);
+	missing = drain_cq(txcq, total_posted);
 
 	/* Phase 5: Report */
 	completed_ok = 0;
 	completed_err = 0;
-	for (i = 0; i < posted; i++) {
-		if (ctx_arr[i].completed) {
-			if (ctx_arr[i].status == 0)
+	for (i = 0; i < total_posted; i++) {
+		if (op_arr[i].completed) {
+			if (op_arr[i].status == 0)
 				completed_ok++;
 			else
 				completed_err++;
 		}
 	}
 
-	printf("Iteration %d: op=%s size=%zu posted=%d ok=%d err=%d "
-	       "missing=%d cancel=%s ... %s\n",
-	       iter, op_str(), opts.transfer_size, posted,
-	       completed_ok, completed_err, missing, cancel_str(),
+	printf("Iteration %d: op=%s size=%zu posted=%d mrs=%d "
+	       "ops_per_mr=%d ok=%d err=%d missing=%d "
+	       "cancel=%s side=%s ... %s\n",
+	       iter, op_str(), opts.transfer_size, total_posted,
+	       mrs_used, ops_per_mr, completed_ok, completed_err,
+	       missing, cancel_str(), side_str(),
 	       missing == 0 ? "PASS" : "FAIL");
 
 	return missing == 0 ? 0 : -FI_EOTHER;
 }
 
-static int reuse_check(void)
+/*
+ * Server side for target-close mode.
+ *
+ * Pre-posts receives, then polls rxcq for write-with-imm completions.
+ * The imm data carries the MR index. On each completion, immediately
+ * close that MR. Keeps going until all MRs are closed or timeout.
+ */
+static int run_fill_abort_server(void)
+{
+	struct fi_cq_data_entry comp;
+	struct fi_cq_err_entry err;
+	struct fi_context2 rx_ctxs[1];
+	uint64_t deadline;
+	int closed, mr_idx, ret;
+
+	if (close_side != CLOSE_TARGET)
+		return 0;
+
+	/* Pre-post receives for the write-with-imm signals */
+	ret = ft_post_rx(ep, 0, &rx_ctxs[0]);
+	if (ret)
+		return ret;
+
+	closed = 0;
+	deadline = ft_gettime_ms() + CQ_TIMEOUT_MS;
+
+	while (closed < wq_depth && ft_gettime_ms() < deadline) {
+		ret = fi_cq_read(rxcq, &comp, 1);
+		if (ret > 0) {
+			if (comp.flags & FI_REMOTE_CQ_DATA) {
+				mr_idx = (int) comp.data;
+				if (mr_idx >= 0 && mr_idx < wq_depth &&
+				    slots[mr_idx].mr) {
+					ret = fi_close(&slots[mr_idx].mr->fid);
+					if (ret)
+						FT_PRINTERR("fi_close(mr)", ret);
+					slots[mr_idx].mr = NULL;
+					slots[mr_idx].mr_closed = 1;
+					closed++;
+				}
+			}
+			/* Re-post receive for next signal */
+			ret = ft_post_rx(ep, 0, &rx_ctxs[0]);
+			if (ret)
+				return ret;
+		} else if (ret == -FI_EAVAIL) {
+			memset(&err, 0, sizeof(err));
+			fi_cq_readerr(rxcq, &err, 0);
+			/* Errors on rx side after MR close are expected */
+		} else if (ret < 0 && ret != -FI_EAGAIN) {
+			FT_PRINTERR("fi_cq_read (server rx)", ret);
+			return ret;
+		}
+	}
+
+	printf("Server: closed %d/%d MRs\n", closed, wq_depth);
+	return 0;
+}
+
+/*
+ * Test 2: Partial close
+ *
+ * Register 2 MRs on the same buffer. Post 1 write with each MR.
+ * Close only the first MR. Verify: one op errors, the other completes.
+ * Only runs on the client (initiator) side.
+ */
+static int run_partial_close_client(void)
+{
+	struct mr_slot extra_slot = {0};
+	struct op_ctx ops[2] = {{0}};
+	struct fi_cq_tagged_entry comp;
+	struct fi_cq_err_entry err;
+	uint64_t deadline;
+	int completed = 0;
+	int completed_ok = 0, completed_err = 0;
+	int ret;
+
+	/* Use slot 0's buffer for both MRs */
+	extra_slot.buf = slots[0].buf;
+	extra_slot.key = MR_ABORT_KEY_BASE + wq_depth; /* unique key */
+
+	ret = ft_reg_mr(fi, extra_slot.buf, opts.transfer_size,
+			local_access_for_op(), extra_slot.key, opts.iface,
+			opts.device, &extra_slot.mr, &extra_slot.desc);
+	if (ret) {
+		FT_PRINTERR("ft_reg_mr (extra)", ret);
+		return ret;
+	}
+
+	/* Exchange the extra key with server */
+	{
+		struct fi_rma_iov local_iov, remote_iov;
+
+		local_iov.key = fi_mr_key(extra_slot.mr);
+		local_iov.addr =
+			(fi->domain_attr->mr_mode & FI_MR_VIRT_ADDR) ?
+			(uintptr_t) extra_slot.buf : 0;
+		local_iov.len = opts.transfer_size;
+
+		ret = ft_sock_send(oob_sock, &local_iov, sizeof(local_iov));
+		if (ret)
+			goto close_extra;
+		ret = ft_sock_recv(oob_sock, &remote_iov, sizeof(remote_iov));
+		if (ret)
+			goto close_extra;
+
+		/* Post write using slot 0's MR (will be closed) */
+		ops[0].mr_idx = 0;
+		ret = fi_write(ep, slots[0].buf, opts.transfer_size,
+			       slots[0].desc, remote_fi_addr,
+			       remote_arr[0].addr, remote_arr[0].key,
+			       &ops[0].context);
+		if (ret) {
+			FT_PRINTERR("fi_write (slot 0)", ret);
+			goto close_extra;
+		}
+
+		/* Post write using extra MR (will survive) */
+		ops[1].mr_idx = -1;
+		ret = fi_write(ep, extra_slot.buf, opts.transfer_size,
+			       extra_slot.desc, remote_fi_addr,
+			       remote_iov.addr, remote_iov.key,
+			       &ops[1].context);
+		if (ret) {
+			FT_PRINTERR("fi_write (extra)", ret);
+			goto close_extra;
+		}
+
+		/* Close only slot 0's MR */
+		ret = fi_close(&slots[0].mr->fid);
+		if (ret)
+			FT_PRINTERR("fi_close(mr)", ret);
+		slots[0].mr = NULL;
+
+		/* Drain both completions */
+		deadline = ft_gettime_ms() + CQ_TIMEOUT_MS;
+		while (completed < 2 && ft_gettime_ms() < deadline) {
+			ret = fi_cq_read(txcq, &comp, 1);
+			if (ret > 0) {
+				completed++;
+				completed_ok++;
+			} else if (ret == -FI_EAVAIL) {
+				memset(&err, 0, sizeof(err));
+				ret = fi_cq_readerr(txcq, &err, 0);
+				if (ret == 1) {
+					completed++;
+					completed_err++;
+				}
+			} else if (ret < 0 && ret != -FI_EAGAIN) {
+				FT_PRINTERR("fi_cq_read", ret);
+				break;
+			}
+		}
+
+		printf("Partial close: posted=2 ok=%d err=%d missing=%d ... %s\n",
+		       completed_ok, completed_err, 2 - completed,
+		       (completed == 2 && completed_ok >= 1 &&
+			completed_err >= 1) ? "PASS" : "FAIL");
+
+		ret = (completed == 2 && completed_ok >= 1 &&
+		       completed_err >= 1) ? 0 : -FI_EOTHER;
+	}
+
+close_extra:
+	FT_CLOSE_FID(extra_slot.mr);
+	return ret;
+}
+
+static int run_partial_close_server(void)
+{
+	struct mr_slot extra_slot = {0};
+	struct fi_rma_iov local_iov, remote_iov;
+	int ret;
+
+	/* Register an extra MR for the second write target */
+	extra_slot.buf = calloc(1, opts.transfer_size);
+	if (!extra_slot.buf)
+		return -FI_ENOMEM;
+	extra_slot.key = MR_ABORT_KEY_BASE + wq_depth;
+
+	ret = ft_reg_mr(fi, extra_slot.buf, opts.transfer_size,
+			remote_access_for_op(), extra_slot.key, opts.iface,
+			opts.device, &extra_slot.mr, &extra_slot.desc);
+	if (ret) {
+		FT_PRINTERR("ft_reg_mr (extra)", ret);
+		free(extra_slot.buf);
+		return ret;
+	}
+
+	/* Exchange the extra key with client */
+	local_iov.key = fi_mr_key(extra_slot.mr);
+	local_iov.addr = (fi->domain_attr->mr_mode & FI_MR_VIRT_ADDR) ?
+		(uintptr_t) extra_slot.buf : 0;
+	local_iov.len = opts.transfer_size;
+
+	ret = ft_sock_recv(oob_sock, &remote_iov, sizeof(remote_iov));
+	if (!ret)
+		ret = ft_sock_send(oob_sock, &local_iov, sizeof(local_iov));
+
+	FT_CLOSE_FID(extra_slot.mr);
+	free(extra_slot.buf);
+	return ret;
+}
+
+/*
+ * Test 3: Endpoint reuse after abort
+ *
+ * Re-register MRs, do a normal write + read round-trip.
+ */
+static int reuse_check_client(void)
 {
 	struct fi_context2 reuse_ctx;
 	struct fi_cq_tagged_entry comp;
 	int ret;
 
-	/* Re-register MRs for the reuse test */
-	ret = register_mrs(mr_access_for_op());
+	ret = register_mrs(local_access_for_op());
 	if (ret)
 		return ret;
 
@@ -427,10 +765,10 @@ static int reuse_check(void)
 	if (ret)
 		return ret;
 
-	/* Write test */
-	memset(ctx_arr[0].buf, 0xAB, opts.transfer_size);
-	ret = fi_write(ep, ctx_arr[0].buf, opts.transfer_size,
-		       ctx_arr[0].desc, remote_fi_addr,
+	/* Write */
+	memset(slots[0].buf, 0xAB, opts.transfer_size);
+	ret = fi_write(ep, slots[0].buf, opts.transfer_size,
+		       slots[0].desc, remote_fi_addr,
 		       remote_arr[0].addr, remote_arr[0].key, &reuse_ctx);
 	if (ret) {
 		FT_PRINTERR("fi_write (reuse)", ret);
@@ -438,9 +776,8 @@ static int reuse_check(void)
 	}
 
 	do {
-		ret = fi_cq_sread(txcq, &comp, 1, NULL, 30000);
+		ret = fi_cq_sread(txcq, &comp, 1, NULL, CQ_TIMEOUT_MS);
 	} while (ret == -FI_EAGAIN);
-
 	if (ret < 0) {
 		FT_PRINTERR("fi_cq_sread (reuse write)", ret);
 		return ret;
@@ -450,10 +787,10 @@ static int reuse_check(void)
 	if (ret)
 		return ret;
 
-	/* Read test */
-	memset(ctx_arr[0].buf, 0, opts.transfer_size);
-	ret = fi_read(ep, ctx_arr[0].buf, opts.transfer_size,
-		      ctx_arr[0].desc, remote_fi_addr,
+	/* Read */
+	memset(slots[0].buf, 0, opts.transfer_size);
+	ret = fi_read(ep, slots[0].buf, opts.transfer_size,
+		      slots[0].desc, remote_fi_addr,
 		      remote_arr[0].addr, remote_arr[0].key, &reuse_ctx);
 	if (ret) {
 		FT_PRINTERR("fi_read (reuse)", ret);
@@ -461,9 +798,8 @@ static int reuse_check(void)
 	}
 
 	do {
-		ret = fi_cq_sread(txcq, &comp, 1, NULL, 30000);
+		ret = fi_cq_sread(txcq, &comp, 1, NULL, CQ_TIMEOUT_MS);
 	} while (ret == -FI_EAGAIN);
-
 	if (ret < 0) {
 		FT_PRINTERR("fi_cq_sread (reuse read)", ret);
 		return ret;
@@ -473,11 +809,11 @@ static int reuse_check(void)
 	return 0;
 }
 
-static int run_client(void)
+static int reuse_check_server(void)
 {
-	int i, ret;
+	int ret;
 
-	ret = register_mrs(mr_access_for_op());
+	ret = register_mrs(remote_access_for_op());
 	if (ret)
 		return ret;
 
@@ -485,30 +821,78 @@ static int run_client(void)
 	if (ret)
 		return ret;
 
-	for (i = 0; i < opts.iterations; i++) {
-		ret = run_abort_iteration(i + 1);
-		if (ret)
-			return ret;
+	/* Sync after client's write */
+	ret = ft_sync();
+	if (ret)
+		return ret;
 
-		/* Sync with server between iterations */
-		ret = ft_sync();
-		if (ret)
-			return ret;
+	/* Client does read, no sync needed — server just keeps MRs alive */
+	return 0;
+}
 
-		/* Re-register closed MRs for next iteration */
-		if (i < opts.iterations - 1) {
-			ret = register_mrs(mr_access_for_op());
+/*
+ * Top-level client and server flows.
+ */
+static int run_client(void)
+{
+	int i, ret;
+
+	ret = register_mrs(local_access_for_op());
+	if (ret)
+		return ret;
+
+	ret = exchange_mr_keys();
+	if (ret)
+		return ret;
+
+	switch (test_mode) {
+	case TEST_ABORT:
+		for (i = 0; i < opts.iterations; i++) {
+			ret = run_fill_abort_client(i + 1);
 			if (ret)
 				return ret;
 
-			ret = exchange_mr_keys();
+			ret = ft_sync();
 			if (ret)
 				return ret;
+
+			if (i < opts.iterations - 1) {
+				ret = register_mrs(local_access_for_op());
+				if (ret)
+					return ret;
+
+				ret = exchange_mr_keys();
+				if (ret)
+					return ret;
+			}
 		}
+		break;
+
+	case TEST_PARTIAL:
+		for (i = 0; i < opts.iterations; i++) {
+			ret = run_partial_close_client();
+			if (ret)
+				return ret;
+
+			ret = ft_sync();
+			if (ret)
+				return ret;
+
+			if (i < opts.iterations - 1) {
+				ret = register_mrs(local_access_for_op());
+				if (ret)
+					return ret;
+
+				ret = exchange_mr_keys();
+				if (ret)
+					return ret;
+			}
+		}
+		break;
 	}
 
 	/* Endpoint reuse check */
-	ret = reuse_check();
+	ret = reuse_check_client();
 	if (ret)
 		return ret;
 
@@ -527,44 +911,67 @@ static int run_server(void)
 	if (ret)
 		return ret;
 
-	for (i = 0; i < opts.iterations; i++) {
-		/* Wait for client to finish abort iteration */
-		ret = ft_sync();
-		if (ret)
-			return ret;
-
-		if (i < opts.iterations - 1) {
-			ret = register_mrs(remote_access_for_op());
+	switch (test_mode) {
+	case TEST_ABORT:
+		for (i = 0; i < opts.iterations; i++) {
+			ret = run_fill_abort_server();
 			if (ret)
 				return ret;
 
-			ret = exchange_mr_keys();
+			ret = ft_sync();
 			if (ret)
 				return ret;
+
+			if (i < opts.iterations - 1) {
+				ret = register_mrs(remote_access_for_op());
+				if (ret)
+					return ret;
+
+				ret = exchange_mr_keys();
+				if (ret)
+					return ret;
+			}
 		}
+		break;
+
+	case TEST_PARTIAL:
+		for (i = 0; i < opts.iterations; i++) {
+			ret = run_partial_close_server();
+			if (ret)
+				return ret;
+
+			ret = ft_sync();
+			if (ret)
+				return ret;
+
+			if (i < opts.iterations - 1) {
+				ret = register_mrs(remote_access_for_op());
+				if (ret)
+					return ret;
+
+				ret = exchange_mr_keys();
+				if (ret)
+					return ret;
+			}
+		}
+		break;
 	}
 
-	/* Reuse check: re-register and exchange keys */
-	ret = register_mrs(remote_access_for_op());
+	/* Endpoint reuse check */
+	ret = reuse_check_server();
 	if (ret)
 		return ret;
 
-	ret = exchange_mr_keys();
-	if (ret)
-		return ret;
-
-	/* Sync after client's write */
-	ret = ft_sync();
-	if (ret)
-		return ret;
-
-	/* Sync after client's read */
 	return ft_sync();
 }
 
 static int run(void)
 {
 	int ret;
+
+	/* Target-close needs CQ data format for write-with-imm */
+	if (close_side == CLOSE_TARGET)
+		cq_attr.format = FI_CQ_FORMAT_DATA;
 
 	if (hints->ep_attr->type == FI_EP_MSG)
 		ret = ft_init_fabric_cm();
@@ -573,7 +980,7 @@ static int run(void)
 	if (ret)
 		return ret;
 
-	ret = alloc_ctx_arr();
+	ret = alloc_test_res();
 	if (ret)
 		return ret;
 
@@ -582,7 +989,7 @@ static int run(void)
 	else
 		ret = run_server();
 
-	free_ctx_arr();
+	free_test_res();
 	ft_finalize();
 	return ret;
 }
@@ -602,10 +1009,14 @@ int main(int argc, char **argv)
 
 	srand(time(NULL));
 
-	while ((op = getopt(argc, argv, "W:C:h" CS_OPTS INFO_OPTS API_OPTS)) != -1) {
+	while ((op = getopt(argc, argv,
+			    "W:N:C:R:T:h" CS_OPTS INFO_OPTS API_OPTS)) != -1) {
 		switch (op) {
 		case 'W':
 			wq_depth = atoi(optarg);
+			break;
+		case 'N':
+			ops_per_mr = atoi(optarg);
 			break;
 		case 'C':
 			if (!strcmp(optarg, "reverse"))
@@ -614,6 +1025,26 @@ int main(int argc, char **argv)
 				cancel_mode = CANCEL_RANDOM;
 			else {
 				FT_ERR("Unknown cancel mode: %s", optarg);
+				return EXIT_FAILURE;
+			}
+			break;
+		case 'R':
+			if (!strcmp(optarg, "initiator"))
+				close_side = CLOSE_INITIATOR;
+			else if (!strcmp(optarg, "target"))
+				close_side = CLOSE_TARGET;
+			else {
+				FT_ERR("Unknown close side: %s", optarg);
+				return EXIT_FAILURE;
+			}
+			break;
+		case 'T':
+			if (!strcmp(optarg, "abort"))
+				test_mode = TEST_ABORT;
+			else if (!strcmp(optarg, "partial"))
+				test_mode = TEST_PARTIAL;
+			else {
+				FT_ERR("Unknown test mode: %s", optarg);
 				return EXIT_FAILURE;
 			}
 			break;
@@ -628,15 +1059,25 @@ int main(int argc, char **argv)
 		case 'h':
 			ft_csusage(argv[0],
 				"Test aborting in-flight RMA operations by "
-				"closing local MRs.");
+				"closing MRs.");
+			FT_PRINT_OPTS_USAGE("-T <test>",
+				"Test mode: abort|partial "
+				"(default: abort)");
 			FT_PRINT_OPTS_USAGE("-o <op>",
-				"RMA op: write|read|writedata (default: write)");
+				"RMA op: write|read|writedata "
+				"(default: write)");
 			FT_PRINT_OPTS_USAGE("-W <count>",
-				"Number of MR/buffer pairs to allocate "
+				"Number of MR/buffer pairs "
 				"(default: 128)");
+			FT_PRINT_OPTS_USAGE("-N <count>",
+				"Operations per MR before close "
+				"(default: 1)");
 			FT_PRINT_OPTS_USAGE("-C <mode>",
 				"MR cancel order: reverse|random "
 				"(default: reverse)");
+			FT_PRINT_OPTS_USAGE("-R <side>",
+				"Which side closes MRs: "
+				"initiator|target (default: initiator)");
 			return EXIT_FAILURE;
 		}
 	}
@@ -645,7 +1086,7 @@ int main(int argc, char **argv)
 		opts.dst_addr = argv[optind];
 
 	hints->caps = FI_MSG | FI_RMA;
-	if (opts.rma_op == FT_RMA_WRITEDATA)
+	if (opts.rma_op == FT_RMA_WRITEDATA || close_side == CLOSE_TARGET)
 		hints->caps |= FI_RMA_EVENT;
 	hints->mode = FI_CONTEXT | FI_CONTEXT2;
 	hints->domain_attr->mr_mode = opts.mr_mode;
