@@ -644,7 +644,7 @@ static int run_fill_abort_server(void)
 static int run_partial_close_client(void)
 {
 	struct mr_slot extra_slot = {0};
-	struct op_ctx ops[2] = {{0}};
+	struct op_ctx ops[2] = {{{0}}, {{0}}};
 	struct fi_cq_tagged_entry comp;
 	struct fi_cq_err_entry err;
 	uint64_t deadline;
