@@ -826,8 +826,8 @@ static int reuse_check_client(void)
 		if (ret == -FI_EAVAIL) {
 			memset(&err, 0, sizeof(err));
 			fi_cq_readerr(txcq, &err, 0);
-			FT_ERR("Unexpected CQ error during reuse write: %d (%s)",
-			       err.err, fi_strerror(err.err));
+			FT_ERR("Unexpected CQ error during reuse write:");
+			FT_CQ_ERR(txcq, err, NULL, 0);
 			return -err.err;
 		}
 	} while (ret == -FI_EAGAIN);
@@ -855,8 +855,8 @@ static int reuse_check_client(void)
 		if (ret == -FI_EAVAIL) {
 			memset(&err, 0, sizeof(err));
 			fi_cq_readerr(txcq, &err, 0);
-			FT_ERR("Unexpected CQ error during reuse read: %d (%s)",
-			       err.err, fi_strerror(err.err));
+			FT_ERR("Unexpected CQ error during reuse read:");
+			FT_CQ_ERR(txcq, err, NULL, 0);
 			return -err.err;
 		}
 	} while (ret == -FI_EAGAIN);
