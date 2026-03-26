@@ -790,7 +790,7 @@ static int reuse_check_client(void)
 	struct fi_context2 reuse_ctx;
 	struct fi_cq_tagged_entry comp;
 	struct fi_cq_err_entry err;
-	int ret;
+	int i, ret;
 
 	/* Drain any residual error entries from the abort test */
 	do {
@@ -803,7 +803,10 @@ static int reuse_check_client(void)
 		}
 	} while (ret != -FI_EAGAIN);
 
-	/* Need both write and read access for the reuse check */
+	/* Close old MRs and re-register with both write and read access */
+	for (i = 0; i < wq_depth; i++)
+		FT_CLOSE_FID(slots[i].mr);
+
 	ret = register_mrs(FI_WRITE | FI_READ);
 	if (ret)
 		return ret;
@@ -872,9 +875,12 @@ static int reuse_check_client(void)
 
 static int reuse_check_server(void)
 {
-	int ret;
+	int i, ret;
 
-	/* Need both remote write and read access for the reuse check */
+	/* Close existing MRs and re-register with both read+write access */
+	for (i = 0; i < wq_depth; i++)
+		FT_CLOSE_FID(slots[i].mr);
+
 	ret = register_mrs(FI_REMOTE_WRITE | FI_REMOTE_READ);
 	if (ret)
 		return ret;
