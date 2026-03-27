@@ -361,7 +361,29 @@ static struct op_ctx *find_op_by_context(void *op_context)
 	return NULL;
 }
 
-static int drain_cq(struct fid_cq *cq, int expected)
+struct expected_err {
+	int err;
+	int prov_errno;
+};
+
+static int is_expected_err(struct fi_cq_err_entry *err,
+			   struct expected_err *list, int count)
+{
+	int i;
+
+	if (count < 0)
+		return 1; /* negative count = accept anything */
+
+	for (i = 0; i < count; i++) {
+		if (err->err == list[i].err &&
+		    err->prov_errno == list[i].prov_errno)
+			return 1;
+	}
+	return 0;
+}
+
+static int drain_cq(struct fid_cq *cq, int expected,
+		    struct expected_err *err_list, int err_count)
 {
 	struct fi_cq_tagged_entry comp;
 	struct fi_cq_err_entry err;
@@ -394,10 +416,12 @@ static int drain_cq(struct fid_cq *cq, int expected)
 					o->completed = 1;
 					o->status = -err.err;
 				}
-				printf("CQ error: err=%d (%s) prov_errno=%d\n",
-				       err.err, fi_strerror(err.err),
-				       err.prov_errno);
-				FT_CQ_ERR(cq, err, NULL, 0);
+				if (!is_expected_err(&err, err_list,
+						     err_count)) {
+					FT_ERR("Unexpected CQ error:");
+					FT_CQ_ERR(cq, err, NULL, 0);
+					return -FI_EOTHER;
+				}
 				remaining--;
 			}
 		} else if (ret < 0 && ret != -FI_EAGAIN) {
@@ -469,8 +493,6 @@ static int run_fill_abort_client(int iter)
 			return ret;
 		}
 		total_posted++; /* count the signal */
-		printf("Client: posted go signal, filling TX queue\n");
-		fflush(stdout);
 
 		/* Now fill with large ops */
 		for (mr_idx = 0; mr_idx < wq_depth; mr_idx++) {
@@ -540,42 +562,24 @@ static int run_fill_abort_client(int iter)
 		for (i = 0; i < mrs_used; i++) {
 			int idx = cancel_order[i];
 
-			if (!slots[idx].mr) {
-				printf("WARNING: slot %d MR already NULL, skipping\n", idx);
+			if (!slots[idx].mr)
 				continue;
-			}
-			if (i < 10) {
-				printf("fi_close slot %d: mr=%p desc=%p "
-				       "key=0x%lx buf=%p size=%zu "
-				       "posted=%d mr_closed=%d\n",
-				       idx, (void *)slots[idx].mr,
-				       slots[idx].desc,
-				       (unsigned long)fi_mr_key(slots[idx].mr),
-				       (void *)slots[idx].buf,
-				       opts.transfer_size,
-				       slots[idx].posted,
-				       slots[idx].mr_closed);
-				fflush(stdout);
-			}
 
-			ret = fi_close(&slots[idx].mr->fid);
-
-			if (i < 10) {
-				printf("  result: ret=%d (%s)\n",
-				       ret, fi_strerror(-ret));
-				fflush(stdout);
-			}
+			fi_close(&slots[idx].mr->fid);
 			slots[idx].mr = NULL;
 			slots[idx].mr_closed = 1;
 		}
 	}
 
-	printf("Client: posting done, total_posted=%d mrs_used=%d, draining CQ\n",
-	       total_posted, mrs_used);
-	fflush(stdout);
-
-	/* Phase 4: Drain CQ */
-	missing = drain_cq(txcq, total_posted);
+	/* Phase 4: Drain CQ */	if (close_side == CLOSE_TARGET) {
+		struct expected_err target_errs[] = {
+			{ .err = FI_EINVAL, .prov_errno = 7 },
+		};
+		missing = drain_cq(txcq, total_posted,
+				   target_errs, 1);
+	} else {
+		missing = drain_cq(txcq, total_posted, NULL, -1);
+	}
 
 	/* Phase 5: Report */
 	completed_ok = 0;
@@ -618,20 +622,13 @@ static int run_fill_abort_server(void)
 	if (close_side != CLOSE_TARGET)
 		return 0;
 
-	printf("Server: waiting for go signal on rxcq\n");
-	fflush(stdout);
-
 	/* Wait for the single go signal */
 	deadline = ft_gettime_ms() + CQ_TIMEOUT_MS;
 	while (ft_gettime_ms() < deadline) {
 		ret = fi_cq_read(rxcq, &comp, 1);
-		if (ret > 0) {
-			printf("Server: got go signal flags=0x%lx data=0x%lx\n",
-			       (unsigned long)comp.flags,
-			       (unsigned long)comp.data);
-			fflush(stdout);
+		if (ret > 0)
 			break;
-		} else if (ret == -FI_EAVAIL) {
+		else if (ret == -FI_EAVAIL) {
 			memset(&err, 0, sizeof(err));
 			fi_cq_readerr(rxcq, &err, 0);
 		} else if (ret < 0 && ret != -FI_EAGAIN) {
@@ -653,7 +650,6 @@ static int run_fill_abort_server(void)
 	}
 
 	printf("Server: closed all MRs\n");
-	fflush(stdout);
 	return 0;
 }
 
@@ -993,7 +989,7 @@ static int run_send_abort_client(int iter)
 	}
 
 	/* Drain TX CQ */
-	missing = drain_cq(txcq, total_posted);
+	missing = drain_cq(txcq, total_posted, NULL, -1);
 
 	completed_ok = 0;
 	completed_err = 0;
@@ -1068,7 +1064,7 @@ static int run_send_abort_server(int iter)
 	}
 
 	/* Drain RX CQ — expect mix of success and errors */
-	missing = drain_cq(rxcq, total_posted);
+	missing = drain_cq(rxcq, total_posted, NULL, -1);
 
 	printf("Server iter %d: recvs=%d missing=%d ... %s\n",
 	       iter, total_posted, missing,
