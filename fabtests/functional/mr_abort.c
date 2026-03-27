@@ -548,8 +548,10 @@ static int run_fill_abort_client(int iter)
 			/* Close may fail if op already completed — expected */
 			ret = fi_close(&slots[idx].mr->fid);
 			if (ret)
-				printf("fi_close slot %d: ret=%d (%s)\n",
-				       idx, ret, fi_strerror(-ret));
+				printf("fi_close slot %d: mr=%p key=0x%lx ret=%d (%s)\n",
+				       idx, (void *)slots[idx].mr,
+				       (unsigned long)fi_mr_key(slots[idx].mr),
+				       ret, fi_strerror(-ret));
 			slots[idx].mr = NULL;
 			slots[idx].mr_closed = 1;
 		}
