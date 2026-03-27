@@ -1340,6 +1340,7 @@ int main(int argc, char **argv)
 	opts.options |= FT_OPT_OOB_SYNC | FT_OPT_SKIP_MSG_ALLOC | FT_OPT_SIZE;
 	opts.transfer_size = 4096; /* 4KB default — override with -S */
 	opts.iterations = 10;
+	opts.cqdata_op = 0;
 
 	hints = fi_allocinfo();
 	if (!hints)
