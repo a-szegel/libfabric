@@ -541,9 +541,8 @@ static int run_fill_abort_client(int iter)
 		for (i = 0; i < mrs_used; i++) {
 			int idx = cancel_order[i];
 
-			ret = fi_close(&slots[idx].mr->fid);
-			if (ret)
-				FT_PRINTERR("fi_close(mr)", ret);
+			/* Close may fail if op already completed — expected */
+			fi_close(&slots[idx].mr->fid);
 			slots[idx].mr = NULL;
 			slots[idx].mr_closed = 1;
 		}
@@ -1287,7 +1286,7 @@ int main(int argc, char **argv)
 	opts = INIT_OPTS;
 	opts.options |= FT_OPT_OOB_SYNC | FT_OPT_SKIP_MSG_ALLOC | FT_OPT_SIZE;
 	opts.transfer_size = 4096; /* 4KB default — override with -S */
-	opts.iterations = 1;
+	opts.iterations = 10;
 
 	hints = fi_allocinfo();
 	if (!hints)
