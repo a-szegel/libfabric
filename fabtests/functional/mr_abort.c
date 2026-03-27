@@ -604,25 +604,20 @@ static int run_fill_abort_client(int iter)
 /*
  * Server side for target-close mode.
  *
- * Pre-posts receives, then polls rxcq for write-with-imm completions.
- * The imm data carries the MR index. On each completion, immediately
- * close that MR. Keeps going until all MRs are closed or timeout.
+ * Polls rxcq for write-with-imm completions. The imm data carries
+ * the MR index. On each completion, immediately close that MR.
+ * No recv posting needed — fi_writedata is an RMA op that generates
+ * a remote CQ entry directly.
  */
 static int run_fill_abort_server(void)
 {
 	struct fi_cq_data_entry comp;
 	struct fi_cq_err_entry err;
-	struct fi_context2 rx_ctxs[1];
 	uint64_t deadline;
 	int closed, mr_idx, ret;
 
 	if (close_side != CLOSE_TARGET)
 		return 0;
-
-	/* Pre-post receives for the write-with-imm signals */
-	ret = ft_post_rx(ep, 0, &rx_ctxs[0]);
-	if (ret)
-		return ret;
 
 	closed = 0;
 	deadline = ft_gettime_ms() + CQ_TIMEOUT_MS;
@@ -642,10 +637,6 @@ static int run_fill_abort_server(void)
 					closed++;
 				}
 			}
-			/* Re-post receive for next signal */
-			ret = ft_post_rx(ep, 0, &rx_ctxs[0]);
-			if (ret)
-				return ret;
 		} else if (ret == -FI_EAVAIL) {
 			memset(&err, 0, sizeof(err));
 			fi_cq_readerr(rxcq, &err, 0);
