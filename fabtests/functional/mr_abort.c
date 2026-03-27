@@ -471,6 +471,8 @@ static int run_fill_abort_client(int iter)
 						   remote_arr[mr_idx].key,
 						   &signal_ctx);
 				if (ret == -FI_EAGAIN) {
+					printf("Client: signal EAGAIN at mr_idx=%d\n", mr_idx);
+					fflush(stdout);
 					eagain = 1;
 					break;
 				}
@@ -478,13 +480,18 @@ static int run_fill_abort_client(int iter)
 					FT_PRINTERR("fi_writedata (signal)", ret);
 					return ret;
 				}
-				/* Don't track signal completions — fire and forget.
-				 * Drain them later along with everything else. */
 				total_posted++;
+				if (mr_idx < 3) {
+					printf("Client: posted signal for mr_idx=%d total_posted=%d\n",
+					       mr_idx, total_posted);
+					fflush(stdout);
+				}
 
 				/* Large op */
 				ret = post_rma_op(op_idx, mr_idx);
 				if (ret == -FI_EAGAIN) {
+					printf("Client: large op EAGAIN at mr_idx=%d\n", mr_idx);
+					fflush(stdout);
 					eagain = 1;
 					break;
 				}
@@ -495,6 +502,11 @@ static int run_fill_abort_client(int iter)
 				posted_this_mr++;
 				op_idx++;
 				total_posted++;
+				if (mr_idx < 3) {
+					printf("Client: posted large op for mr_idx=%d total_posted=%d\n",
+					       mr_idx, total_posted);
+					fflush(stdout);
+				}
 			}
 			if (posted_this_mr > 0) {
 				slots[mr_idx].posted = posted_this_mr;
@@ -575,6 +587,10 @@ static int run_fill_abort_client(int iter)
 		}
 	}
 
+	printf("Client: posting done, total_posted=%d mrs_used=%d, draining CQ\n",
+	       total_posted, mrs_used);
+	fflush(stdout);
+
 	/* Phase 4: Drain CQ */
 	missing = drain_cq(txcq, total_posted);
 
@@ -619,12 +635,20 @@ static int run_fill_abort_server(void)
 	if (close_side != CLOSE_TARGET)
 		return 0;
 
+	printf("Server: polling rxcq for write-with-imm signals (wq_depth=%d)\n", wq_depth);
+	fflush(stdout);
+
 	closed = 0;
 	deadline = ft_gettime_ms() + CQ_TIMEOUT_MS;
 
 	while (closed < wq_depth && ft_gettime_ms() < deadline) {
 		ret = fi_cq_read(rxcq, &comp, 1);
 		if (ret > 0) {
+			printf("Server: got CQ entry flags=0x%lx data=0x%lx len=%zu\n",
+			       (unsigned long)comp.flags,
+			       (unsigned long)comp.data,
+			       comp.len);
+			fflush(stdout);
 			if (comp.flags & FI_REMOTE_CQ_DATA) {
 				mr_idx = (int) comp.data;
 				if (mr_idx >= 0 && mr_idx < wq_depth &&
@@ -635,19 +659,28 @@ static int run_fill_abort_server(void)
 					slots[mr_idx].mr = NULL;
 					slots[mr_idx].mr_closed = 1;
 					closed++;
+					printf("Server: closed MR slot %d (%d/%d)\n",
+					       mr_idx, closed, wq_depth);
+					fflush(stdout);
 				}
 			}
 		} else if (ret == -FI_EAVAIL) {
 			memset(&err, 0, sizeof(err));
 			fi_cq_readerr(rxcq, &err, 0);
-			/* Errors on rx side after MR close are expected */
+			printf("Server: rxcq error %d (%s)\n",
+			       err.err, fi_strerror(err.err));
+			fflush(stdout);
 		} else if (ret < 0 && ret != -FI_EAGAIN) {
 			FT_PRINTERR("fi_cq_read (server rx)", ret);
 			return ret;
 		}
 	}
 
-	printf("Server: closed %d/%d MRs\n", closed, wq_depth);
+	if (closed < wq_depth)
+		printf("Server: TIMEOUT after closing %d/%d MRs\n", closed, wq_depth);
+	else
+		printf("Server: closed %d/%d MRs\n", closed, wq_depth);
+	fflush(stdout);
 	return 0;
 }
 
