@@ -1406,8 +1406,6 @@ int main(int argc, char **argv)
 	case TEST_ABORT:
 	case TEST_PARTIAL:
 		hints->caps |= FI_RMA;
-		if (opts.rma_op == FT_RMA_WRITEDATA || close_side == CLOSE_TARGET)
-			hints->caps |= FI_RMA_EVENT;
 		break;
 	case TEST_TAGGED:
 		hints->caps |= FI_TAGGED;
