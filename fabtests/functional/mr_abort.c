@@ -636,6 +636,8 @@ static int run_fill_abort_server(void)
 		return 0;
 
 	printf("Server: polling rxcq for write-with-imm signals (wq_depth=%d)\n", wq_depth);
+	printf("Server: fi->rx_attr->mode & FI_RX_CQ_DATA = %d\n",
+	       !!(fi->rx_attr->mode & FI_RX_CQ_DATA));
 	fflush(stdout);
 
 	closed = 0;
