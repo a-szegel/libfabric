@@ -394,6 +394,10 @@ static int drain_cq(struct fid_cq *cq, int expected)
 					o->completed = 1;
 					o->status = -err.err;
 				}
+				printf("CQ error: err=%d (%s) prov_errno=%d\n",
+				       err.err, fi_strerror(err.err),
+				       err.prov_errno);
+				FT_CQ_ERR(cq, err, NULL, 0);
 				remaining--;
 			}
 		} else if (ret < 0 && ret != -FI_EAGAIN) {
