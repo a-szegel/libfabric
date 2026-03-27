@@ -545,12 +545,22 @@ static int run_fill_abort_client(int iter)
 				printf("WARNING: slot %d MR already NULL, skipping\n", idx);
 				continue;
 			}
-			/* Close may fail if op already completed — expected */
-			ret = fi_close(&slots[idx].mr->fid);
-			if (ret)
-				printf("fi_close slot %d: mr=%p key=0x%lx ret=%d (%s)\n",
+			if (i < 10)
+				printf("fi_close slot %d: mr=%p desc=%p "
+				       "key=0x%lx buf=%p size=%zu "
+				       "posted=%d mr_closed=%d\n",
 				       idx, (void *)slots[idx].mr,
+				       slots[idx].desc,
 				       (unsigned long)fi_mr_key(slots[idx].mr),
+				       (void *)slots[idx].buf,
+				       opts.transfer_size,
+				       slots[idx].posted,
+				       slots[idx].mr_closed);
+
+			ret = fi_close(&slots[idx].mr->fid);
+
+			if (i < 10)
+				printf("  result: ret=%d (%s)\n",
 				       ret, fi_strerror(-ret));
 			slots[idx].mr = NULL;
 			slots[idx].mr_closed = 1;
