@@ -541,8 +541,15 @@ static int run_fill_abort_client(int iter)
 		for (i = 0; i < mrs_used; i++) {
 			int idx = cancel_order[i];
 
+			if (!slots[idx].mr) {
+				printf("WARNING: slot %d MR already NULL, skipping\n", idx);
+				continue;
+			}
 			/* Close may fail if op already completed — expected */
-			fi_close(&slots[idx].mr->fid);
+			ret = fi_close(&slots[idx].mr->fid);
+			if (ret)
+				printf("fi_close slot %d: ret=%d (%s)\n",
+				       idx, ret, fi_strerror(-ret));
 			slots[idx].mr = NULL;
 			slots[idx].mr_closed = 1;
 		}
