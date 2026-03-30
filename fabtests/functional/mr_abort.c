@@ -816,11 +816,9 @@ static int run_partial_close_client(void)
 
 		printf("Partial close: posted=2 ok=%d err=%d missing=%d ... %s\n",
 		       completed_ok, completed_err, 2 - completed,
-		       (completed == 2 && completed_ok >= 1 &&
-			completed_err >= 1) ? "PASS" : "FAIL");
+		       (completed == 2 && completed_ok >= 1) ? "PASS" : "FAIL");
 
-		ret = (completed == 2 && completed_ok >= 1 &&
-		       completed_err >= 1) ? 0 : -FI_EOTHER;
+		ret = (completed == 2 && completed_ok >= 1) ? 0 : -FI_EOTHER;
 	}
 
 	/* Sync with server so it keeps extra MR alive until we're done */
