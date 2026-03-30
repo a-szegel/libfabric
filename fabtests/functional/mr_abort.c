@@ -583,9 +583,10 @@ static int run_fill_abort_client(int iter)
 			slots[idx].mr = NULL;
 			slots[idx].mr_closed = 1;
 		}
-		if (close_failures)
-			printf("MR close: %d/%d failed\n",
-			       close_failures, mrs_used);
+		if (close_failures) {
+			FT_ERR("MR close: %d/%d failed", close_failures, mrs_used);
+			return -FI_EOTHER;
+		}
 	}
 
 	/* Phase 4: Drain CQ */	if (close_side == CLOSE_TARGET) {
@@ -780,6 +781,10 @@ static int run_partial_close_client(void)
 		printf("Partial: fi_close ret=%d (%s)\n",
 		       ret, fi_strerror(-ret));
 		fflush(stdout);
+		if (ret) {
+			FT_ERR("Partial: MR close failed");
+			goto close_extra;
+		}
 		extra_slot.mr = NULL;
 
 		/* Drain both completions using drain_cq */
@@ -1040,15 +1045,21 @@ static int run_send_abort_client(int iter)
 
 	/* Close sender MRs (initiator mode) */
 	if (close_side == CLOSE_INITIATOR) {
+		int close_failures = 0;
+
 		build_cancel_order(mrs_used);
 		for (i = 0; i < mrs_used; i++) {
 			int idx = cancel_order[i];
 
 			ret = fi_close(&slots[idx].mr->fid);
 			if (ret)
-				FT_PRINTERR("fi_close(mr)", ret);
+				close_failures++;
 			slots[idx].mr = NULL;
 			slots[idx].mr_closed = 1;
+		}
+		if (close_failures) {
+			FT_ERR("MR close: %d/%d failed", close_failures, mrs_used);
+			return -FI_EOTHER;
 		}
 	}
 
@@ -1120,8 +1131,11 @@ static int run_send_abort_server(int iter)
 			int idx = cancel_order[i];
 
 			ret = fi_close(&slots[idx].mr->fid);
-			if (ret)
+			if (ret) {
+				FT_ERR("Server MR close failed for slot %d:", idx);
 				FT_PRINTERR("fi_close(mr)", ret);
+				return ret;
+			}
 			slots[idx].mr = NULL;
 			slots[idx].mr_closed = 1;
 		}
