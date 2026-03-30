@@ -729,12 +729,19 @@ static int run_partial_close_client(void)
 
 		/* Post write using slot 0's MR (will be closed) */
 		ops[0].mr_idx = 0;
-		printf("Partial: posting write with slot 0 MR=%p key=0x%lx "
-		       "-> remote addr=0x%lx key=0x%lx\n",
-		       (void *)slots[0].mr,
-		       (unsigned long)fi_mr_key(slots[0].mr),
+		printf("Partial: write0: buf=%p size=%zu desc=%p "
+		       "remote_fi_addr=0x%lx remote_addr=0x%lx "
+		       "remote_key=0x%lx ctx=%p local_mr=%p "
+		       "local_key=0x%lx\n",
+		       (void *)slots[0].buf, opts.transfer_size,
+		       slots[0].desc,
+		       (unsigned long)remote_fi_addr,
 		       (unsigned long)remote_arr[0].addr,
-		       (unsigned long)remote_arr[0].key);
+		       (unsigned long)remote_arr[0].key,
+		       (void *)&ops[0].context,
+		       (void *)slots[0].mr,
+		       (unsigned long)fi_mr_key(slots[0].mr));
+		fflush(stdout);
 		ret = fi_write(ep, slots[0].buf, opts.transfer_size,
 			       slots[0].desc, remote_fi_addr,
 			       remote_arr[0].addr, remote_arr[0].key,
@@ -746,12 +753,19 @@ static int run_partial_close_client(void)
 
 		/* Post write using extra MR (will survive) */
 		ops[1].mr_idx = -1;
-		printf("Partial: posting write with extra MR=%p key=0x%lx "
-		       "-> remote addr=0x%lx key=0x%lx\n",
-		       (void *)extra_slot.mr,
-		       (unsigned long)fi_mr_key(extra_slot.mr),
+		printf("Partial: write1: buf=%p size=%zu desc=%p "
+		       "remote_fi_addr=0x%lx remote_addr=0x%lx "
+		       "remote_key=0x%lx ctx=%p local_mr=%p "
+		       "local_key=0x%lx\n",
+		       (void *)extra_slot.buf, opts.transfer_size,
+		       extra_slot.desc,
+		       (unsigned long)remote_fi_addr,
 		       (unsigned long)remote_iov.addr,
-		       (unsigned long)remote_iov.key);
+		       (unsigned long)remote_iov.key,
+		       (void *)&ops[1].context,
+		       (void *)extra_slot.mr,
+		       (unsigned long)fi_mr_key(extra_slot.mr));
+		fflush(stdout);
 		ret = fi_write(ep, extra_slot.buf, opts.transfer_size,
 			       extra_slot.desc, remote_fi_addr,
 			       remote_iov.addr, remote_iov.key,
@@ -762,10 +776,17 @@ static int run_partial_close_client(void)
 		}
 
 		/* Close only slot 0's MR */
-		printf("Partial: closing slot 0 MR\n");
+		printf("Partial: closing slot 0: mr=%p key=0x%lx "
+		       "buf=%p desc=%p\n",
+		       (void *)slots[0].mr,
+		       (unsigned long)fi_mr_key(slots[0].mr),
+		       (void *)slots[0].buf,
+		       slots[0].desc);
+		fflush(stdout);
 		ret = fi_close(&slots[0].mr->fid);
 		printf("Partial: fi_close ret=%d (%s)\n",
 		       ret, fi_strerror(-ret));
+		fflush(stdout);
 		slots[0].mr = NULL;
 
 		/* Drain both completions */
