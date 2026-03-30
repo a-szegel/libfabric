@@ -689,13 +689,8 @@ static int run_fill_abort_server(void)
 static int run_partial_close_client(void)
 {
 	struct mr_slot extra_slot = {0};
-	struct op_ctx ops[2];
-	memset(ops, 0, sizeof(ops));
-	struct fi_cq_tagged_entry comp;
-	struct fi_cq_err_entry err;
-	uint64_t deadline;
-	int completed = 0;
-	int completed_ok = 0, completed_err = 0;
+	struct fi_rma_iov remote_iov;
+	int i, completed_ok = 0, completed_err = 0, completed;
 	int ret;
 
 	/* Use slot 0's buffer for both MRs */
@@ -728,7 +723,7 @@ static int run_partial_close_client(void)
 			goto close_extra;
 
 		/* Post write using slot 0's MR (will be closed) */
-		ops[0].mr_idx = 0;
+		reset_test_state();
 		printf("Partial: write0: buf=%p size=%zu desc=%p "
 		       "av_idx=%d remote_addr=0x%lx "
 		       "remote_key=0x%lx ctx=%p local_mr=%p "
@@ -738,21 +733,20 @@ static int run_partial_close_client(void)
 		       (int)remote_fi_addr,
 		       (unsigned long)remote_arr[0].addr,
 		       (unsigned long)remote_arr[0].key,
-		       (void *)&ops[0].context,
+		       (void *)&op_arr[0].context,
 		       (void *)slots[0].mr,
 		       (unsigned long)fi_mr_key(slots[0].mr));
 		fflush(stdout);
 		ret = fi_write(ep, slots[0].buf, opts.transfer_size,
 			       slots[0].desc, remote_fi_addr,
 			       remote_arr[0].addr, remote_arr[0].key,
-			       &ops[0].context);
+			       &op_arr[0].context);
 		if (ret) {
 			FT_PRINTERR("fi_write (slot 0)", ret);
 			goto close_extra;
 		}
 
 		/* Post write using extra MR (will survive) */
-		ops[1].mr_idx = -1;
 		printf("Partial: write1: buf=%p size=%zu desc=%p "
 		       "av_idx=%d remote_addr=0x%lx "
 		       "remote_key=0x%lx ctx=%p local_mr=%p "
@@ -762,14 +756,14 @@ static int run_partial_close_client(void)
 		       (int)remote_fi_addr,
 		       (unsigned long)remote_iov.addr,
 		       (unsigned long)remote_iov.key,
-		       (void *)&ops[1].context,
+		       (void *)&op_arr[1].context,
 		       (void *)extra_slot.mr,
 		       (unsigned long)fi_mr_key(extra_slot.mr));
 		fflush(stdout);
 		ret = fi_write(ep, extra_slot.buf, opts.transfer_size,
 			       extra_slot.desc, remote_fi_addr,
 			       remote_iov.addr, remote_iov.key,
-			       &ops[1].context);
+			       &op_arr[1].context);
 		if (ret) {
 			FT_PRINTERR("fi_write (extra)", ret);
 			goto close_extra;
@@ -789,29 +783,28 @@ static int run_partial_close_client(void)
 		fflush(stdout);
 		slots[0].mr = NULL;
 
-		/* Drain both completions */
-		deadline = ft_gettime_ms() + CQ_TIMEOUT_MS;
-		while (completed < 2 && ft_gettime_ms() < deadline) {
-			ret = fi_cq_read(txcq, &comp, 1);
-			if (ret > 0) {
-				printf("Partial: completion ok ctx=%p\n",
-				       comp.op_context);
-				completed++;
-				completed_ok++;
-			} else if (ret == -FI_EAVAIL) {
-				memset(&err, 0, sizeof(err));
-				ret = fi_cq_readerr(txcq, &err, 0);
-				if (ret == 1) {
-					printf("Partial: completion err ctx=%p ",
-					       err.op_context);
-					FT_CQ_ERR(txcq, err, NULL, 0);
-					completed++;
-					completed_err++;
-				}
-			} else if (ret < 0 && ret != -FI_EAGAIN) {
-				FT_PRINTERR("fi_cq_read", ret);
-				break;
+		/* Drain both completions using drain_cq */
+		{
+			struct expected_err partial_errs[] = {
+				{ .err = FI_ECANCELED, .prov_errno = 1 },
+			};
+			int missing;
+
+			missing = drain_cq(txcq, 2, partial_errs, 1);
+			if (missing < 0) {
+				ret = missing;
+				goto close_extra;
 			}
+
+			for (i = 0; i < 2; i++) {
+				if (op_arr[i].completed) {
+					if (op_arr[i].status == 0)
+						completed_ok++;
+					else
+						completed_err++;
+				}
+			}
+			completed = completed_ok + completed_err;
 		}
 
 		printf("Partial close: posted=2 ok=%d err=%d missing=%d ... %s\n",
