@@ -1007,9 +1007,14 @@ static int run_send_abort_client(int iter)
 	op_idx = 0;
 
 	/* Sync so server has recvs posted before we start sending */
+	printf("Client: %s iter %d: syncing with server\n", mode_str, iter);
+	fflush(stdout);
 	ret = ft_sync();
 	if (ret)
 		return ret;
+
+	printf("Client: %s iter %d: filling TX queue\n", mode_str, iter);
+	fflush(stdout);
 
 	/* Fill TX queue with sends */
 	for (mr_idx = 0; mr_idx < wq_depth; mr_idx++) {
@@ -1100,6 +1105,8 @@ static int run_send_abort_server(int iter)
 	op_idx = 0;
 
 	/* Pre-post receives */
+	printf("Server: iter %d: posting %d recvs\n", iter, wq_depth * ops_per_mr);
+	fflush(stdout);
 	for (mr_idx = 0; mr_idx < wq_depth; mr_idx++) {
 		int posted_this_mr = 0;
 
@@ -1120,9 +1127,14 @@ static int run_send_abort_server(int iter)
 	}
 
 	/* Sync to let client start sending */
+	printf("Server: iter %d: posted %d recvs, syncing\n", iter, total_posted);
+	fflush(stdout);
 	ret = ft_sync();
 	if (ret)
 		return ret;
+
+	printf("Server: iter %d: close_side=%s\n", iter, side_str());
+	fflush(stdout);
 
 	/* Close recv MRs (target mode) */
 	if (close_side == CLOSE_TARGET) {
@@ -1141,14 +1153,18 @@ static int run_send_abort_server(int iter)
 		}
 	}
 
-	/* Drain RX CQ — expect mix of success and errors */
-	missing = drain_cq(rxcq, total_posted, NULL, -1);
+	/* Drain RX CQ — only in target-close mode where we expect errors */
+	if (close_side == CLOSE_TARGET) {
+		missing = drain_cq(rxcq, total_posted, NULL, -1);
 
-	printf("Server iter %d: recvs=%d missing=%d ... %s\n",
-	       iter, total_posted, missing,
-	       missing == 0 ? "PASS" : "FAIL");
+		printf("Server iter %d: recvs=%d missing=%d ... %s\n",
+		       iter, total_posted, missing,
+		       missing == 0 ? "PASS" : "FAIL");
 
-	return missing == 0 ? 0 : -FI_EOTHER;
+		return missing == 0 ? 0 : -FI_EOTHER;
+	}
+
+	return 0;
 }
 
 /*
