@@ -169,13 +169,22 @@ static int alloc_test_res(void)
 	return 0;
 }
 
-static void free_test_res(void)
+static int free_test_res(void)
 {
-	int i;
+	int i, ret, err = 0;
 
 	if (slots) {
 		for (i = 0; i < wq_depth; i++) {
-			FT_CLOSE_FID(slots[i].mr);
+			if (slots[i].mr) {
+				ret = fi_close(&slots[i].mr->fid);
+				if (ret) {
+					FT_ERR("Cleanup: fi_close(mr) slot %d "
+						"failed: %d (%s)",
+						i, ret, fi_strerror(-ret));
+					err = ret;
+				}
+				slots[i].mr = NULL;
+			}
 			free(slots[i].buf);
 		}
 		free(slots);
@@ -187,6 +196,7 @@ static void free_test_res(void)
 	cancel_order = NULL;
 	free(remote_arr);
 	remote_arr = NULL;
+	return err;
 }
 
 static int register_mrs(uint64_t access)
@@ -1310,7 +1320,10 @@ static int run(void)
 	else
 		ret = run_server();
 
-	free_test_res();
+	if (!ret)
+		ret = free_test_res();
+	else
+		free_test_res();
 	ft_finalize();
 	return ret;
 }
