@@ -730,12 +730,12 @@ static int run_partial_close_client(void)
 		/* Post write using slot 0's MR (will be closed) */
 		ops[0].mr_idx = 0;
 		printf("Partial: write0: buf=%p size=%zu desc=%p "
-		       "remote_fi_addr=0x%lx remote_addr=0x%lx "
+		       "av_idx=%d remote_addr=0x%lx "
 		       "remote_key=0x%lx ctx=%p local_mr=%p "
 		       "local_key=0x%lx\n",
 		       (void *)slots[0].buf, opts.transfer_size,
 		       slots[0].desc,
-		       (unsigned long)remote_fi_addr,
+		       (int)remote_fi_addr,
 		       (unsigned long)remote_arr[0].addr,
 		       (unsigned long)remote_arr[0].key,
 		       (void *)&ops[0].context,
@@ -754,12 +754,12 @@ static int run_partial_close_client(void)
 		/* Post write using extra MR (will survive) */
 		ops[1].mr_idx = -1;
 		printf("Partial: write1: buf=%p size=%zu desc=%p "
-		       "remote_fi_addr=0x%lx remote_addr=0x%lx "
+		       "av_idx=%d remote_addr=0x%lx "
 		       "remote_key=0x%lx ctx=%p local_mr=%p "
 		       "local_key=0x%lx\n",
 		       (void *)extra_slot.buf, opts.transfer_size,
 		       extra_slot.desc,
-		       (unsigned long)remote_fi_addr,
+		       (int)remote_fi_addr,
 		       (unsigned long)remote_iov.addr,
 		       (unsigned long)remote_iov.key,
 		       (void *)&ops[1].context,
@@ -823,6 +823,9 @@ static int run_partial_close_client(void)
 		       completed_err >= 1) ? 0 : -FI_EOTHER;
 	}
 
+	/* Sync with server so it keeps extra MR alive until we're done */
+	ft_sync();
+
 close_extra:
 	FT_CLOSE_FID(extra_slot.mr);
 	return ret;
@@ -858,7 +861,13 @@ static int run_partial_close_server(void)
 	ret = ft_sock_recv(oob_sock, &remote_iov, sizeof(remote_iov));
 	if (!ret)
 		ret = ft_sock_send(oob_sock, &local_iov, sizeof(local_iov));
+	if (ret)
+		goto cleanup;
 
+	/* Wait for client to finish the partial close test */
+	ret = ft_sync();
+
+cleanup:
 	FT_CLOSE_FID(extra_slot.mr);
 	free(extra_slot.buf);
 	return ret;
