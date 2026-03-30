@@ -729,6 +729,12 @@ static int run_partial_close_client(void)
 
 		/* Post write using slot 0's MR (will be closed) */
 		ops[0].mr_idx = 0;
+		printf("Partial: posting write with slot 0 MR=%p key=0x%lx "
+		       "-> remote addr=0x%lx key=0x%lx\n",
+		       (void *)slots[0].mr,
+		       (unsigned long)fi_mr_key(slots[0].mr),
+		       (unsigned long)remote_arr[0].addr,
+		       (unsigned long)remote_arr[0].key);
 		ret = fi_write(ep, slots[0].buf, opts.transfer_size,
 			       slots[0].desc, remote_fi_addr,
 			       remote_arr[0].addr, remote_arr[0].key,
@@ -740,6 +746,12 @@ static int run_partial_close_client(void)
 
 		/* Post write using extra MR (will survive) */
 		ops[1].mr_idx = -1;
+		printf("Partial: posting write with extra MR=%p key=0x%lx "
+		       "-> remote addr=0x%lx key=0x%lx\n",
+		       (void *)extra_slot.mr,
+		       (unsigned long)fi_mr_key(extra_slot.mr),
+		       (unsigned long)remote_iov.addr,
+		       (unsigned long)remote_iov.key);
 		ret = fi_write(ep, extra_slot.buf, opts.transfer_size,
 			       extra_slot.desc, remote_fi_addr,
 			       remote_iov.addr, remote_iov.key,
@@ -750,9 +762,10 @@ static int run_partial_close_client(void)
 		}
 
 		/* Close only slot 0's MR */
+		printf("Partial: closing slot 0 MR\n");
 		ret = fi_close(&slots[0].mr->fid);
-		if (ret)
-			FT_PRINTERR("fi_close(mr)", ret);
+		printf("Partial: fi_close ret=%d (%s)\n",
+		       ret, fi_strerror(-ret));
 		slots[0].mr = NULL;
 
 		/* Drain both completions */
@@ -760,12 +773,17 @@ static int run_partial_close_client(void)
 		while (completed < 2 && ft_gettime_ms() < deadline) {
 			ret = fi_cq_read(txcq, &comp, 1);
 			if (ret > 0) {
+				printf("Partial: completion ok ctx=%p\n",
+				       comp.op_context);
 				completed++;
 				completed_ok++;
 			} else if (ret == -FI_EAVAIL) {
 				memset(&err, 0, sizeof(err));
 				ret = fi_cq_readerr(txcq, &err, 0);
 				if (ret == 1) {
+					printf("Partial: completion err ctx=%p ",
+					       err.op_context);
+					FT_CQ_ERR(txcq, err, NULL, 0);
 					completed++;
 					completed_err++;
 				}
