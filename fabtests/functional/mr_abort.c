@@ -689,7 +689,6 @@ static int run_fill_abort_server(void)
 static int run_partial_close_client(void)
 {
 	struct mr_slot extra_slot = {0};
-	struct fi_rma_iov remote_iov;
 	int i, completed_ok = 0, completed_err = 0, completed;
 	int ret;
 
@@ -769,19 +768,19 @@ static int run_partial_close_client(void)
 			goto close_extra;
 		}
 
-		/* Close only slot 0's MR */
-		printf("Partial: closing slot 0: mr=%p key=0x%lx "
+		/* Close only the extra MR */
+		printf("Partial: closing extra MR: mr=%p key=0x%lx "
 		       "buf=%p desc=%p\n",
-		       (void *)slots[0].mr,
-		       (unsigned long)fi_mr_key(slots[0].mr),
-		       (void *)slots[0].buf,
-		       slots[0].desc);
+		       (void *)extra_slot.mr,
+		       (unsigned long)fi_mr_key(extra_slot.mr),
+		       (void *)extra_slot.buf,
+		       extra_slot.desc);
 		fflush(stdout);
-		ret = fi_close(&slots[0].mr->fid);
+		ret = fi_close(&extra_slot.mr->fid);
 		printf("Partial: fi_close ret=%d (%s)\n",
 		       ret, fi_strerror(-ret));
 		fflush(stdout);
-		slots[0].mr = NULL;
+		extra_slot.mr = NULL;
 
 		/* Drain both completions using drain_cq */
 		{
