@@ -201,20 +201,39 @@ static int free_test_res(void)
 
 static int register_mrs(uint64_t access)
 {
-	int i, ret;
+	int i, ret, count = 0;
+	uint64_t t0, t1, batch_ns = 0;
 
 	for (i = 0; i < wq_depth; i++) {
 		if (slots[i].mr)
 			continue;
 
+		t0 = ft_gettime_ns();
 		ret = ft_reg_mr(fi, slots[i].buf, opts.transfer_size,
 				access, slots[i].key, opts.iface,
 				opts.device, &slots[i].mr, &slots[i].desc);
+		t1 = ft_gettime_ns();
 		if (ret) {
 			FT_PRINTERR("ft_reg_mr", ret);
 			return ret;
 		}
+		batch_ns += (t1 - t0);
+		count++;
+
+		if (count % 100 == 0) {
+			printf("register_mrs: %d/%d avg_last100=%lu ns\n",
+			       count, wq_depth,
+			       (unsigned long)(batch_ns / 100));
+			fflush(stdout);
+			batch_ns = 0;
+		}
 	}
+
+	if (count % 100 != 0)
+		printf("register_mrs: %d/%d avg_last%d=%lu ns\n",
+		       count, wq_depth, count % 100,
+		       (unsigned long)(batch_ns / (count % 100)));
+
 	return 0;
 }
 
