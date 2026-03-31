@@ -1069,7 +1069,16 @@ static int run_send_abort_client(int iter)
 	}
 
 	/* Drain TX CQ */
-	missing = drain_cq(txcq, total_posted, NULL, -1);
+	if (close_side == CLOSE_INITIATOR) {
+		struct expected_err send_initiator_errs[] = {
+			{ .err = FI_ECANCELED, .prov_errno = 1 },
+		};
+		missing = drain_cq(txcq, total_posted,
+				   send_initiator_errs, 1);
+	} else {
+		/* Target-close: client didn't close any MRs, no errors expected */
+		missing = drain_cq(txcq, total_posted, NULL, 0);
+	}
 
 	completed_ok = 0;
 	completed_err = 0;
@@ -1153,7 +1162,7 @@ static int run_send_abort_server(int iter)
 		}
 	}
 
-	/* Drain RX CQ — only in target-close mode where we expect errors */
+	/* Drain RX CQ */
 	if (close_side == CLOSE_TARGET) {
 		missing = drain_cq(rxcq, total_posted, NULL, -1);
 
@@ -1162,6 +1171,31 @@ static int run_send_abort_server(int iter)
 		       missing == 0 ? "PASS" : "FAIL");
 
 		return missing == 0 ? 0 : -FI_EOTHER;
+	}
+
+	/*
+	 * Initiator-close: drain whatever completions arrived to free
+	 * RQ space. All recv completions should be successful — the
+	 * server didn't close any MRs.
+	 */
+	{
+		struct fi_cq_tagged_entry comp;
+		struct fi_cq_err_entry err;
+
+		for (;;) {
+			ret = fi_cq_read(rxcq, &comp, 1);
+			if (ret > 0) {
+				continue;
+			} else if (ret == -FI_EAVAIL) {
+				memset(&err, 0, sizeof(err));
+				fi_cq_readerr(rxcq, &err, 0);
+				FT_ERR("Unexpected server recv error:");
+				FT_CQ_ERR(rxcq, err, NULL, 0);
+				return -FI_EOTHER;
+			} else {
+				break;
+			}
+		}
 	}
 
 	return 0;
