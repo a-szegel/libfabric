@@ -1042,30 +1042,6 @@ static int run_send_abort_client(int iter)
 		if (eagain)
 			break;
 	}
-		int posted_this_mr = 0;
-		int eagain = 0;
-
-		for (i = 0; i < ops_per_mr; i++) {
-			ret = post_send_op(op_idx, mr_idx);
-			if (ret == -FI_EAGAIN) {
-				eagain = 1;
-				break;
-			}
-			if (ret) {
-				FT_PRINTERR("post_send_op", ret);
-				return ret;
-			}
-			posted_this_mr++;
-			op_idx++;
-			total_posted++;
-		}
-		if (posted_this_mr > 0) {
-			slots[mr_idx].posted = posted_this_mr;
-			mrs_used++;
-		}
-		if (eagain)
-			break;
-	}
 
 	if (total_posted == 0) {
 		FT_ERR("could not post any send operations");
