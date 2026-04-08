@@ -252,6 +252,8 @@ static void test_av_verify_av_hash_cnt(struct efa_av *av,
 				       int implicit_cur_av_count,
 				       int implicit_prv_av_count)
 {
+	struct efa_proto_av *proto_av = container_of(av, struct efa_proto_av, efa_av);
+
 	assert_int_equal(HASH_CNT(hh, av->util_av.hash),
 			 explicit_cur_av_count + explicit_prv_av_count);
 	assert_int_equal(HASH_CNT(hh, av->cur_reverse_av),
@@ -259,11 +261,11 @@ static void test_av_verify_av_hash_cnt(struct efa_av *av,
 	assert_int_equal(HASH_CNT(hh, av->prv_reverse_av),
 			 explicit_prv_av_count);
 
-	assert_int_equal(HASH_CNT(hh, av->util_av_implicit.hash),
+	assert_int_equal(HASH_CNT(hh, proto_av->util_av_implicit.hash),
 			 implicit_cur_av_count + implicit_prv_av_count);
-	assert_int_equal(HASH_CNT(hh, av->cur_reverse_av_implicit),
+	assert_int_equal(HASH_CNT(hh, proto_av->cur_reverse_av_implicit),
 			 implicit_cur_av_count);
-	assert_int_equal(HASH_CNT(hh, av->prv_reverse_av_implicit),
+	assert_int_equal(HASH_CNT(hh, proto_av->prv_reverse_av_implicit),
 			 implicit_prv_av_count);
 }
 
@@ -420,8 +422,8 @@ void test_av_implicit_to_explicit(struct efa_resource **state)
 	peer->flags |= EFA_RDM_PEER_IN_BACKOFF;
 
 	/* Insert explicitly */
-	raw_addr.qpn = peer->av_entry->ep_addr->qpn;
-	raw_addr.qkey = peer->av_entry->ep_addr->qkey;
+	raw_addr.qpn = efa_proto_av_entry_ep_addr(peer->av_entry)->qpn;
+	raw_addr.qkey = efa_proto_av_entry_ep_addr(peer->av_entry)->qkey;
 	err = fi_av_insert(resource->av, &raw_addr, 1, &explicit_fi_addr, 0, NULL);
 	test_av_verify_av_hash_cnt(av, 1, 0, 0, 0);
 
@@ -514,8 +516,9 @@ void test_av_implicit_av_lru_insertion(struct efa_resource **state)
 	/* Access peer0 through the CQ read path */
 	ahn = efa_rdm_ep->self_ah->ahn;
 	ofi_genlock_lock(&efa_rdm_ep->base_ep.domain->srx_lock);
-	implicit_fi_addr = efa_proto_av_reverse_lookup_rdm_implicit(container_of(
-		av, ahn, peer0->av_entry)->qpn, NULL);
+	implicit_fi_addr = efa_proto_av_reverse_lookup_rdm_implicit(
+		container_of(av, struct efa_proto_av, efa_av), ahn,
+		efa_proto_av_entry_ep_addr(peer0->av_entry)->qpn, NULL);
 	ofi_genlock_unlock(&efa_rdm_ep->base_ep.domain->srx_lock);
 	assert_int_equal(implicit_fi_addr, 0);
 
@@ -525,8 +528,9 @@ void test_av_implicit_av_lru_insertion(struct efa_resource **state)
 	/* Access peer2 through the CQ read path */
 	ahn = efa_rdm_ep->self_ah->ahn;
 	ofi_genlock_lock(&efa_rdm_ep->base_ep.domain->srx_lock);
-	implicit_fi_addr = efa_proto_av_reverse_lookup_rdm_implicit(container_of(
-		av, ahn, peer2->av_entry)->qpn, NULL);
+	implicit_fi_addr = efa_proto_av_reverse_lookup_rdm_implicit(
+		container_of(av, struct efa_proto_av, efa_av), ahn,
+		efa_proto_av_entry_ep_addr(peer2->av_entry)->qpn, NULL);
 	ofi_genlock_unlock(&efa_rdm_ep->base_ep.domain->srx_lock);
 	assert_int_equal(implicit_fi_addr, 2);
 
@@ -579,7 +583,7 @@ void test_av_implicit_av_lru_eviction(struct efa_resource **state)
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
 	/* Modify implicit AV size */
-	av->implicit_av_size = 2;
+	container_of(av, struct efa_proto_av, efa_av)->implicit_av_size = 2;
 
 	/* Manually insert first address into implicit AV */
 	peer0 = test_av_get_peer_from_implicit_av(resource);
@@ -598,8 +602,9 @@ void test_av_implicit_av_lru_eviction(struct efa_resource **state)
 	/* Access peer0 through the CQ read path */
 	ahn = efa_rdm_ep->self_ah->ahn;
 	ofi_genlock_lock(&efa_rdm_ep->base_ep.domain->srx_lock);
-	implicit_fi_addr = efa_proto_av_reverse_lookup_rdm_implicit(container_of(
-		av, ahn, peer0->av_entry)->qpn, NULL);
+	implicit_fi_addr = efa_proto_av_reverse_lookup_rdm_implicit(
+		container_of(av, struct efa_proto_av, efa_av), ahn,
+		efa_proto_av_entry_ep_addr(peer0->av_entry)->qpn, NULL);
 	ofi_genlock_unlock(&efa_rdm_ep->base_ep.domain->srx_lock);
 	assert_int_equal(implicit_fi_addr, 0);
 
@@ -647,7 +652,7 @@ void test_av_implicit_av_lru_eviction(struct efa_resource **state)
 			 1);
 
 	/* Expected LRU list: HEAD->peer0->peer3 */
-	test_av_implicit_av_verify_lru_list_first_last_elements(av, peer0->av_entry, peer3->conn);
+	test_av_implicit_av_verify_lru_list_first_last_elements(av, peer0->av_entry, peer3->av_entry);
 }
 
 /**
