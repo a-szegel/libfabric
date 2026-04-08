@@ -30,7 +30,7 @@ efa_av_addr_to_entry_impl(struct util_av *util_av, fi_addr_t fi_addr)
 		return NULL;
 
 	av_entry = (struct efa_av_entry *)util_av_entry->data;
-	return efa_av_entry_ep_addr(av_entry)->qpn ? av_entry : NULL;
+	return av_entry->ah ? av_entry : NULL;
 }
 
 /**
@@ -195,6 +195,7 @@ static struct efa_av_entry *efa_av_entry_init(struct efa_av *av,
 err_release_ah:
 	efa_ah_release(av->domain, av_entry->ah, false);
 err_release:
+	av_entry->ah = NULL;
 	memset(av_entry->ep_addr, 0, EFA_EP_ADDR_LEN);
 	err = ofi_av_remove_addr(&av->util_av, fi_addr);
 	if (err)
@@ -226,6 +227,7 @@ static void efa_av_entry_release(struct efa_av *av, struct efa_av_entry *av_entr
 	if (err)
 		EFA_WARN(FI_LOG_AV, "ofi_av_remove_addr failed! err=%d\n", err);
 
+	av_entry->ah = NULL;
 	memset(av_entry->ep_addr, 0, EFA_EP_ADDR_LEN);
 	av->used--;
 }

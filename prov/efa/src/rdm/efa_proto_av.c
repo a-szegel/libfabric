@@ -55,7 +55,7 @@ efa_proto_av_addr_to_entry_impl(struct util_av *util_av, fi_addr_t fi_addr)
 		return NULL;
 
 	entry = (struct efa_proto_av_entry *)util_av_entry->data;
-	return efa_proto_av_entry_ep_addr(entry)->qpn ? entry : NULL;
+	return entry->ah ? entry : NULL;
 }
 
 struct efa_proto_av_entry *efa_proto_av_addr_to_entry(struct efa_proto_av *av,
@@ -379,6 +379,7 @@ static void efa_proto_av_entry_release_util_av(struct efa_proto_av *av,
 	EFA_INFO(FI_LOG_AV, "efa_proto_av_entry released! entry[%p] GID[%s] QP[%u]\n",
 		 entry, gidstr, efa_proto_av_entry_ep_addr(entry)->qpn);
 
+	entry->ah = NULL;
 	memset(entry->ep_addr, 0, EFA_EP_ADDR_LEN);
 }
 
@@ -515,6 +516,7 @@ err_release:
 	if (entry->ah)
 		efa_ah_release(av->efa_av.domain, entry->ah, insert_implicit_av);
 
+	entry->ah = NULL;
 	memset(entry->ep_addr, 0, EFA_EP_ADDR_LEN);
 	err = ofi_av_remove_addr(util_av, fi_addr);
 	if (err)
