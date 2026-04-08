@@ -56,6 +56,9 @@ static inline int efa_ah_implicit_av_evict_ah(struct efa_domain *domain) {
 
 	assert(ah_to_release->implicit_refcnt > 0);
 
+	fprintf(stderr, "DEBUG efa_ah_evict: ah=%p implicit_refcnt=%d explicit_refcnt=%d\n",
+		ah_to_release, ah_to_release->implicit_refcnt, ah_to_release->explicit_refcnt);
+
 	dlist_foreach_container_safe(&ah_to_release->implicit_conn_list,
 				      struct efa_proto_av_entry, entry_to_release,
 				      ah_implicit_conn_list_entry, tmp) {
@@ -63,13 +66,22 @@ static inline int efa_ah_implicit_av_evict_ah(struct efa_domain *domain) {
 		assert(entry_to_release->implicit_fi_addr != FI_ADDR_NOTAVAIL &&
 		       entry_to_release->fi_addr == FI_ADDR_NOTAVAIL);
 
+		fprintf(stderr, "DEBUG efa_ah_evict: releasing entry=%p av=%p implicit_fi_addr=%ld\n",
+			entry_to_release, entry_to_release->av, entry_to_release->implicit_fi_addr);
+
 		efa_proto_av_entry_release_ah_unsafe(entry_to_release->av,
 						     entry_to_release, true);
 	}
 
+	fprintf(stderr, "DEBUG efa_ah_evict: after release implicit_refcnt=%d explicit_refcnt=%d\n",
+		ah_to_release->implicit_refcnt, ah_to_release->explicit_refcnt);
+
 	if (ah_to_release->implicit_refcnt == 0 &&
 	    ah_to_release->explicit_refcnt == 0) {
+		fprintf(stderr, "DEBUG efa_ah_evict: destroying ah=%p\n", ah_to_release);
 		efa_ah_destroy_ah(domain, ah_to_release);
+	} else {
+		fprintf(stderr, "DEBUG efa_ah_evict: NOT destroying ah=%p (refcnts not zero)\n", ah_to_release);
 	}
 
 	return FI_SUCCESS;
@@ -156,6 +168,8 @@ struct efa_ah *efa_ah_alloc(struct efa_domain *domain, const uint8_t *gid,
 	efa_ah->explicit_refcnt = 0;
 	insert_implicit_av ? efa_ah->implicit_refcnt++ : efa_ah->explicit_refcnt++;
 	efa_ah->ahn = efa_ah_attr.ahn;
+	fprintf(stderr, "DEBUG efa_ah_alloc: new ah=%p ahn=%u implicit=%d\n",
+		efa_ah, efa_ah->ahn, insert_implicit_av);
 	memcpy(efa_ah->gid, gid, EFA_GID_LEN);
 	HASH_ADD(hh, domain->ah_map, gid, EFA_GID_LEN, efa_ah);
 	ofi_genlock_unlock(&domain->util_domain.lock);
@@ -173,6 +187,7 @@ void efa_ah_destroy_ah(struct efa_domain *domain, struct efa_ah *ah)
 {
 	int err;
 
+	fprintf(stderr, "DEBUG efa_ah_destroy: ah=%p ahn=%u\n", ah, ah->ahn);
 	assert(ah->implicit_refcnt == 0 && ah->explicit_refcnt == 0);
 	assert(dlist_empty(&ah->implicit_conn_list));
 
@@ -195,6 +210,8 @@ void efa_ah_destroy_ah(struct efa_domain *domain, struct efa_ah *ah)
 void efa_ah_release(struct efa_domain *domain, struct efa_ah *ah,
 		    bool release_from_implicit_av)
 {
+	fprintf(stderr, "DEBUG efa_ah_release: ah=%p implicit_refcnt=%d explicit_refcnt=%d release_implicit=%d\n",
+		ah, ah->implicit_refcnt, ah->explicit_refcnt, release_from_implicit_av);
 	ofi_genlock_lock(&domain->util_domain.lock);
 #if ENABLE_DEBUG
 	struct efa_ah *tmp;
