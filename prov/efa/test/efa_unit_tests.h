@@ -125,6 +125,15 @@ void test_av_implicit_av_lru_eviction();
 void test_ah_refcnt();
 void test_ah_lru_eviction_explicit_av_insert();
 void test_ah_lru_eviction_implicit_av_insert();
+void test_av_insert_remove_lookup_efa_direct();
+void test_av_proto_reverse_lookup_explicit();
+void test_av_proto_addr_to_entry_after_remove();
+void test_av_proto_insert_remove_with_peer();
+void test_av_base_addr_to_entry_invalid();
+void test_av_implicit_to_explicit_peer_updated();
+void test_av_proto_batch_insert();
+void test_av_proto_remove_nonexistent();
+void test_av_proto_prv_reverse_av();
 /* end efa_unit_test_av.c */
 
 void test_efa_device_construct_error_handling();
