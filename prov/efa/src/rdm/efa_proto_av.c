@@ -407,21 +407,28 @@ void efa_proto_av_entry_release_ah_unsafe(struct efa_proto_av *av,
 {
 	fprintf(stderr, "DEBUG release_ah_unsafe: entry=%p ah=%p implicit=%d\n",
 		entry, entry->ah, release_from_implicit_av);
-
+	fprintf(stderr, "DEBUG release_ah_unsafe: checking srx_lock\n");
 	assert(ofi_genlock_held(&av->efa_av.domain->srx_lock));
+	fprintf(stderr, "DEBUG release_ah_unsafe: checking util_domain.lock\n");
 	assert(ofi_genlock_held(&av->efa_av.domain->util_domain.lock));
 
+	fprintf(stderr, "DEBUG release_ah_unsafe: calling release_reverse_av\n");
 	efa_proto_av_entry_release_reverse_av(av, entry, release_from_implicit_av);
+	fprintf(stderr, "DEBUG release_ah_unsafe: calling rdm_deinit\n");
 	efa_proto_av_entry_rdm_deinit(av, entry);
 
+	fprintf(stderr, "DEBUG release_ah_unsafe: removing from implicit_conn_list\n");
 	if (release_from_implicit_av)
 		dlist_remove(&entry->ah_implicit_conn_list_entry);
 
+	fprintf(stderr, "DEBUG release_ah_unsafe: calling release_util_av\n");
 	efa_proto_av_entry_release_util_av(av, entry, release_from_implicit_av);
 
+	fprintf(stderr, "DEBUG release_ah_unsafe: decrementing refcnts\n");
 	release_from_implicit_av ? entry->ah->implicit_refcnt-- :
 				   entry->ah->explicit_refcnt--;
 	release_from_implicit_av ? av->used_implicit-- : av->efa_av.used--;
+	fprintf(stderr, "DEBUG release_ah_unsafe: done\n");
 }
 
 /* ---- Entry alloc ---- */
