@@ -1224,6 +1224,7 @@ void test_av_proto_prv_reverse_av(struct efa_resource **state)
 		container_of(av, struct efa_proto_av, efa_av), ahn, 20, NULL);
 	assert_int_equal(lookup_addr, fi_addr2);
 
-	fi_av_remove(resource->av, &fi_addr1, 1, 0);
+	/* Remove in reverse order: current entry first, then previous */
 	fi_av_remove(resource->av, &fi_addr2, 1, 0);
+	fi_av_remove(resource->av, &fi_addr1, 1, 0);
 }
