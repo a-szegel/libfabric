@@ -56,8 +56,6 @@ static inline int efa_ah_implicit_av_evict_ah(struct efa_domain *domain) {
 
 	assert(ah_to_release->implicit_refcnt > 0);
 
-		ah_to_release, ah_to_release->implicit_refcnt, ah_to_release->explicit_refcnt);
-
 	dlist_foreach_container_safe(&ah_to_release->implicit_conn_list,
 				      struct efa_proto_av_entry, entry_to_release,
 				      ah_implicit_conn_list_entry, tmp) {
@@ -65,13 +63,9 @@ static inline int efa_ah_implicit_av_evict_ah(struct efa_domain *domain) {
 		assert(entry_to_release->implicit_fi_addr != FI_ADDR_NOTAVAIL &&
 		       entry_to_release->fi_addr == FI_ADDR_NOTAVAIL);
 
-			entry_to_release, entry_to_release->av, entry_to_release->implicit_fi_addr);
-
 		efa_proto_av_entry_release_ah_unsafe(entry_to_release->av,
 						     entry_to_release, true);
 	}
-
-		ah_to_release->implicit_refcnt, ah_to_release->explicit_refcnt);
 
 	if (ah_to_release->implicit_refcnt == 0 &&
 	    ah_to_release->explicit_refcnt == 0) {
@@ -163,7 +157,6 @@ struct efa_ah *efa_ah_alloc(struct efa_domain *domain, const uint8_t *gid,
 	efa_ah->explicit_refcnt = 0;
 	insert_implicit_av ? efa_ah->implicit_refcnt++ : efa_ah->explicit_refcnt++;
 	efa_ah->ahn = efa_ah_attr.ahn;
-		efa_ah, efa_ah->ahn, insert_implicit_av);
 	memcpy(efa_ah->gid, gid, EFA_GID_LEN);
 	HASH_ADD(hh, domain->ah_map, gid, EFA_GID_LEN, efa_ah);
 	ofi_genlock_unlock(&domain->util_domain.lock);
@@ -203,7 +196,6 @@ void efa_ah_destroy_ah(struct efa_domain *domain, struct efa_ah *ah)
 void efa_ah_release(struct efa_domain *domain, struct efa_ah *ah,
 		    bool release_from_implicit_av)
 {
-		ah, ah->implicit_refcnt, ah->explicit_refcnt, release_from_implicit_av);
 	ofi_genlock_lock(&domain->util_domain.lock);
 #if ENABLE_DEBUG
 	struct efa_ah *tmp;
