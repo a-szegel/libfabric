@@ -248,7 +248,8 @@ static int efa_av_insert_one(struct efa_av *av, struct efa_ep_addr *addr,
 		return -FI_EADDRNOTAVAIL;
 	}
 
-	addr->qkey = EFA_DGRAM_CONNID;
+	if (av->domain->info_type == EFA_INFO_DGRAM)
+		addr->qkey = EFA_DGRAM_CONNID;
 
 	ofi_genlock_lock(&av->util_av.lock);
 
