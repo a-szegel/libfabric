@@ -405,30 +405,22 @@ void efa_proto_av_entry_release_ah_unsafe(struct efa_proto_av *av,
 					  struct efa_proto_av_entry *entry,
 					  bool release_from_implicit_av)
 {
-	fprintf(stderr, "DEBUG release_ah_unsafe: entry=%p ah=%p implicit=%d\n",
-		entry, entry->ah, release_from_implicit_av);
-	fprintf(stderr, "DEBUG release_ah_unsafe: checking srx_lock\n");
 	assert(ofi_genlock_held(&av->efa_av.domain->srx_lock));
-	fprintf(stderr, "DEBUG release_ah_unsafe: checking util_domain.lock\n");
 	assert(ofi_genlock_held(&av->efa_av.domain->util_domain.lock));
 
-	fprintf(stderr, "DEBUG release_ah_unsafe: calling release_reverse_av\n");
 	efa_proto_av_entry_release_reverse_av(av, entry, release_from_implicit_av);
-	fprintf(stderr, "DEBUG release_ah_unsafe: calling rdm_deinit\n");
 	efa_proto_av_entry_rdm_deinit(av, entry);
 
-	fprintf(stderr, "DEBUG release_ah_unsafe: removing from implicit_conn_list\n");
 	if (release_from_implicit_av)
 		dlist_remove(&entry->ah_implicit_conn_list_entry);
 
-	fprintf(stderr, "DEBUG release_ah_unsafe: calling release_util_av\n");
-	efa_proto_av_entry_release_util_av(av, entry, release_from_implicit_av);
-
-	fprintf(stderr, "DEBUG release_ah_unsafe: decrementing refcnts\n");
+	/* Decrement refcnts before release_util_av which NULLs entry->ah */
 	release_from_implicit_av ? entry->ah->implicit_refcnt-- :
 				   entry->ah->explicit_refcnt--;
+
+	efa_proto_av_entry_release_util_av(av, entry, release_from_implicit_av);
+
 	release_from_implicit_av ? av->used_implicit-- : av->efa_av.used--;
-	fprintf(stderr, "DEBUG release_ah_unsafe: done\n");
 }
 
 /* ---- Entry alloc ---- */
@@ -932,11 +924,8 @@ static int efa_proto_av_close(struct fid *fid)
 	base_av = container_of(fid, struct efa_av, util_av.av_fid.fid);
 	av = container_of(base_av, struct efa_proto_av, efa_av);
 
-	fprintf(stderr, "DEBUG efa_proto_av_close: av=%p explicit_used=%zu implicit_used=%zu\n",
 		av, av->efa_av.used, av->used_implicit);
-	fprintf(stderr, "DEBUG efa_proto_av_close: cur_reverse_av count=%u prv_reverse_av count=%u\n",
 		HASH_CNT(hh, av->efa_av.cur_reverse_av), HASH_CNT(hh, av->efa_av.prv_reverse_av));
-	fprintf(stderr, "DEBUG efa_proto_av_close: cur_reverse_av_implicit count=%u prv_reverse_av_implicit count=%u\n",
 		HASH_CNT(hh, av->cur_reverse_av_implicit), HASH_CNT(hh, av->prv_reverse_av_implicit));
 
 	efa_proto_av_close_reverse_av(av);
