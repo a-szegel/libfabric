@@ -463,7 +463,7 @@ int efa_av_open(struct fid_domain *domain_fid, struct fi_av_attr *attr,
 {
 	struct efa_domain *efa_domain;
 	struct efa_av *av;
-	int ret, retv;
+	int ret;
 
 	if (!attr)
 		return -FI_EINVAL;

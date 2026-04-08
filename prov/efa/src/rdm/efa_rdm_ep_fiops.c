@@ -814,8 +814,6 @@ static void efa_rdm_ep_destroy_buffer_pools(struct efa_rdm_ep *efa_rdm_ep)
 	struct efa_rdm_ope *rxe;
 	struct efa_rdm_ope *txe;
 	struct efa_rdm_peer *peer;
-	struct util_av_entry *util_av_entry;
-
 
 
 #if ENABLE_DEBUG
