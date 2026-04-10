@@ -339,7 +339,7 @@ efa_av_get_addr_from_peer_rx_entry(struct fi_peer_rx_entry *rx_entry)
 
 	pke = (struct efa_rdm_pke *) rx_entry->peer_context;
 
-	return pke->peer->conn->fi_addr;
+	return pke->peer->av_entry->fi_addr;
 }
 
 static int efa_conn_implicit_to_explicit(struct efa_av *av,
@@ -409,7 +409,7 @@ static int efa_conn_implicit_to_explicit(struct efa_av *av,
 	HASH_ITER(hh, implicit_conn->ep_peer_map, map_entry, tmp) {
 		HASH_DELETE(hh, implicit_conn->ep_peer_map, map_entry);
 		HASH_ADD_PTR(explicit_conn->ep_peer_map, ep_ptr, map_entry);
-		map_entry->peer.conn = explicit_conn;
+		map_entry->peer.av_entry = (struct efa_proto_av_entry *)explicit_conn;
 	}
 	assert(HASH_CNT(hh, implicit_conn->ep_peer_map) == 0);
 
