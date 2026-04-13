@@ -195,7 +195,7 @@ static struct efa_av_entry *efa_av_entry_init(struct efa_av *av,
 	av_entry->fi_addr = fi_addr;
 	assert(av->type == FI_AV_TABLE);
 
-	av_entry->ah = efa_ah_alloc(av->domain, raw_addr->raw, false);
+	av_entry->ah = efa_ah_alloc(av->domain, raw_addr->raw, sizeof(struct efa_ah));
 	if (!av_entry->ah)
 		goto err_release;
 
@@ -208,7 +208,7 @@ static struct efa_av_entry *efa_av_entry_init(struct efa_av *av,
 	return av_entry;
 
 err_release_ah:
-	efa_ah_release(av->domain, av_entry->ah, false);
+	efa_ah_release(av->domain, av_entry->ah);
 err_release:
 	av_entry->ah = NULL;
 	memset(av_entry->ep_addr, 0, EFA_EP_ADDR_LEN);
@@ -235,7 +235,7 @@ static void efa_av_entry_release(struct efa_av *av, struct efa_av_entry *av_entr
 	assert(ofi_genlock_held(&av->util_av.lock));
 
 	efa_av_reverse_av_remove(&av->cur_reverse_av, &av->prv_reverse_av, av_entry);
-	efa_ah_release(av->domain, av_entry->ah, false);
+	efa_ah_release(av->domain, av_entry->ah);
 
 	inet_ntop(AF_INET6, efa_av_entry_ep_addr(av_entry)->raw, gidstr, INET6_ADDRSTRLEN);
 	EFA_INFO(FI_LOG_AV, "efa_av_entry released! entry[%p] GID[%s] QP[%u]\n",
