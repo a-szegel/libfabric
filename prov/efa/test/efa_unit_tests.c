@@ -577,6 +577,7 @@ int main(void)
 		cmocka_unit_test_setup_teardown(test_efa_rdm_rma_should_write_using_rdma_unsolicited_write_recv_not_match, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
 		cmocka_unit_test_setup_teardown(test_efa_rdm_rma_post_remote_write_partial_fail_no_txe_release, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
 		cmocka_unit_test_setup_teardown(test_efa_rdm_rma_post_remote_read_partial_fail_no_txe_release, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
+		cmocka_unit_test_setup_teardown(test_efa_rdm_rma_partial_post_retry_no_double_free, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
 		/* end efa_unit_test_rdm_rma.c */
 	};
 
