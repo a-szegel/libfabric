@@ -199,7 +199,7 @@ ssize_t efa_rdm_rma_generic_readmsg(struct efa_rdm_ep *efa_rdm_ep, const struct 
 	err = efa_rdm_rma_post_read(efa_rdm_ep, txe);
 
 out:
-	if (OFI_UNLIKELY(err && txe))
+	if (OFI_UNLIKELY(err && txe && txe->efa_outstanding_tx_ops == 0))
 		efa_rdm_txe_release(txe);
 
 	efa_perfset_end(efa_rdm_ep, perf_efa_tx);
