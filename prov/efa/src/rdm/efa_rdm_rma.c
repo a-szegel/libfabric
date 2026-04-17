@@ -454,7 +454,8 @@ static inline ssize_t efa_rdm_rma_generic_writemsg(struct efa_rdm_ep *efa_rdm_ep
 
 	err = efa_rdm_rma_post_write(efa_rdm_ep, txe);
 	if (OFI_UNLIKELY(err)) {
-		efa_rdm_txe_release(txe);
+		if (txe->efa_outstanding_tx_ops == 0)
+			efa_rdm_txe_release(txe);
 	}
 out:
 	efa_perfset_end(efa_rdm_ep, perf_efa_tx);
