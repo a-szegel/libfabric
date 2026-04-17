@@ -525,7 +525,8 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 				efa_rdm_pke_handle_data_copied(data_pkt_entry);
 			} else {
 				assert(txe && txe->cq_entry.flags & FI_READ);
-				efa_rdm_txe_report_completion(txe);
+				if (!(txe->fi_flags & EFA_RDM_TXE_NO_COMPLETION))
+					efa_rdm_txe_report_completion(txe);
 			}
 
 			efa_rdm_txe_release(txe);
@@ -593,10 +594,13 @@ void efa_rdm_pke_handle_rma_completion(struct efa_rdm_pke *context_pkt_entry)
 		txe = context_pkt_entry->ope;
 		txe->bytes_write_completed += rma_context_pkt->seg_size;
 		if (txe->bytes_write_completed == txe->bytes_write_total_len) {
-			if (txe->fi_flags & FI_COMPLETION)
+			if (txe->fi_flags & EFA_RDM_TXE_NO_COMPLETION) {
+				/* suppressed: caller already returned error */
+			} else if (txe->fi_flags & FI_COMPLETION) {
 				efa_rdm_txe_report_completion(txe);
-			else
+			} else if (!(txe->fi_flags & EFA_RDM_TXE_NO_COUNTER)) {
 				efa_cntr_report_tx_completion(&context_pkt_entry->ep->base_ep.util_ep, txe->cq_entry.flags);
+			}
 			efa_rdm_txe_release(txe);
 		}
 		break;

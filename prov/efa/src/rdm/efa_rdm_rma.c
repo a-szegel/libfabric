@@ -199,8 +199,21 @@ ssize_t efa_rdm_rma_generic_readmsg(struct efa_rdm_ep *efa_rdm_ep, const struct 
 	err = efa_rdm_rma_post_read(efa_rdm_ep, txe);
 
 out:
-	if (OFI_UNLIKELY(err && txe && txe->efa_outstanding_tx_ops == 0))
-		efa_rdm_txe_release(txe);
+	if (OFI_UNLIKELY(err && txe)) {
+		if (txe->efa_outstanding_tx_ops == 0) {
+			efa_rdm_txe_release(txe);
+		} else {
+			/*
+			 * Some segments are in flight. Clamp the target length
+			 * so the final in-flight completion releases the txe
+			 * via efa_rdm_pke_handle_rma_read_completion(). Suppress
+			 * the application-visible completion since we return
+			 * EAGAIN and the app will retry the full transfer.
+			 */
+			txe->bytes_read_total_len = txe->bytes_read_submitted;
+			txe->fi_flags |= EFA_RDM_TXE_NO_COMPLETION | EFA_RDM_TXE_NO_COUNTER;
+		}
+	}
 
 	efa_perfset_end(efa_rdm_ep, perf_efa_tx);
 	return err;
@@ -454,8 +467,19 @@ static inline ssize_t efa_rdm_rma_generic_writemsg(struct efa_rdm_ep *efa_rdm_ep
 
 	err = efa_rdm_rma_post_write(efa_rdm_ep, txe);
 	if (OFI_UNLIKELY(err)) {
-		if (txe->efa_outstanding_tx_ops == 0)
+		if (txe->efa_outstanding_tx_ops == 0) {
 			efa_rdm_txe_release(txe);
+		} else {
+			/*
+			 * Some segments are in flight. Clamp the target length
+			 * so the final in-flight completion releases the txe
+			 * via efa_rdm_pke_handle_rma_completion(). Suppress the
+			 * application-visible completion since we return EAGAIN
+			 * and the app will retry the full transfer.
+			 */
+			txe->bytes_write_total_len = txe->bytes_write_submitted;
+			txe->fi_flags |= EFA_RDM_TXE_NO_COMPLETION | EFA_RDM_TXE_NO_COUNTER;
+		}
 	}
 out:
 	efa_perfset_end(efa_rdm_ep, perf_efa_tx);
