@@ -5,6 +5,7 @@
 #include "efa_unit_tests.h"
 #include "efa_rdm_rma.h"
 #include "efa_rdm_pke_nonreq.h"
+#include "efa_rdm_cq.h"
 
 static bool test_efa_rdm_rma_should_write_using_rdma_helper(
 		struct efa_rdm_ep *ep, struct efa_rdm_peer *peer,
@@ -457,7 +458,8 @@ void test_efa_rdm_rma_write_0_byte_with_inject_flag(struct efa_resource **state)
  *
  * This test forces a 2-segment write by shrinking max_rdma_size, then
  * saturates the tx queue so the second segment fails. It verifies that
- * the txe is NOT released (i.e., remains on the txe_list).
+ * the txe is NOT released before the in-flight completion arrives, and
+ * IS released cleanly by the completion path (no leak).
  *
  * Related: P406851337
  */
@@ -471,10 +473,12 @@ void test_efa_rdm_rma_post_remote_write_partial_fail_no_txe_release(
 	struct iovec iov;
 	struct fi_msg_rma msg = {0};
 	struct fi_rma_iov rma_iov;
+	struct efa_rdm_pke *inflight_pke;
 	fi_addr_t addr;
 	struct efa_ep_addr raw_addr;
 	size_t raw_addr_len = sizeof(raw_addr);
 	size_t max_rdma_size_orig;
+	uint64_t wr_id;
 	void *desc;
 	int ret;
 
@@ -518,7 +522,6 @@ void test_efa_rdm_rma_post_remote_write_partial_fail_no_txe_release(
 	 */
 	efa_rdm_ep->efa_outstanding_tx_ops = efa_rdm_ep->efa_max_outstanding_tx_ops - 1;
 
-	/* Call fi_writemsg which goes through efa_rdm_rma_generic_writemsg */
 	iov.iov_base = send_buff.buff;
 	iov.iov_len = 128;
 	rma_iov.addr = 0x87654321;
@@ -527,8 +530,10 @@ void test_efa_rdm_rma_post_remote_write_partial_fail_no_txe_release(
 	efa_unit_test_construct_msg_rma(&msg, &iov, &desc, 1, addr,
 					&rma_iov, 1, NULL, 0);
 
+	assert_int_equal(g_ibv_submitted_wr_id_cnt, 0);
 	ret = fi_writemsg(resource->ep, &msg, 0);
 	assert_int_equal(ret, -FI_EAGAIN);
+	assert_int_equal(g_ibv_submitted_wr_id_cnt, 1);
 
 	/*
 	 * With the fix, the txe must still be live because the first
@@ -537,28 +542,22 @@ void test_efa_rdm_rma_post_remote_write_partial_fail_no_txe_release(
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list), 1);
 
 	/*
-	 * Clean up: release the in-flight pkt_entry, then the txe.
+	 * Drive the in-flight segment's completion through the real
+	 * completion handler. Pre-fix, this dereferences the freed txe
+	 * (SEGV/UAF). Post-fix, it releases the txe cleanly because the
+	 * generic writemsg clamped bytes_write_total_len to match what
+	 * was submitted.
 	 */
-	assert_false(dlist_empty(&peer->outstanding_tx_pkts));
-	{
-		struct efa_rdm_pke *inflight = container_of(
-			peer->outstanding_tx_pkts.next,
-			struct efa_rdm_pke, entry);
-		dlist_remove(&inflight->entry);
-		inflight->flags &= ~EFA_RDM_PKE_IN_PEER_OUTSTANDING_TX_PKTS;
-		efa_rdm_pke_release_tx(inflight);
-	}
+	wr_id = (uint64_t) g_ibv_submitted_wr_id_vec[0];
+	inflight_pke = efa_rdm_cq_get_pke_from_wr_id_solicited(wr_id);
+	efa_rdm_ep_record_tx_op_completed(efa_rdm_ep, inflight_pke);
+	efa_rdm_pke_handle_rma_completion(inflight_pke);
 
-	/* Now safe to find and release the txe */
-	{
-		struct efa_rdm_ope *txe = container_of(
-			efa_rdm_ep->txe_list.next,
-			struct efa_rdm_ope, ep_entry);
-		efa_rdm_ep->efa_outstanding_tx_ops = 0;
-		peer->efa_outstanding_tx_ops = 0;
-		txe->efa_outstanding_tx_ops = 0;
-		efa_rdm_txe_release(txe);
-	}
+	/* The txe was released by the completion path. No leak. */
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->txe_list), 0);
+	assert_int_equal(efa_rdm_ep->efa_outstanding_tx_ops,
+			 efa_rdm_ep->efa_max_outstanding_tx_ops - 1);
+	assert_true(dlist_empty(&peer->outstanding_tx_pkts));
 
 	/* Restore */
 	efa_rdm_ep_domain(efa_rdm_ep)->device->max_rdma_size = max_rdma_size_orig;
