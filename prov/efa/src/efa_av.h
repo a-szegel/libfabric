@@ -55,7 +55,10 @@ struct efa_cur_reverse_av_key {
 
 struct efa_cur_reverse_av {
 	struct efa_cur_reverse_av_key key;
-	struct efa_conn *conn;
+	union {
+		struct efa_conn *conn;
+		struct efa_av_entry *av_entry;
+	};
 	UT_hash_handle hh;
 };
 
@@ -67,7 +70,10 @@ struct efa_prv_reverse_av_key {
 
 struct efa_prv_reverse_av {
 	struct efa_prv_reverse_av_key key;
-	struct efa_conn *conn;
+	union {
+		struct efa_conn *conn;
+		struct efa_av_entry *av_entry;
+	};
 	UT_hash_handle hh;
 };
 
@@ -129,5 +135,30 @@ void efa_av_reverse_av_remove(struct efa_cur_reverse_av **cur_reverse_av,
 
 void efa_av_implicit_av_lru_conn_move(struct efa_av *av,
 					struct efa_conn *conn);
+
+/**
+ * @brief cast the raw ep_addr bytes in an efa_av_entry to a typed pointer
+ */
+static inline struct efa_ep_addr *efa_av_entry_ep_addr(struct efa_av_entry *entry)
+{
+	return (struct efa_ep_addr *)entry->ep_addr;
+}
+
+struct efa_av_entry *efa_av_addr_to_entry(struct efa_av *av, fi_addr_t fi_addr);
+
+int efa_av_init_util_av(struct efa_domain *efa_domain,
+			struct fi_av_attr *attr,
+			struct util_av *util_av,
+			void *context,
+			size_t context_len);
+
+int efa_av_reverse_av_add_v2(struct efa_av *av,
+			     struct efa_cur_reverse_av **cur_reverse_av,
+			     struct efa_prv_reverse_av **prv_reverse_av,
+			     struct efa_av_entry *av_entry);
+
+void efa_av_reverse_av_remove_v2(struct efa_cur_reverse_av **cur_reverse_av,
+				 struct efa_prv_reverse_av **prv_reverse_av,
+				 struct efa_av_entry *av_entry);
 
 #endif
