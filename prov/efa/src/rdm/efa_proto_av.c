@@ -472,12 +472,12 @@ static void efa_proto_av_entry_release_reverse_av(struct efa_proto_av *av,
 {
 	if (release_from_implicit_av) {
 		assert(ofi_genlock_held(&av->util_av_implicit.lock));
-		efa_av_reverse_av_remove_v2(&av->cur_reverse_av_implicit,
+		efa_av_reverse_av_remove(&av->cur_reverse_av_implicit,
 					 &av->prv_reverse_av_implicit,
 					 (struct efa_av_entry *)entry);
 	} else {
 		assert(ofi_genlock_held(&av->efa_av.util_av.lock));
-		efa_av_reverse_av_remove_v2(&av->efa_av.cur_reverse_av,
+		efa_av_reverse_av_remove(&av->efa_av.cur_reverse_av,
 					 &av->efa_av.prv_reverse_av,
 					 (struct efa_av_entry *)entry);
 	}
@@ -546,7 +546,7 @@ void efa_proto_av_entry_release(struct efa_proto_av *av,
 	efa_proto_ah_release(av->efa_av.domain, entry->ah, release_from_implicit_av);
 	efa_proto_av_entry_release_util_av(av, entry, release_from_implicit_av);
 
-	release_from_implicit_av ? av->used_implicit-- : av->efa_av.used_explicit--;
+	release_from_implicit_av ? av->used_implicit-- : av->efa_av.used--;
 }
 
 /**
@@ -579,7 +579,7 @@ void efa_proto_av_entry_release_ah_unsafe(struct efa_proto_av *av,
 
 	efa_proto_av_entry_release_util_av(av, entry, release_from_implicit_av);
 
-	release_from_implicit_av ? av->used_implicit-- : av->efa_av.used_explicit--;
+	release_from_implicit_av ? av->used_implicit-- : av->efa_av.used--;
 }
 
 /* ---- Protocol AH helpers ---- */
@@ -854,7 +854,7 @@ struct efa_proto_av_entry *efa_proto_av_entry_alloc(
 		}
 	}
 
-	err = efa_av_reverse_av_add_v2(&av->efa_av, cur_reverse_av, prv_reverse_av,
+	err = efa_av_reverse_av_add(&av->efa_av, cur_reverse_av, prv_reverse_av,
 				    (struct efa_av_entry *)entry);
 	if (err) {
 		if (insert_implicit_av)
@@ -865,7 +865,7 @@ struct efa_proto_av_entry *efa_proto_av_entry_alloc(
 		goto err_release;
 	}
 
-	insert_implicit_av ? av->used_implicit++ : av->efa_av.used_explicit++;
+	insert_implicit_av ? av->used_implicit++ : av->efa_av.used++;
 
 	return entry;
 
@@ -986,7 +986,7 @@ int efa_proto_av_entry_implicit_to_explicit(struct efa_proto_av *av,
 	assert(HASH_CNT(hh, implicit_entry->ep_peer_map) == 0);
 
 	/* Handle reverse AV and AV ref counts */
-	efa_av_reverse_av_remove_v2(&av->cur_reverse_av_implicit,
+	efa_av_reverse_av_remove(&av->cur_reverse_av_implicit,
 				 &av->prv_reverse_av_implicit,
 				 (struct efa_av_entry *)implicit_entry);
 
@@ -1003,13 +1003,13 @@ int efa_proto_av_entry_implicit_to_explicit(struct efa_proto_av *av,
 
 	av->used_implicit--;
 
-	err = efa_av_reverse_av_add_v2(&av->efa_av, &av->efa_av.cur_reverse_av,
+	err = efa_av_reverse_av_add(&av->efa_av, &av->efa_av.cur_reverse_av,
 				    &av->efa_av.prv_reverse_av,
 				    (struct efa_av_entry *)explicit_entry);
 	if (err)
 		return err;
 
-	av->efa_av.used_explicit++;
+	av->efa_av.used++;
 
 	/* Handle AH LRU list and refcnt */
 	assert(!dlist_empty(&efa_proto_ah_from_ah(ah)->implicit_conn_list));
@@ -1485,7 +1485,7 @@ int efa_proto_av_open(struct fid_domain *domain_fid, struct fi_av_attr *attr,
 
 	av->efa_av.domain = efa_domain;
 	av->efa_av.type = attr->type;
-	av->efa_av.used_explicit = 0;
+	av->efa_av.used = 0;
 	av->implicit_av_size = efa_env.implicit_av_size;
 	av->used_implicit = 0;
 	av->shm_used = 0;
