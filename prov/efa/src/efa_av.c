@@ -324,7 +324,7 @@ efa_av_get_addr_from_peer_rx_entry(struct fi_peer_rx_entry *rx_entry)
 
 	pke = (struct efa_rdm_pke *) rx_entry->peer_context;
 
-	return pke->peer->conn->fi_addr;
+	return pke->peer->av_entry->fi_addr;
 }
 
 static int efa_conn_implicit_to_explicit(struct efa_av *av,
@@ -394,7 +394,7 @@ static int efa_conn_implicit_to_explicit(struct efa_av *av,
 	HASH_ITER(hh, implicit_conn->ep_peer_map, map_entry, tmp) {
 		HASH_DELETE(hh, implicit_conn->ep_peer_map, map_entry);
 		HASH_ADD_PTR(explicit_conn->ep_peer_map, ep_ptr, map_entry);
-		map_entry->peer.conn = explicit_conn;
+		map_entry->peer.av_entry = (struct efa_proto_av_entry *)explicit_conn;
 	}
 	assert(HASH_CNT(hh, implicit_conn->ep_peer_map) == 0);
 
@@ -832,12 +832,13 @@ static struct fi_ops efa_av_fi_ops = {
 int efa_av_init_util_av(struct efa_domain *efa_domain,
 			struct fi_av_attr *attr,
 			struct util_av *util_av,
-			void *context)
+			void *context,
+			size_t context_len)
 {
 	struct util_av_attr util_attr;
 
 	util_attr.addrlen = EFA_EP_ADDR_LEN;
-	util_attr.context_len = sizeof(struct efa_av_entry) - EFA_EP_ADDR_LEN;
+	util_attr.context_len = context_len - EFA_EP_ADDR_LEN;
 	util_attr.flags = 0;
 	return ofi_av_init(&efa_domain->util_domain, attr, &util_attr,
 			   util_av, context);
@@ -887,11 +888,11 @@ int efa_av_open(struct fid_domain *domain_fid, struct fi_av_attr *attr,
 				&universe_size) == FI_SUCCESS)
 		attr->count = MAX(attr->count, universe_size);
 
-	ret = efa_av_init_util_av(efa_domain, attr, &av->util_av_implicit, context);
+	ret = efa_av_init_util_av(efa_domain, attr, &av->util_av_implicit, context, sizeof(struct efa_av_entry));
 	if (ret)
 		goto err;
 
-	ret = efa_av_init_util_av(efa_domain, attr, &av->util_av, context);
+	ret = efa_av_init_util_av(efa_domain, attr, &av->util_av, context, sizeof(struct efa_av_entry));
 	if (ret)
 		goto err_close_util_av_implicit;
 
@@ -954,4 +955,92 @@ err_close_util_av_implicit:
 err:
 	free(av);
 	return ret;
+}
+
+struct efa_av_entry *efa_av_addr_to_entry(struct efa_av *av, fi_addr_t fi_addr)
+{
+	struct efa_conn *conn;
+
+	conn = efa_av_addr_to_conn(av, fi_addr);
+	if (!conn)
+		return NULL;
+
+	return container_of(conn, struct efa_av_entry, conn);
+}
+
+int efa_av_reverse_av_add_v2(struct efa_av *av,
+			     struct efa_cur_reverse_av **cur_reverse_av,
+			     struct efa_prv_reverse_av **prv_reverse_av,
+			     struct efa_av_entry *av_entry)
+{
+	struct efa_cur_reverse_av *cur_entry;
+	struct efa_prv_reverse_av *prv_entry;
+	struct efa_cur_reverse_av_key cur_key;
+
+	memset(&cur_key, 0, sizeof(cur_key));
+	cur_key.ahn = av_entry->conn.ah->ahn;
+	cur_key.qpn = efa_av_entry_ep_addr(av_entry)->qpn;
+	cur_entry = NULL;
+
+	HASH_FIND(hh, *cur_reverse_av, &cur_key, sizeof(cur_key), cur_entry);
+	if (!cur_entry) {
+		cur_entry = malloc(sizeof(*cur_entry));
+		if (!cur_entry) {
+			EFA_WARN(FI_LOG_AV, "Cannot allocate memory for cur_reverse_av entry\n");
+			return -FI_ENOMEM;
+		}
+
+		cur_entry->key.ahn = cur_key.ahn;
+		cur_entry->key.qpn = cur_key.qpn;
+		cur_entry->av_entry = av_entry;
+		HASH_ADD(hh, *cur_reverse_av, key, sizeof(cur_key), cur_entry);
+
+		return 0;
+	}
+
+	assert(av->domain->info_type == EFA_INFO_RDM);
+	prv_entry = malloc(sizeof(*prv_entry));
+	if (!prv_entry) {
+		EFA_WARN(FI_LOG_AV, "Cannot allocate memory for prv_reverse_av entry\n");
+		return -FI_ENOMEM;
+	}
+
+	prv_entry->key.ahn = cur_key.ahn;
+	prv_entry->key.qpn = cur_key.qpn;
+	prv_entry->key.connid = cur_entry->conn->ep_addr->qkey;
+	prv_entry->conn = cur_entry->conn;
+	HASH_ADD(hh, *prv_reverse_av, key, sizeof(prv_entry->key), prv_entry);
+
+	cur_entry->av_entry = av_entry;
+	return 0;
+}
+
+void efa_av_reverse_av_remove_v2(struct efa_cur_reverse_av **cur_reverse_av,
+				 struct efa_prv_reverse_av **prv_reverse_av,
+				 struct efa_av_entry *av_entry)
+{
+	struct efa_cur_reverse_av *cur_reverse_av_entry;
+	struct efa_prv_reverse_av *prv_reverse_av_entry;
+	struct efa_cur_reverse_av_key cur_key;
+	struct efa_prv_reverse_av_key prv_key;
+
+	memset(&cur_key, 0, sizeof(cur_key));
+	cur_key.ahn = av_entry->conn.ah->ahn;
+	cur_key.qpn = efa_av_entry_ep_addr(av_entry)->qpn;
+	HASH_FIND(hh, *cur_reverse_av, &cur_key, sizeof(cur_key),
+		  cur_reverse_av_entry);
+	if (cur_reverse_av_entry) {
+		HASH_DEL(*cur_reverse_av, cur_reverse_av_entry);
+		free(cur_reverse_av_entry);
+	} else {
+		memset(&prv_key, 0, sizeof(prv_key));
+		prv_key.ahn = av_entry->conn.ah->ahn;
+		prv_key.qpn = efa_av_entry_ep_addr(av_entry)->qpn;
+		prv_key.connid = efa_av_entry_ep_addr(av_entry)->qkey;
+		HASH_FIND(hh, *prv_reverse_av, &prv_key, sizeof(prv_key),
+			  prv_reverse_av_entry);
+		assert(prv_reverse_av_entry);
+		HASH_DEL(*prv_reverse_av, prv_reverse_av_entry);
+		free(prv_reverse_av_entry);
+	}
 }
