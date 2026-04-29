@@ -79,62 +79,6 @@ fi_addr_t efa_av_reverse_lookup(struct efa_av *av, uint16_t ahn, uint16_t qpn)
 	return (OFI_LIKELY(!!cur_entry)) ? cur_entry->conn->fi_addr : FI_ADDR_NOTAVAIL;
 }
 
-static inline struct efa_conn *
-efa_av_reverse_lookup_rdm_conn(struct efa_cur_reverse_av **cur_reverse_av,
-			       struct efa_prv_reverse_av **prv_reverse_av,
-			       uint16_t ahn, uint16_t qpn,
-			       struct efa_rdm_pke *pkt_entry)
-{
-	uint32_t *connid;
-	struct efa_cur_reverse_av *cur_entry;
-	struct efa_prv_reverse_av *prv_entry;
-	struct efa_cur_reverse_av_key cur_key;
-	struct efa_prv_reverse_av_key prv_key;
-
-	cur_key.ahn = ahn;
-	cur_key.qpn = qpn;
-
-	HASH_FIND(hh, *cur_reverse_av, &cur_key, sizeof(cur_key), cur_entry);
-
-	if (OFI_UNLIKELY(!cur_entry))
-		return NULL;
-
-	if (!pkt_entry) {
-		/**
-		 * There is no packet entry to extract connid from when we get
-		 * an IBV_WC_RECV_RDMA_WITH_IMM completion from rdma-core. Or
-		 * the pkt_entry is allocated from a buffer user posted that
-		 * doesn't expect any pkt hdr.
-		 */
-		return cur_entry->conn;
-	}
-
-	connid = efa_rdm_pke_connid_ptr(pkt_entry);
-	if (!connid) {
-		EFA_WARN_ONCE(FI_LOG_EP_CTRL,
-			      "An incoming packet does NOT have connection ID "
-			      "in its header.\n"
-			      "This means the peer is using an older version "
-			      "of libfabric.\n"
-			      "The communication can continue but it is "
-			      "encouraged to use\n"
-			      "a newer version of libfabric\n");
-		return cur_entry->conn;
-	}
-
-	if (OFI_LIKELY(*connid == cur_entry->conn->ep_addr->qkey))
-		return cur_entry->conn;
-
-	/* the packet is from a previous peer, look for its address from the
-	 * prv_reverse_av */
-	prv_key.ahn = ahn;
-	prv_key.qpn = qpn;
-	prv_key.connid = *connid;
-	HASH_FIND(hh, *prv_reverse_av, &prv_key, sizeof(prv_key), prv_entry);
-
-	return OFI_LIKELY(!!prv_entry) ? prv_entry->conn : NULL;
-};
-
 /**
  * @brief find fi_addr for rdm endpoint in the explicit AV
  *
@@ -148,15 +92,9 @@ efa_av_reverse_lookup_rdm_conn(struct efa_cur_reverse_av **cur_reverse_av,
 fi_addr_t efa_av_reverse_lookup_rdm(struct efa_av *av, uint16_t ahn,
 				    uint16_t qpn, struct efa_rdm_pke *pkt_entry)
 {
-	struct efa_conn *conn;
+	struct efa_proto_av *proto_av = container_of(av, struct efa_proto_av, efa_av);
 
-	conn = efa_av_reverse_lookup_rdm_conn(
-		&av->cur_reverse_av, &av->prv_reverse_av, ahn, qpn, pkt_entry);
-
-	if (OFI_LIKELY(!!conn))
-		return conn->fi_addr;
-
-	return FI_ADDR_NOTAVAIL;
+	return efa_proto_av_reverse_lookup(proto_av, ahn, qpn, pkt_entry);
 }
 
 /**
@@ -173,20 +111,9 @@ fi_addr_t efa_av_reverse_lookup_rdm_implicit(struct efa_av *av, uint16_t ahn,
 					     uint16_t qpn,
 					     struct efa_rdm_pke *pkt_entry)
 {
-	struct efa_conn *conn;
+	struct efa_proto_av *proto_av = container_of(av, struct efa_proto_av, efa_av);
 
-	assert(ofi_genlock_held(&av->domain->srx_lock));
-
-	conn = efa_av_reverse_lookup_rdm_conn(&av->cur_reverse_av_implicit,
-					      &av->prv_reverse_av_implicit, ahn,
-					      qpn, pkt_entry);
-
-	if (OFI_LIKELY(!!conn)) {
-		efa_av_implicit_av_lru_conn_move(av, conn);
-		return conn->implicit_fi_addr;
-	}
-
-	return FI_ADDR_NOTAVAIL;
+	return efa_proto_av_reverse_lookup_implicit(proto_av, ahn, qpn, pkt_entry);
 }
 
 /**
@@ -324,7 +251,7 @@ efa_av_get_addr_from_peer_rx_entry(struct fi_peer_rx_entry *rx_entry)
 
 	pke = (struct efa_rdm_pke *) rx_entry->peer_context;
 
-	return pke->peer->conn->fi_addr;
+	return pke->peer->av_entry->fi_addr;
 }
 
 static int efa_conn_implicit_to_explicit(struct efa_av *av,
@@ -394,7 +321,7 @@ static int efa_conn_implicit_to_explicit(struct efa_av *av,
 	HASH_ITER(hh, implicit_conn->ep_peer_map, map_entry, tmp) {
 		HASH_DELETE(hh, implicit_conn->ep_peer_map, map_entry);
 		HASH_ADD_PTR(explicit_conn->ep_peer_map, ep_ptr, map_entry);
-		map_entry->peer.conn = explicit_conn;
+		map_entry->peer.av_entry = (struct efa_proto_av_entry *)explicit_conn;
 	}
 	assert(HASH_CNT(hh, implicit_conn->ep_peer_map) == 0);
 
@@ -832,12 +759,13 @@ static struct fi_ops efa_av_fi_ops = {
 int efa_av_init_util_av(struct efa_domain *efa_domain,
 			struct fi_av_attr *attr,
 			struct util_av *util_av,
-			void *context)
+			void *context,
+			size_t context_len)
 {
 	struct util_av_attr util_attr;
 
 	util_attr.addrlen = EFA_EP_ADDR_LEN;
-	util_attr.context_len = sizeof(struct efa_av_entry) - EFA_EP_ADDR_LEN;
+	util_attr.context_len = context_len;
 	util_attr.flags = 0;
 	return ofi_av_init(&efa_domain->util_domain, attr, &util_attr,
 			   util_av, context);
@@ -887,11 +815,11 @@ int efa_av_open(struct fid_domain *domain_fid, struct fi_av_attr *attr,
 				&universe_size) == FI_SUCCESS)
 		attr->count = MAX(attr->count, universe_size);
 
-	ret = efa_av_init_util_av(efa_domain, attr, &av->util_av_implicit, context);
+	ret = efa_av_init_util_av(efa_domain, attr, &av->util_av_implicit, context, sizeof(struct efa_av_entry) - EFA_EP_ADDR_LEN);
 	if (ret)
 		goto err;
 
-	ret = efa_av_init_util_av(efa_domain, attr, &av->util_av, context);
+	ret = efa_av_init_util_av(efa_domain, attr, &av->util_av, context, sizeof(struct efa_av_entry) - EFA_EP_ADDR_LEN);
 	if (ret)
 		goto err_close_util_av_implicit;
 
@@ -954,4 +882,155 @@ err_close_util_av_implicit:
 err:
 	free(av);
 	return ret;
+}
+
+/**
+ * @brief Look up an efa_av_entry by fi_addr in the base (explicit) AV
+ *
+ * Wrapper around efa_av_addr_to_conn that returns the containing
+ * efa_av_entry via container_of. Exposed as the base-layer lookup
+ * primitive used by efa_msg.c / efa_rma.c / efa_base_ep.c /
+ * efa_domain.c and by efa_proto_av.c's address lookup helpers.
+ *
+ * In the post-strip state (subsequent commit) efa_av_entry is a flat
+ * struct with direct ah/fi_addr fields, and this function becomes a
+ * direct util_av lookup. During coexistence with efa_conn.c the
+ * container_of hop is needed because efa_av_entry still embeds
+ * struct efa_conn.
+ *
+ * @param[in]	av		address vector
+ * @param[in]	fi_addr		libfabric address
+ * @return	pointer to efa_av_entry, or NULL if not found
+ */
+struct efa_av_entry *efa_av_addr_to_entry(struct efa_av *av, fi_addr_t fi_addr)
+{
+	struct efa_conn *conn;
+
+	conn = efa_av_addr_to_conn(av, fi_addr);
+	if (!conn)
+		return NULL;
+
+	return container_of(conn, struct efa_av_entry, conn);
+}
+
+/**
+ * @brief Add a reverse AV entry keyed on (ahn, qpn), taking efa_av_entry *
+ *
+ * Temporary sibling of efa_av_reverse_av_add that exists for the
+ * switchover commit only. During this intermediate state:
+ * - efa_conn.c (dgram + transitional RDM) calls the original
+ *   efa_av_reverse_av_add(..., struct efa_conn *conn) and stores
+ *   the pointer in the reverse_av union member 'conn'.
+ * - efa_proto_av.c (new RDM) calls this _v2 variant and stores a
+ *   struct efa_av_entry * (actually pointing at an
+ *   efa_proto_av_entry, whose first-48-byte layout matches
+ *   efa_av_entry) in the union member 'av_entry'.
+ *
+ * Both variants share the same hash tables via the union; each AV
+ * instance is accessed by exactly one caller, so the union is never
+ * read through the "wrong" type.
+ *
+ * In the strip commit, efa_conn.c and the _v1 signature are deleted,
+ * the union collapses to a single av_entry field, and this function
+ * is renamed back to efa_av_reverse_av_add.
+ *
+ * @param[in]	av		address vector (for info_type assertion)
+ * @param[in,out] cur_reverse_av	cur-gen reverse AV hash root
+ * @param[in,out] prv_reverse_av	prv-gen reverse AV hash root (for QPN reuse)
+ * @param[in]	av_entry	entry to insert; (ahn, qpn) used as key
+ * @return	0 on success, negative error code on allocation failure
+ */
+int efa_av_reverse_av_add_v2(struct efa_av *av,
+			     struct efa_cur_reverse_av **cur_reverse_av,
+			     struct efa_prv_reverse_av **prv_reverse_av,
+			     struct efa_av_entry *av_entry)
+{
+	struct efa_cur_reverse_av *cur_entry;
+	struct efa_prv_reverse_av *prv_entry;
+	struct efa_cur_reverse_av_key cur_key;
+
+	memset(&cur_key, 0, sizeof(cur_key));
+	cur_key.ahn = av_entry->conn.ah->ahn;
+	cur_key.qpn = efa_av_entry_ep_addr(av_entry)->qpn;
+	cur_entry = NULL;
+
+	HASH_FIND(hh, *cur_reverse_av, &cur_key, sizeof(cur_key), cur_entry);
+	if (!cur_entry) {
+		cur_entry = malloc(sizeof(*cur_entry));
+		if (!cur_entry) {
+			EFA_WARN(FI_LOG_AV, "Cannot allocate memory for cur_reverse_av entry\n");
+			return -FI_ENOMEM;
+		}
+
+		cur_entry->key.ahn = cur_key.ahn;
+		cur_entry->key.qpn = cur_key.qpn;
+		cur_entry->av_entry = av_entry;
+		HASH_ADD(hh, *cur_reverse_av, key, sizeof(cur_key), cur_entry);
+
+		return 0;
+	}
+
+	assert(av->domain->info_type == EFA_INFO_RDM);
+	prv_entry = malloc(sizeof(*prv_entry));
+	if (!prv_entry) {
+		EFA_WARN(FI_LOG_AV, "Cannot allocate memory for prv_reverse_av entry\n");
+		return -FI_ENOMEM;
+	}
+
+	prv_entry->key.ahn = cur_key.ahn;
+	prv_entry->key.qpn = cur_key.qpn;
+	prv_entry->key.connid = efa_av_entry_ep_addr(cur_entry->av_entry)->qkey;
+	prv_entry->av_entry = cur_entry->av_entry;
+	HASH_ADD(hh, *prv_reverse_av, key, sizeof(prv_entry->key), prv_entry);
+
+	cur_entry->av_entry = av_entry;
+	return 0;
+}
+
+/**
+ * @brief Remove a reverse AV entry keyed on (ahn, qpn), taking efa_av_entry *
+ *
+ * Temporary sibling of efa_av_reverse_av_remove. See the comment on
+ * efa_av_reverse_av_add_v2 for the coexistence rationale and the
+ * strip-commit collapse plan.
+ *
+ * Validates that the hash-matched cur entry actually belongs to the
+ * av_entry being removed before deleting; this guards a QPN-collision
+ * edge case where two peers share (ahn, qpn) but differ in qkey. If
+ * the matched cur entry is not ours, the real target is in
+ * prv_reverse_av (keyed by qkey).
+ *
+ * @param[in,out] cur_reverse_av	cur-gen reverse AV hash root
+ * @param[in,out] prv_reverse_av	prv-gen reverse AV hash root
+ * @param[in]	av_entry	entry to remove
+ */
+void efa_av_reverse_av_remove_v2(struct efa_cur_reverse_av **cur_reverse_av,
+				 struct efa_prv_reverse_av **prv_reverse_av,
+				 struct efa_av_entry *av_entry)
+{
+	struct efa_cur_reverse_av *cur_reverse_av_entry;
+	struct efa_prv_reverse_av *prv_reverse_av_entry;
+	struct efa_cur_reverse_av_key cur_key;
+	struct efa_prv_reverse_av_key prv_key;
+
+	memset(&cur_key, 0, sizeof(cur_key));
+	cur_key.ahn = av_entry->conn.ah->ahn;
+	cur_key.qpn = efa_av_entry_ep_addr(av_entry)->qpn;
+	HASH_FIND(hh, *cur_reverse_av, &cur_key, sizeof(cur_key),
+		  cur_reverse_av_entry);
+	if (cur_reverse_av_entry && cur_reverse_av_entry->av_entry == av_entry) {
+		HASH_DEL(*cur_reverse_av, cur_reverse_av_entry);
+		free(cur_reverse_av_entry);
+	} else {
+		memset(&prv_key, 0, sizeof(prv_key));
+		prv_key.ahn = av_entry->conn.ah->ahn;
+		prv_key.qpn = efa_av_entry_ep_addr(av_entry)->qpn;
+		prv_key.connid = efa_av_entry_ep_addr(av_entry)->qkey;
+		HASH_FIND(hh, *prv_reverse_av, &prv_key, sizeof(prv_key),
+			  prv_reverse_av_entry);
+		assert(prv_reverse_av_entry &&
+		       prv_reverse_av_entry->av_entry == av_entry);
+		HASH_DEL(*prv_reverse_av, prv_reverse_av_entry);
+		free(prv_reverse_av_entry);
+	}
 }
