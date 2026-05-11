@@ -13,6 +13,26 @@
 static int efa_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 			  uint64_t flags, struct fid_mr **mr_fid);
 
+struct efa_mr *efa_mr_alloc(struct efa_domain *efa_domain)
+{
+	struct efa_mr *efa_mr;
+
+	ofi_genlock_lock(&efa_domain->util_domain.lock);
+	efa_mr = ofi_buf_alloc(efa_domain->mr_pool);
+	ofi_genlock_unlock(&efa_domain->util_domain.lock);
+
+	return efa_mr;
+}
+
+void efa_mr_free(struct efa_mr *efa_mr)
+{
+	struct efa_domain *efa_domain = efa_mr->domain;
+
+	ofi_genlock_lock(&efa_domain->util_domain.lock);
+	ofi_buf_free(efa_mr);
+	ofi_genlock_unlock(&efa_domain->util_domain.lock);
+}
+
 /* Common validation for MR registration attributes */
 int efa_mr_regattr_validate(struct fid *fid, const struct fi_mr_attr *attr,
 				   uint64_t flags)
@@ -234,7 +254,9 @@ static int efa_mr_close(fid_t fid)
 	ret = efa_mr_dereg_impl(efa_mr);
 	if (ret)
 		EFA_WARN_FI_ERRNO(FI_LOG_MR, "Unable to close efa_mr", -ret);
-	free(efa_mr);
+
+	efa_mr_free(efa_mr);
+
 	return ret;
 }
 
@@ -383,7 +405,7 @@ static struct ibv_mr *efa_mr_reg_ibv_mr(struct efa_mr *efa_mr,
 					  (void *)mr_attr->mr_iov->iov_base,
 					  mr_attr->mr_iov->iov_len, access);
 		}
-		
+
 		/* get fd failed, no fallback */
 		EFA_WARN(FI_LOG_MR,
 			 "ofi_hmem_get_dmabuf_fd failed for %s: ret=%d (%s)\n",
@@ -526,7 +548,7 @@ static int efa_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 	device_support_rdma_write = domain->device->device_caps & EFADV_DEVICE_ATTR_CAPS_RDMA_WRITE;
 #endif
 
-	/* For efa-direct, fail registration if RDMA operations are requested 
+	/* For efa-direct, fail registration if RDMA operations are requested
 	 * but hardware doesn't support them
 	 */
 	if ((attr->access & (FI_READ | FI_REMOTE_READ)) &&
@@ -544,11 +566,12 @@ static int efa_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 		return -FI_EOPNOTSUPP;
 	}
 
-	efa_mr = calloc(1, sizeof(*efa_mr));
+	efa_mr = efa_mr_alloc(domain);
 	if (!efa_mr) {
-		EFA_WARN(FI_LOG_MR, "Unable to initialize md\n");
+		EFA_WARN(FI_LOG_MR, "Unable to allocate mr\n");
 		return -FI_ENOMEM;
 	}
+	memset(efa_mr, 0, sizeof(*efa_mr));
 
 	efa_mr->domain = domain;
 	efa_mr->mr_fid.fid.fclass = FI_CLASS_MR;
@@ -566,10 +589,13 @@ static int efa_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 		goto err;
 
 	*mr_fid = &efa_mr->mr_fid;
+
 	return 0;
 err:
 	EFA_WARN_FI_ERRNO(FI_LOG_MR, "Unable to register efa_mr", -ret);
-	free(efa_mr);
+
+	efa_mr_free(efa_mr);
+
 	return ret;
 }
 

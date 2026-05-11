@@ -16,6 +16,25 @@ struct efa_mr {
 	enum fi_hmem_iface	iface;
 };
 
+/**
+ * @brief Allocate a struct efa_mr from the domain MR pool.
+ *
+ * Serializes the bufpool access under util_domain.lock.
+ *
+ * @param[in] efa_domain  Domain whose mr_pool backs the allocation.
+ * @return Pointer to the allocated struct efa_mr, or NULL on failure.
+ */
+struct efa_mr *efa_mr_alloc(struct efa_domain *efa_domain);
+
+/**
+ * @brief Return a struct efa_mr to the domain MR pool.
+ *
+ * Serializes the bufpool access under util_domain.lock.
+ *
+ * @param[in] efa_mr  Pointer to the struct efa_mr to release.
+ */
+void efa_mr_free(struct efa_mr *efa_mr);
+
 int efa_mr_reg_impl(struct efa_mr *efa_mr, uint64_t flags, const struct fi_mr_attr *mr_attr);
 int efa_mr_dereg_impl(struct efa_mr *efa_mr);
 int efa_mr_hmem_setup(struct efa_mr *efa_mr, const struct fi_mr_attr *attr, uint64_t flags);
