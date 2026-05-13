@@ -42,7 +42,7 @@ void efa_mr_free(struct efa_mr *efa_mr)
  * When adding a new field to struct efa_mr, extend this function to
  * initialize it here.
  */
-static inline void efa_mr_reset(struct efa_mr *efa_mr)
+void efa_mr_reset(struct efa_mr *efa_mr)
 {
 	memset(&efa_mr->mr_fid, 0, sizeof(efa_mr->mr_fid));
 	efa_mr->ibv_mr = NULL;
