@@ -14,6 +14,21 @@ struct efa_mr {
 	struct efa_domain	*domain;
 	/* HMEM interface fields */
 	enum fi_hmem_iface	iface;
+	/*
+	 * Monotonic generation counter bumped on every close.
+	 * Preserved across bufpool slot reuse so that in-flight ops
+	 * that captured a stale desc can detect the invalidation
+	 * before dereferencing ibv_mr.
+	 */
+	uint32_t		gen;
+	/*
+	 * Cached copy of ibv_mr->lkey, captured at registration. Lets
+	 * the data path read the lkey via efa_mr->lkey without
+	 * dereferencing ibv_mr, which may be NULL after a concurrent
+	 * close. The cached value is left intact across dereg; the
+	 * gen check is what guards against using a stale lkey.
+	 */
+	uint32_t		lkey;
 };
 
 /**
@@ -28,6 +43,9 @@ struct efa_mr *efa_mr_alloc(struct efa_domain *efa_domain);
 
 /**
  * @brief Return a struct efa_mr to the domain MR pool.
+ *
+ * This function also bumps the gen counter value to mark
+ * any references to this MR as invalid.
  *
  * Serializes the bufpool access under util_domain.lock.
  *
