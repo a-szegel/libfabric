@@ -202,6 +202,13 @@ int efa_mr_dereg_impl(struct efa_mr *efa_mr)
 
 	efa_mr->mr_fid.mem_desc = NULL;
 	efa_mr->mr_fid.key = FI_KEY_NOTAVAIL;
+
+	/* Bump after dereg: gen ticking signals destruction has
+	 * completed. The data path uses a cached lkey on efa_mr
+	 * (not ibv_mr->lkey), so concurrent readers cannot fault on
+	 * the cleared ibv_mr while the gen check passes. */
+	efa_mr->gen++;
+
 	return ret;
 }
 
@@ -273,12 +280,6 @@ static int efa_mr_close(fid_t fid)
 	ret = efa_mr_dereg_impl(efa_mr);
 	if (ret)
 		EFA_WARN_FI_ERRNO(FI_LOG_MR, "Unable to close efa_mr", -ret);
-
-	/* Bump after dereg so a gen tick signals that destruction has
-	 * completed. The data path uses the cached efa_mr->lkey rather
-	 * than dereferencing ibv_mr, so a concurrent reader that passes
-	 * the gen check cannot fault on a cleared ibv_mr. */
-	efa_mr->gen++;
 
 	efa_mr_free(efa_mr);
 
