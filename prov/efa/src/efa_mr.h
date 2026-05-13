@@ -53,6 +53,15 @@ struct efa_mr *efa_mr_alloc(struct efa_domain *efa_domain);
  */
 void efa_mr_free(struct efa_mr *efa_mr);
 
+/**
+ * @brief Reset every field of a struct efa_mr to its initial state,
+ *        EXCEPT for gen, which must be preserved across bufpool slot
+ *        reuse for the invalidation check to work.
+ *
+ * @param[in,out] efa_mr  MR slot to reset.
+ */
+void efa_mr_reset(struct efa_mr *efa_mr);
+
 int efa_mr_reg_impl(struct efa_mr *efa_mr, uint64_t flags, const struct fi_mr_attr *mr_attr);
 int efa_mr_dereg_impl(struct efa_mr *efa_mr);
 int efa_mr_hmem_setup(struct efa_mr *efa_mr, const struct fi_mr_attr *attr, uint64_t flags);
