@@ -215,6 +215,12 @@ static int efa_rdm_mr_cache_close(fid_t fid)
 	struct efa_mr *efa_mr = container_of(fid, struct efa_mr,
 					       mr_fid.fid);
 
+	/* Bump the generation counter since from the user's perspective the MR
+	 * is closed at this point, regardless if it stays in the cache or actually
+	 * gets deregistred. Deregistration will result in a second bump, which is harmless.
+	 */
+	efa_mr->gen++;
+
 	/* Safe cast: efa_mr is first member of efa_rdm_mr, verified by static assertion */
 	ofi_mr_cache_delete(efa_mr->domain->cache, ((struct efa_rdm_mr *) efa_mr)->entry);
 

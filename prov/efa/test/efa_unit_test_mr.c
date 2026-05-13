@@ -1531,12 +1531,12 @@ void test_efa_direct_ope_released_on_recv_error(struct efa_resource **state)
 }
 
 /*
- * Verify that closing an efa_mr advances its generation counter and that
- * the counter survives bufpool slot reuse. After a close/reopen cycle we
- * expect the same slot back (ofi_bufpool is LIFO) with a strictly
- * greater gen.
+ * Verify that closing an efa_mr (efa-direct path) advances its generation
+ * counter and that the counter survives bufpool slot reuse. After a
+ * close/reopen cycle we expect the same slot back (ofi_bufpool is LIFO)
+ * with a strictly greater gen.
  */
-void test_efa_mr_gen_bumps_on_close(struct efa_resource **state)
+void test_efa_direct_mr_gen_bumps_on_close(struct efa_resource **state)
 {
 	struct efa_resource *resource = *state;
 	size_t mr_size = 64;
@@ -1547,7 +1547,12 @@ void test_efa_mr_gen_bumps_on_close(struct efa_resource **state)
 	struct efa_mr *efa_mr2;
 	uint32_t first_gen;
 
-	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	resource->hints = efa_unit_test_alloc_hints(FI_EP_RDM,
+						    EFA_DIRECT_FABRIC_NAME);
+	efa_unit_test_resource_construct_with_hints(resource, FI_EP_RDM,
+						    FI_VERSION(2, 0),
+						    resource->hints,
+						    true, true);
 
 	buf = malloc(mr_size);
 	assert_non_null(buf);
@@ -1629,6 +1634,52 @@ void test_efa_direct_ope_released_on_send_error(struct efa_resource **state)
 	assert_true(dlist_empty(&base_ep->efa_direct_ope_list));
 
 	free(buf);
+}
+
+/*
+ * Same as test_efa_direct_mr_gen_bumps_on_close but for the RDM path.
+ * The RDM-DIRECT regattr path (struct efa_rdm_mr) is exercised when the
+ * MR cache is not available; register two different buffers to avoid
+ * cache hits that would return the existing entry without touching gen.
+ */
+void test_efa_rdm_mr_gen_bumps_on_close(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	size_t mr_size = 64;
+	void *buf1;
+	void *buf2;
+	struct fid_mr *mr_fid1 = NULL;
+	struct fid_mr *mr_fid2 = NULL;
+	struct efa_rdm_mr *rdm_mr1;
+	struct efa_rdm_mr *rdm_mr2;
+	uint32_t first_gen;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	buf1 = malloc(mr_size);
+	assert_non_null(buf1);
+	buf2 = malloc(mr_size);
+	assert_non_null(buf2);
+
+	assert_int_equal(fi_mr_reg(resource->domain, buf1, mr_size,
+				   FI_SEND | FI_RECV, 0, 0, 0, &mr_fid1, NULL),
+			 0);
+	rdm_mr1 = container_of(mr_fid1, struct efa_rdm_mr, efa_mr.mr_fid);
+	first_gen = rdm_mr1->efa_mr.gen;
+	assert_int_equal(rdm_mr1->efa_mr.lkey,
+			 rdm_mr1->efa_mr.ibv_mr->lkey);
+	assert_int_equal(fi_close(&mr_fid1->fid), 0);
+
+	assert_int_equal(fi_mr_reg(resource->domain, buf2, mr_size,
+				   FI_SEND | FI_RECV, 0, 0, 0, &mr_fid2, NULL),
+			 0);
+	rdm_mr2 = container_of(mr_fid2, struct efa_rdm_mr, efa_mr.mr_fid);
+
+	assert_true(rdm_mr2->efa_mr.gen > first_gen);
+
+	assert_int_equal(fi_close(&mr_fid2->fid), 0);
+	free(buf1);
+	free(buf2);
 }
 
 /**
