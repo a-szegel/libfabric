@@ -1528,7 +1528,47 @@ void test_efa_direct_ope_released_on_recv_error(struct efa_resource **state)
 
 	/* The ope list must be empty - ope released on error path */
 	assert_true(dlist_empty(&base_ep->efa_direct_ope_list));
+}
 
+/*
+ * Verify that closing an efa_mr advances its generation counter and that
+ * the counter survives bufpool slot reuse. After a close/reopen cycle we
+ * expect the same slot back (ofi_bufpool is LIFO) with a strictly
+ * greater gen.
+ */
+void test_efa_mr_gen_bumps_on_close(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	size_t mr_size = 64;
+	void *buf;
+	struct fid_mr *mr_fid1 = NULL;
+	struct fid_mr *mr_fid2 = NULL;
+	struct efa_mr *efa_mr1;
+	struct efa_mr *efa_mr2;
+	uint32_t first_gen;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	buf = malloc(mr_size);
+	assert_non_null(buf);
+
+	assert_int_equal(fi_mr_reg(resource->domain, buf, mr_size,
+				   FI_SEND | FI_RECV, 0, 0, 0, &mr_fid1, NULL),
+			 0);
+	efa_mr1 = container_of(mr_fid1, struct efa_mr, mr_fid);
+	first_gen = efa_mr1->gen;
+	assert_int_equal(efa_mr1->lkey, efa_mr1->ibv_mr->lkey);
+	assert_int_equal(fi_close(&mr_fid1->fid), 0);
+
+	assert_int_equal(fi_mr_reg(resource->domain, buf, mr_size,
+				   FI_SEND | FI_RECV, 0, 0, 0, &mr_fid2, NULL),
+			 0);
+	efa_mr2 = container_of(mr_fid2, struct efa_mr, mr_fid);
+
+	assert_ptr_equal(efa_mr2, efa_mr1);
+	assert_true(efa_mr2->gen > first_gen);
+
+	assert_int_equal(fi_close(&mr_fid2->fid), 0);
 	free(buf);
 }
 

@@ -33,6 +33,25 @@ void efa_mr_free(struct efa_mr *efa_mr)
 	ofi_genlock_unlock(&efa_domain->util_domain.lock);
 }
 
+/*
+ * Reset every field of an efa_mr instance to its initial state,
+ * EXCEPT for gen. The gen counter must be preserved across bufpool
+ * slot reuse so in-flight ops that captured a stale desc pointer can
+ * detect invalidation via a generation mismatch.
+ *
+ * When adding a new field to struct efa_mr, extend this function to
+ * initialize it here.
+ */
+static inline void efa_mr_reset(struct efa_mr *efa_mr)
+{
+	memset(&efa_mr->mr_fid, 0, sizeof(efa_mr->mr_fid));
+	efa_mr->ibv_mr = NULL;
+	efa_mr->domain = NULL;
+	efa_mr->iface  = FI_HMEM_SYSTEM;
+	efa_mr->lkey   = 0;
+	/* gen: intentionally not reset */
+}
+
 /* Common validation for MR registration attributes */
 int efa_mr_regattr_validate(struct fid *fid, const struct fi_mr_attr *attr,
 				   uint64_t flags)
@@ -254,6 +273,12 @@ static int efa_mr_close(fid_t fid)
 	ret = efa_mr_dereg_impl(efa_mr);
 	if (ret)
 		EFA_WARN_FI_ERRNO(FI_LOG_MR, "Unable to close efa_mr", -ret);
+
+	/* Bump after dereg so a gen tick signals that destruction has
+	 * completed. The data path uses the cached efa_mr->lkey rather
+	 * than dereferencing ibv_mr, so a concurrent reader that passes
+	 * the gen check cannot fault on a cleared ibv_mr. */
+	efa_mr->gen++;
 
 	efa_mr_free(efa_mr);
 
@@ -521,6 +546,7 @@ int efa_mr_reg_impl(struct efa_mr *efa_mr, uint64_t flags, const struct fi_mr_at
 		 reg_ct);
 	efa_mr->mr_fid.key = efa_mr->ibv_mr->rkey;
 	efa_mr->mr_fid.mem_desc = efa_mr;
+	efa_mr->lkey = efa_mr->ibv_mr->lkey;
 	assert(efa_mr->mr_fid.key != FI_KEY_NOTAVAIL);
 
 	return 0;
@@ -571,7 +597,7 @@ static int efa_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 		EFA_WARN(FI_LOG_MR, "Unable to allocate mr\n");
 		return -FI_ENOMEM;
 	}
-	memset(efa_mr, 0, sizeof(*efa_mr));
+	efa_mr_reset(efa_mr);
 
 	efa_mr->domain = domain;
 	efa_mr->mr_fid.fid.fclass = FI_CLASS_MR;
@@ -585,16 +611,14 @@ static int efa_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 		attr, &mr_attr, flags);
 
 	ret = efa_mr_reg_impl(efa_mr, flags, &mr_attr);
-	if (ret)
-		goto err;
+	if (ret) {
+		EFA_WARN_FI_ERRNO(FI_LOG_MR, "Unable to register efa_mr", -ret);
+		/* We do not need to bump the gen as the mr was never registered. */
+		efa_mr_free(efa_mr);
+		return ret;
+	}
 
 	*mr_fid = &efa_mr->mr_fid;
-
-	return 0;
-err:
-	EFA_WARN_FI_ERRNO(FI_LOG_MR, "Unable to register efa_mr", -ret);
-
-	efa_mr_free(efa_mr);
 
 	return ret;
 }
