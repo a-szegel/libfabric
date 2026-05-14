@@ -50,4 +50,22 @@ int efa_rdm_mr_cache_regv(struct fid_domain *domain_fid, const struct iovec *iov
 			  uint64_t requested_key, uint64_t flags,
 			  struct fid_mr **mr, void *context);
 
+/**
+ * @brief Check whether any MR in ope->desc[] has been closed since dispatch.
+ * @return true if all MRs are still valid, false on any gen mismatches.
+ */
+static inline bool efa_rdm_mr_gen_check_ope(struct efa_rdm_ope *ope)
+{
+	struct efa_mr *efa_mr;
+	unsigned int i;
+
+	for (i = 0; i < ope->iov_count; i++) {
+		efa_mr = ope->desc[i];
+		if (efa_mr && efa_mr->gen != ope->desc_gen[i])
+			return false;
+	}
+
+	return true;
+}
+
 #endif /* EFA_RDM_MR_H */
