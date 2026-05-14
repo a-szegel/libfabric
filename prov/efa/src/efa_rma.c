@@ -83,7 +83,7 @@ static inline ssize_t efa_rma_post_read(struct efa_base_ep *base_ep,
 	if (total_len == 0) {
 		sge_list[0].addr = (uint64_t)domain->zero_byte_bounce_buf;
 		sge_list[0].length = 0;
-		sge_list[0].lkey = domain->zero_byte_bounce_buf_mr->ibv_mr->lkey;
+		sge_list[0].lkey = domain->zero_byte_bounce_buf_mr->lkey;
 		iov_count = 1;
 	} else {
 		/* Prepare SGE list */
@@ -98,7 +98,7 @@ static inline ssize_t efa_rma_post_read(struct efa_base_ep *base_ep,
 				goto out_err;
 			}
 			efa_mr = (struct efa_mr *)msg->desc[i];
-			sge_list[i].lkey = efa_mr->ibv_mr->lkey;
+			sge_list[i].lkey = efa_mr->lkey;
 		}
 	}
 
@@ -243,7 +243,7 @@ static inline ssize_t efa_rma_post_write(struct efa_base_ep *base_ep,
 	if (total_len == 0) {
 		sge_list[0].addr = (uint64_t)domain->zero_byte_bounce_buf;
 		sge_list[0].length = 0;
-		sge_list[0].lkey = domain->zero_byte_bounce_buf_mr->ibv_mr->lkey;
+		sge_list[0].lkey = domain->zero_byte_bounce_buf_mr->lkey;
 		iov_count = 1;
 	} else {
 		/* Prepare SGE list */
@@ -257,7 +257,7 @@ static inline ssize_t efa_rma_post_write(struct efa_base_ep *base_ep,
 				err = -FI_EINVAL;
 				goto out_err;
 			}
-			sge_list[i].lkey = ((struct efa_mr *)msg->desc[i])->ibv_mr->lkey;
+			sge_list[i].lkey = ((struct efa_mr *)msg->desc[i])->lkey;
 		}
 	}
 
@@ -391,7 +391,7 @@ ssize_t efa_rma_inject_write(struct fid_ep *ep_fid, const void *buf, size_t len,
 
 	sge.addr = (uint64_t)domain->zero_byte_bounce_buf;
 	sge.length = 0;
-	sge.lkey = domain->zero_byte_bounce_buf_mr->ibv_mr->lkey;
+	sge.lkey = domain->zero_byte_bounce_buf_mr->lkey;
 
 	conn = efa_av_addr_to_conn(base_ep->av, dest_addr);
 	assert(conn && conn->ep_addr);
@@ -433,7 +433,7 @@ static ssize_t efa_rma_inject_writedata(struct fid_ep *ep, const void *buf, size
 
 	sge.addr = (uint64_t)domain->zero_byte_bounce_buf;
 	sge.length = 0;
-	sge.lkey = domain->zero_byte_bounce_buf_mr->ibv_mr->lkey;
+	sge.lkey = domain->zero_byte_bounce_buf_mr->lkey;
 
 	conn = efa_av_addr_to_conn(base_ep->av, dest_addr);
 	assert(conn && conn->ep_addr);
