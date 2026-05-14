@@ -98,7 +98,7 @@ static inline ssize_t efa_rma_post_read(struct efa_base_ep *base_ep,
 				goto out_err;
 			}
 			efa_mr = (struct efa_mr *)msg->desc[i];
-			sge_list[i].lkey = efa_mr->ibv_mr->lkey;
+			sge_list[i].lkey = efa_mr->lkey;
 		}
 	}
 
@@ -257,7 +257,7 @@ static inline ssize_t efa_rma_post_write(struct efa_base_ep *base_ep,
 				err = -FI_EINVAL;
 				goto out_err;
 			}
-			sge_list[i].lkey = ((struct efa_mr *)msg->desc[i])->ibv_mr->lkey;
+			sge_list[i].lkey = ((struct efa_mr *)msg->desc[i])->lkey;
 		}
 	}
 
