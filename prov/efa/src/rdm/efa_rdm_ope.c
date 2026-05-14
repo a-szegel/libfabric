@@ -54,6 +54,7 @@ void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
 	} else {
 		memset(txe->desc, 0, sizeof(*txe->desc) * msg->iov_count);
 	}
+	efa_rdm_ope_capture_desc(txe);
 
 	/* cq_entry on completion */
 	txe->cq_entry.op_context = msg->context;
@@ -136,7 +137,7 @@ void efa_rdm_txe_release(struct efa_rdm_ope *txe)
 	 * Skip removal if receipt was already processed
 	 * (which would have already removed it from the list).
 	 */
-	if (txe->state == EFA_RDM_OPE_SEND && 
+	if (txe->state == EFA_RDM_OPE_SEND &&
 	    !(txe->internal_flags & EFA_RDM_TXE_RECEIPT_RECEIVED))
 		dlist_remove(&txe->entry);
 
@@ -323,6 +324,7 @@ void efa_rdm_ope_try_fill_desc(struct efa_rdm_ope *ope, int mr_iov_start, uint64
 			ope->desc[i] = fi_mr_desc(ope->mr[i]);
 		}
 	}
+	efa_rdm_ope_capture_desc(ope);
 }
 
 int efa_rdm_txe_prepare_to_be_read(struct efa_rdm_ope *txe, struct fi_rma_iov *read_iov)
@@ -1620,6 +1622,7 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 			assert(copied == ope->total_len);
 			(void) copied; /* suppress compiler warning for non-debug build */
 			ope->desc[0] = fi_mr_desc(pkt_entry->mr);
+			efa_rdm_ope_capture_desc(ope);
 			ope->iov[0].iov_base = pkt_entry->wiredata + sizeof(struct efa_rdm_rma_context_pkt);
 		}
 
@@ -2014,4 +2017,26 @@ int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope, uint32_t flag)
 	ope->internal_flags &= ~flag;
 	dlist_remove(&ope->queued_entry);
 	return ret;
+}
+
+/**
+ * @brief Capture the gen and lkey of each efa_mr in ope->desc[].
+ *
+ * Must be called after ope->desc[] and ope->iov_count are populated.
+ */
+void efa_rdm_ope_capture_desc(struct efa_rdm_ope *ope)
+{
+	struct efa_mr *efa_mr;
+	unsigned int i;
+
+	for (i = 0; i < ope->iov_count; i++) {
+		efa_mr = ope->desc[i];
+		if (efa_mr) {
+			ope->desc_gen[i]  = efa_mr->gen;
+			ope->desc_lkey[i] = efa_mr->lkey;
+		} else {
+			ope->desc_gen[i]  = 0;
+			ope->desc_lkey[i] = 0;
+		}
+	}
 }
