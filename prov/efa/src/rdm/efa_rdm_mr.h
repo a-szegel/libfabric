@@ -57,4 +57,30 @@ int efa_rdm_mr_cache_regv(struct fid_domain *domain_fid, const struct iovec *iov
 			  uint64_t requested_key, uint64_t flags,
 			  struct fid_mr **mr, void *context);
 
+/**
+ * @brief Capture the gen of each efa_rdm_mr in ope->desc[].
+ *
+ * Must be called after ope->desc[] and ope->iov_count are populated.
+ */
+static inline void efa_rdm_mr_gen_capture_in_ope_desc(struct efa_rdm_ope *ope)
+{
+	struct efa_rdm_mr *efa_rdm_mr;
+	unsigned int i;
+
+	for (i = 0; i < ope->iov_count; i++) {
+		/* We statically assert that efa_mr is first member of efa_rdm_mr */
+		efa_rdm_mr = (struct efa_rdm_mr *)ope->desc[i];
+		/*
+		 * desc[i] can be NULL when the application did not provide memory
+		 * descriptors (relying on the provider's MR cache to register
+		 * internally). The capture is called in efa_rdm_txe_construct
+		 * (where descs may still be NULL) and again at the end of
+		 * efa_rdm_ope_try_fill_desc (after NULL slots are filled).
+		 * Skip NULL entries here; they will be captured on the second call.
+		 */
+		if (efa_rdm_mr)
+			ope->desc_gen[i] = efa_rdm_mr->gen;
+	}
+}
+
 #endif /* EFA_RDM_MR_H */
