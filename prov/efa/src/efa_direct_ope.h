@@ -22,7 +22,14 @@ struct efa_direct_ope {
 	struct efa_context *context;		/**< pointer to efa_context */
 	struct fi_cq_tagged_entry cq_entry;	/**< CQ entry fields for diagnostics */
 	size_t iov_count;			/**< number of IOVs in the operation */
-	void *desc[EFA_DIRECT_IOV_LIMIT];	/**< memory descriptors */
+	void *desc[EFA_DIRECT_IOV_LIMIT];	/**< memory descriptors (struct efa_mr *) */
+	/**
+	 * Snapshots of each desc[i] efa_mr generation and cached lkey,
+	 * captured at dispatch time. Used by the data path to detect a
+	 * closed MR and avoid dereferencing ibv_mr.
+	 */
+	uint32_t desc_gen[EFA_DIRECT_IOV_LIMIT];
+	uint32_t desc_lkey[EFA_DIRECT_IOV_LIMIT];
 };
 
 /**

@@ -105,8 +105,18 @@ struct efa_direct_ope *efa_direct_ope_alloc(struct efa_base_ep *base_ep,
 	direct_ope->cq_entry.tag = 0;
 	direct_ope->iov_count = iov_count;
 	if (desc) {
-		for (i = 0; i < iov_count; i++)
+		for (i = 0; i < iov_count; i++) {
+			struct efa_mr *efa_mr = desc[i];
+
 			direct_ope->desc[i] = desc[i];
+			if (efa_mr) {
+				direct_ope->desc_gen[i]  = efa_mr->gen;
+				direct_ope->desc_lkey[i] = efa_mr->lkey;
+			} else {
+				direct_ope->desc_gen[i]  = 0;
+				direct_ope->desc_lkey[i] = 0;
+			}
+		}
 	}
 
 	ofi_genlock_lock(&base_ep->domain->util_domain.lock);
