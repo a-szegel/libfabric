@@ -108,6 +108,14 @@ struct efa_rdm_ope {
 	size_t iov_count;
 	struct iovec iov[EFA_RDM_IOV_LIMIT];
 	void *desc[EFA_RDM_IOV_LIMIT];
+	/**
+	 * Snapshots of each desc[i] efa_mr generation and cached lkey,
+	 * captured at dispatch time (and re-captured whenever desc[] is
+	 * rewritten). Used by the data path to detect a closed MR and
+	 * avoid dereferencing ibv_mr.
+	 */
+	uint32_t desc_gen[EFA_RDM_IOV_LIMIT];
+	uint32_t desc_lkey[EFA_RDM_IOV_LIMIT];
 	struct fid_mr *mr[EFA_RDM_IOV_LIMIT];
 
 	size_t rma_iov_count;
@@ -369,5 +377,7 @@ ssize_t efa_rdm_ope_repost_ope_queued_before_handshake(struct efa_rdm_ope *ope);
 ssize_t efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe);
 
 int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope, uint32_t flag);
+
+void efa_rdm_ope_capture_desc(struct efa_rdm_ope *ope);
 
 #endif
