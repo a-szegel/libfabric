@@ -511,6 +511,30 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			 * resource management is only applied to send operation.
 			 */
 			efa_rdm_ep_queue_rnr_pkt(ep, pkt_entry);
+		} else if (efa_rdm_pkt_is_rxe_protocol_op(pkt_entry) &&
+			   efa_rdm_pkt_type_of(pkt_entry) == EFA_RDM_RMA_CONTEXT_PKT &&
+			   efa_rdm_prov_errno_is_peer_abort(prov_errno)) {
+			/*
+			 * Peer cleanly went away while a receiver-initiated
+			 * RDMA READ posted as part of LONGREAD or RUNTREAD
+			 * was in flight. This is an internal-protocol failure
+			 * that the user must not see as a recv error: route
+			 * to the peer-abort handler so the matched peer_rxe
+			 * is returned to the SRX (or, in the rare case the
+			 * 128-byte once-only-delivery guarantee is active and
+			 * the buffer has been touched, fall back to a user CQ
+			 * error).
+			 *
+			 * Receiver-side control SEND failures (CTS / EOR /
+			 * RECEIPT with REMOTE_ERROR_ABORT) are intentionally
+			 * NOT routed here yet; they fall through to the
+			 * existing efa_rdm_rxe_handle_error path. Revisit if
+			 * they prove problematic.
+			 */
+			efa_rdm_rxe_handle_peer_aborted_op(pkt_entry->ope,
+							   prov_errno,
+							   efa_rdm_pkt_type_of(pkt_entry));
+			efa_rdm_pke_release_tx(pkt_entry);
 		} else {
 			efa_rdm_rxe_handle_error(pkt_entry->ope, err, prov_errno);
 			efa_rdm_pke_release_tx(pkt_entry);
