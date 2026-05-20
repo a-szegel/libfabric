@@ -2943,3 +2943,157 @@ void test_efa_rdm_pke_handle_peer_error_recv_longcts_tagged(struct efa_resource 
 				 -FI_EAGAIN);
 	}
 }
+/**
+ * @brief LONGCTS sender-side: txe in mid-CTSDATA gets
+ *        LOCAL_ERROR_INVALID_LKEY (post-WR-submit race) →
+ *        TX CQ error written AND a PEER_ERROR_PKT posted.
+ */
+void test_efa_rdm_txe_handle_error_emits_peer_error_on_invalid_lkey(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe;
+	struct efa_rdm_peer *peer;
+	struct fi_cq_err_entry err_entry;
+	size_t outstanding_before;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	txe->state = EFA_RDM_OPE_SEND;
+	txe->cq_entry.flags = FI_SEND | FI_MSG;
+	txe->cq_entry.op_context = (void *) 0xa1;
+	txe->total_len = 1024;
+	txe->bytes_sent = 256;	/* mid-CTSDATA */
+
+	/* Mark the peer as supporting PEER_ERROR_PKT. */
+	peer = txe->peer;
+	assert_non_null(peer);
+	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
+	peer->extra_info[0] |= EFA_RDM_EXTRA_FEATURE_PEER_ERROR;
+
+	/* Simulate the LONGCTS_*RTM has already been linked into
+	 * the longcts send list. The error handler removes it. */
+	dlist_insert_tail(&txe->entry,
+			  &efa_rdm_ep_domain(ep)->ope_longcts_send_list);
+
+	outstanding_before = ep->efa_outstanding_tx_ops;
+
+	efa_rdm_txe_handle_error(txe, FI_EINVAL,
+		EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+
+	/* TX CQ error written. */
+	memset(&err_entry, 0, sizeof(err_entry));
+	ret = fi_cq_readerr(resource->cq, &err_entry, 0);
+	assert_int_equal(ret, 1);
+	assert_int_equal(err_entry.prov_errno,
+			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+
+	/* PEER_ERROR_PKT was posted (efa_outstanding_tx_ops bumped). */
+	assert_int_equal(ep->efa_outstanding_tx_ops,
+			 outstanding_before + 1);
+
+	/* The txe's peer_error_prov_errno was set so the wire packet
+	 * carries the right cause. */
+	assert_int_equal(txe->peer_error_prov_errno,
+			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+}
+
+/**
+ * @brief LONGCTS sender-side: txe in mid-CTSDATA gets
+ *        FI_ECANCELED (gen check pre-post detection) →
+ *        TX CQ error written AND a PEER_ERROR_PKT posted.
+ */
+void test_efa_rdm_txe_handle_error_emits_peer_error_on_canceled(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe;
+	struct efa_rdm_peer *peer;
+	size_t outstanding_before;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_tagged);
+	assert_non_null(txe);
+	txe->state = EFA_RDM_OPE_SEND;
+	txe->cq_entry.flags = FI_SEND | FI_TAGGED;
+	txe->cq_entry.op_context = (void *) 0xb2;
+	txe->total_len = 1024;
+	txe->bytes_sent = 512;
+
+	peer = txe->peer;
+	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
+	peer->extra_info[0] |= EFA_RDM_EXTRA_FEATURE_PEER_ERROR;
+
+	dlist_insert_tail(&txe->entry,
+			  &efa_rdm_ep_domain(ep)->ope_longcts_send_list);
+
+	outstanding_before = ep->efa_outstanding_tx_ops;
+
+	/* Simulate the call site in efa_domain.c: after the gen check
+	 * returns -FI_ECANCELED, the caller passes err = FI_ECANCELED
+	 * and prov_errno = FI_EFA_ERR_PKT_POST. Our hook examines the
+	 * err field. */
+	efa_rdm_txe_handle_error(txe, FI_ECANCELED, FI_EFA_ERR_PKT_POST);
+
+	assert_int_equal(ep->efa_outstanding_tx_ops,
+			 outstanding_before + 1);
+	assert_int_equal(txe->peer_error_prov_errno, FI_EFA_ERR_PKT_POST);
+}
+
+/**
+ * @brief LONGCTS sender-side fallback: peer doesn't advertise
+ *        EFA_RDM_EXTRA_FEATURE_PEER_ERROR → no PEER_ERROR_PKT.
+ *        Sender still sees TX CQ error.
+ */
+void test_efa_rdm_txe_handle_error_no_emit_when_peer_unsupported(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe;
+	struct efa_rdm_peer *peer;
+	struct fi_cq_err_entry err_entry;
+	size_t outstanding_before;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	txe->state = EFA_RDM_OPE_SEND;
+	txe->cq_entry.flags = FI_SEND | FI_MSG;
+	txe->total_len = 1024;
+	txe->bytes_sent = 256;
+
+	peer = txe->peer;
+	/* Handshake received but feature bit NOT advertised — old peer. */
+	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
+	peer->extra_info[0] = 0;
+
+	dlist_insert_tail(&txe->entry,
+			  &efa_rdm_ep_domain(ep)->ope_longcts_send_list);
+
+	outstanding_before = ep->efa_outstanding_tx_ops;
+
+	efa_rdm_txe_handle_error(txe, FI_EINVAL,
+		EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+
+	/* User still sees a TX CQ error. */
+	memset(&err_entry, 0, sizeof(err_entry));
+	ret = fi_cq_readerr(resource->cq, &err_entry, 0);
+	assert_int_equal(ret, 1);
+	assert_int_equal(err_entry.prov_errno,
+			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+
+	/* No PEER_ERROR_PKT was posted. */
+	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before);
+}
