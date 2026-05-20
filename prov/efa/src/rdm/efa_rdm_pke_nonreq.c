@@ -828,11 +828,88 @@ int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,
 }
 
 /**
+ * @brief Receiver-side dispatcher for inbound EFA_RDM_PEER_ERROR_PKT
+ *
+ * The packet type is bidirectional. The wire packet carries a
+ * single op_id that always references an ope owned by us (the
+ * receiver of this packet). Direction is recovered by looking up
+ * the ope and inspecting its type:
+ *
+ *   - ope->type == EFA_RDM_TXE → LONGREAD direction:
+ *     the receiver of the original message told us our send op
+ *     failed mid-protocol. Decrement num_read_msg_in_flight
+ *     (mirroring how EOR recv handles the LONGREAD success path),
+ *     write a TX CQ error, and release the txe.
+ *
+ *   - ope->type == EFA_RDM_RXE → LONGCTS direction:
+ *     the sender told us its source MR is gone mid-CTSDATA. Route
+ *     through the same peer-abort handler that the receiver-side
+ *     error-dispatch site uses, so the matched peer_rxe is returned
+ *     to the SRX (or, in the rare buffer-touched case, the user
+ *     sees a CQ error).
+ *
+ * Both directions consume the inbound packet via release_rx.
+ *
+ * Note: this handler runs under the SRX lock (acquired by the CQ
+ * read path; see efa_rdm_cq_readfrom), which is required by the
+ * peer-aborted-op handler when it calls into the SRX re-queue
+ * helper.
+ *
  * @param[in] pkt_entry inbound rx packet whose wiredata holds the
- *                      EFA_RDM_PEER_ERROR_PKT to be consumed
+ *                      EFA_RDM_PEER_ERROR_PKT to dispatch
  */
 void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 {
+	struct efa_rdm_peer_error_hdr *err_hdr;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *ope;
+	int prov_errno;
+	int err;
+
+	ep = pkt_entry->ep;
+	err_hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
+	prov_errno = (int) err_hdr->prov_errno;
+
+	EFA_INFO(FI_LOG_CQ,
+		 "Received PEER_ERROR_PKT (op_id=%u prov_errno=%d %s)\n",
+		 err_hdr->op_id, prov_errno, efa_strerror(prov_errno));
+
+	ope = ofi_bufpool_get_ibuf(ep->ope_pool, err_hdr->op_id);
+	if (OFI_UNLIKELY(!ope)) {
+		EFA_WARN(FI_LOG_CQ,
+			 "PEER_ERROR_PKT op_id=%u no longer valid; "
+			 "dropping.\n", err_hdr->op_id);
+		efa_rdm_pke_release_rx(pkt_entry);
+		return;
+	}
+
+	switch (ope->type) {
+	case EFA_RDM_TXE:
+		/* LONGREAD direction: the peer told us our send failed.
+		 * Mirror EOR recv: decrement read-msg-in-flight that
+		 * the sender incremented when it sent the LONGREAD or
+		 * RUNTREAD RTM. */
+		efa_rdm_ep_domain(ep)->num_read_msg_in_flight -= 1;
+
+		err = to_fi_errno(prov_errno);
+		efa_rdm_txe_handle_error(ope, err, prov_errno);
+		efa_rdm_txe_release(ope);
+		break;
+	case EFA_RDM_RXE:
+		/* LONGCTS direction: the peer told us their MR is gone.
+		 * Re-queue our rxe back into the SRX (or write a user
+		 * CQ error if the buffer was touched). */
+		efa_rdm_rxe_handle_peer_aborted_op(ope, prov_errno,
+						   EFA_RDM_PEER_ERROR_PKT);
+		break;
+	default:
+		EFA_WARN(FI_LOG_CQ,
+			 "PEER_ERROR_PKT op_id=%u resolved to ope of "
+			 "unexpected type %d; dropping.\n",
+			 err_hdr->op_id, ope->type);
+		break;
+	}
+
 	efa_rdm_pke_release_rx(pkt_entry);
 }
 
