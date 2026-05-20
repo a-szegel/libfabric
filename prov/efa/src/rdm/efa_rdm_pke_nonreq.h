@@ -7,9 +7,37 @@
 #include "efa_rdm_ope.h"
 #include "efa_rdm_protocol.h"
 #include "efa_rdm_pke_utils.h"
+#include "efa_errno.h"
 
 struct efa_rdm_ep;
 struct efa_rdm_peer;
+
+/**
+ * @brief return whether a provider errno indicates that the peer cleanly
+ *        aborted an in-flight protocol step
+ *
+ * "Peer cleanly aborted" means the peer made a normal, voluntary action
+ * (e.g. closed an MR mid-protocol or tore down its endpoint) that caused
+ * the device op posted by this side to fail. It is distinct
+ * from genuine local faults (LOCAL_ERROR_*) and network faults
+ * (BAD_LENGTH, UNRESP_REMOTE, etc.) that the user must continue to see.
+ *
+ * Currently the recognized peer-abort statuses are:
+ *
+ * - EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS (7) — sender's MR was
+ *   invalid or deregistered while a receiver-initiated RDMA READ
+ *   referenced it.
+ * - EFA_IO_COMP_STATUS_REMOTE_ERROR_ABORT (8) — peer EP was reset /
+ *   torn down by the remote side while a control SEND was in flight.
+ *
+ * @param[in] prov_errno provider-specific error code
+ * @return true if the prov_errno matches a peer-abort status
+ */
+static inline bool efa_rdm_prov_errno_is_peer_abort(int prov_errno)
+{
+	return prov_errno == EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS ||
+	       prov_errno == EFA_IO_COMP_STATUS_REMOTE_ERROR_ABORT;
+}
 
 /* HANDSHAKE packet related functions */
 static inline
@@ -197,6 +225,33 @@ enum efa_rdm_rma_context_pkt_type {
 	EFA_RDM_RDMA_READ_CONTEXT = 1,
 	EFA_RDM_RDMA_WRITE_CONTEXT,
 };
+
+/**
+ * @brief return whether the failing packet is a receiver-initiated
+ *        RDMA READ context packet (i.e. an RDMA READ posted by a
+ *        receiver-side rxe as part of a LONGREAD / RUNTREAD transfer)
+ *
+ * Checks both that the rxe owns the packet and that the packet is an
+ * RDMA READ context. The ope->type check is required: a one-sided
+ * fi_read txe also posts an RDMA READ context packet, so context_type
+ * alone does not distinguish the receiver-initiated case.
+ *
+ * @param[in] pkt_entry packet entry that hit a TX error
+ * @return true if the packet is a receiver-initiated RDMA READ context
+ */
+static inline bool efa_rdm_pkt_is_rxe_remote_read(struct efa_rdm_pke *pkt_entry)
+{
+	struct efa_rdm_rma_context_pkt *ctx_pkt;
+
+	if (!pkt_entry->ope || pkt_entry->ope->type != EFA_RDM_RXE)
+		return false;
+
+	if (efa_rdm_pkt_type_of(pkt_entry) != EFA_RDM_RMA_CONTEXT_PKT)
+		return false;
+
+	ctx_pkt = (struct efa_rdm_rma_context_pkt *)pkt_entry->wiredata;
+	return ctx_pkt->context_type == EFA_RDM_RDMA_READ_CONTEXT;
+}
 
 void efa_rdm_pke_init_write_context(struct efa_rdm_pke *pkt_entry,
 				    struct efa_rdm_ope *txe, void *local_buf,

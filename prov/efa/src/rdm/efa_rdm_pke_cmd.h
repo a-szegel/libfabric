@@ -5,6 +5,7 @@
 #define _efa_rdm_pke_CMD_H
 
 #include <rdma/fi_endpoint.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include "efa_rdm_pkt_type.h"
 
@@ -29,4 +30,3 @@ void efa_rdm_pke_proc_received(struct efa_rdm_pke *pkt_entry);
 void efa_rdm_pke_proc_received_no_hdr(struct efa_rdm_pke *pkt_entry, bool has_imm_data, uint32_t imm_data);
 
 #endif
-
