@@ -10,6 +10,89 @@
 #include "efa_rdm_tracepoint.h"
 
 /**
+ * @brief Re-queue a matched fi_peer_rx_entry back into its SRX queue.
+ *
+ * See header documentation for high-level intent. Implementation
+ * notes:
+ *
+ *  - We reach into util_srx_ctx internals (msg_queue, tag_queue,
+ *    src_recv_queues, src_trecv_queues). A future cleanup will
+ *    promote this into fi_ops_srx_owner so it becomes part of the
+ *    public peer-srx API. Today, the existing efa_rdm_srx.c file
+ *    already reaches into these internals, so this is consistent
+ *    with the rest of the file.
+ *
+ *  - The entry is inserted at the HEAD of the queue. This preserves
+ *    matching order: the abandoned message would have been the
+ *    head match if it were posted again, so re-queueing at the head
+ *    keeps the posted-recv at its original position relative to
+ *    other still-posted recvs.
+ *
+ *  - Multi-recv children (peer_entry.owner_context != NULL) cannot
+ *    be re-queued: they were carved out of an owner buffer that
+ *    has already advanced its iov, and "un-advancing" the owner
+ *    is non-trivial. We free the child via ofi_buf_free and
+ *    decrement the owner's multi_recv_ref. Callers who need
+ *    correct multi-recv semantics must instead write a user CQ
+ *    error (the Group B path). Documented as a known limitation
+ *    in the design plan.
+ */
+int efa_rdm_srx_repost_peer_rxe(struct fi_peer_rx_entry *peer_rxe)
+{
+	struct util_srx_ctx *srx_ctx;
+	struct util_rx_entry *util_entry, *owner_entry;
+	struct slist *queue;
+	bool is_tagged;
+
+	if (!peer_rxe || !peer_rxe->srx)
+		return -FI_EINVAL;
+
+	srx_ctx = efa_rdm_srx_get_srx_ctx(peer_rxe);
+	assert(ofi_genlock_held(srx_ctx->lock));
+
+	util_entry = container_of(peer_rxe, struct util_rx_entry, peer_entry);
+
+	/* Multi-recv child: free the child entry and decrement the
+	 * owner's reference count. Do NOT attempt to un-advance the
+	 * owner's iov. */
+	if (peer_rxe->owner_context) {
+		owner_entry = (struct util_rx_entry *) peer_rxe->owner_context;
+		assert(owner_entry->multi_recv_ref > 0);
+		owner_entry->multi_recv_ref--;
+		EFA_INFO(FI_LOG_EP_CTRL,
+			 "efa_rdm_srx_repost_peer_rxe: multi-recv child "
+			 "cannot be re-queued; releasing without "
+			 "rewinding owner iov.\n");
+		ofi_buf_free(util_entry);
+		return FI_SUCCESS;
+	}
+
+	/* Decide which SRX queue this entry came from. The
+	 * peer_entry.flags carry FI_MSG or FI_TAGGED depending on the
+	 * posting API; peer_entry.addr is FI_ADDR_UNSPEC unless
+	 * directed-recv is on. */
+	is_tagged = (peer_rxe->flags & FI_TAGGED) != 0;
+
+	if (peer_rxe->addr == FI_ADDR_UNSPEC) {
+		queue = is_tagged ? &srx_ctx->tag_queue : &srx_ctx->msg_queue;
+	} else {
+		queue = is_tagged ?
+			ofi_array_at(&srx_ctx->src_trecv_queues, peer_rxe->addr) :
+			ofi_array_at(&srx_ctx->src_recv_queues, peer_rxe->addr);
+	}
+	assert(queue);
+
+	/* Reset the entry to its posted state. */
+	util_entry->status = RX_ENTRY_POSTED;
+	peer_rxe->owner_context = NULL;
+	peer_rxe->peer_context = NULL;
+	peer_rxe->srx = NULL;
+
+	slist_insert_head(&util_entry->s_entry, queue);
+	return FI_SUCCESS;
+}
+
+/**
  * @brief update an rxe for a peer rx entry.
  *        This function is used by two sided operation only.
  *
