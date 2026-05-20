@@ -7,6 +7,7 @@
 #include "efa_rdm_msg.h"
 #include "efa_av.h"
 #include "efa_rdm_pke_rtm.h"
+#include "efa_rdm_srx.h"
 
 /**
  * @brief This test validates whether the default min_multi_recv size is correctly
@@ -363,4 +364,154 @@ void test_efa_rdm_peer_construct_robuf_failure(struct efa_resource **state)
 	efa_rdm_ep->peer_robuf_pool = saved_pool;
 	ofi_buf_free(buf);
 	ofi_bufpool_destroy(tiny_pool);
+}
+
+/**
+ * @brief Verify that efa_rdm_srx_repost_peer_rxe re-queues a matched
+ *        peer_rxe back into the SRX msg_queue at its head as POSTED.
+ *
+ * Steps:
+ *   1. Construct an RDM endpoint and post a recv via the SRX. Confirm
+ *      the entry sits at the head of msg_queue with RX_ENTRY_POSTED.
+ *   2. Match the entry by calling get_msg with FI_ADDR_UNSPEC, which
+ *      removes it from the queue and sets its status to MATCHED.
+ *   3. Call efa_rdm_srx_repost_peer_rxe.
+ *   4. Assert the entry is back at the queue head with status POSTED,
+ *      with its peer_context cleared.
+ */
+void test_efa_srx_repost_peer_rxe_msg_unspec(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct util_srx_ctx *srx_ctx;
+	struct fid_peer_srx *peer_srx;
+	struct fi_peer_match_attr match_attr = {0};
+	struct fi_peer_rx_entry *peer_rxe = NULL;
+	struct util_rx_entry *util_entry;
+	struct iovec iov;
+	char buf[16];
+	void *desc = NULL;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+	srx_ctx = efa_rdm_ep_get_peer_srx_ctx(efa_rdm_ep);
+	peer_srx = util_get_peer_srx(efa_rdm_ep->peer_srx_ep);
+
+	/* 1. Post a recv. */
+	iov.iov_base = buf;
+	iov.iov_len = sizeof(buf);
+	ret = util_srx_generic_recv(efa_rdm_ep->peer_srx_ep, &iov, &desc, 1,
+				    FI_ADDR_UNSPEC, /*context=*/(void *) 0xa1,
+				    /*flags=*/0);
+	assert_int_equal(ret, FI_SUCCESS);
+	assert_false(slist_empty(&srx_ctx->msg_queue));
+
+	/* 2. Match the entry. */
+	match_attr.addr = FI_ADDR_UNSPEC;
+	match_attr.tag = 0;
+	match_attr.msg_size = 16;
+	ofi_genlock_lock(srx_ctx->lock);
+	ret = peer_srx->owner_ops->get_msg(peer_srx, &match_attr, &peer_rxe);
+	assert_int_equal(ret, FI_SUCCESS);
+	assert_non_null(peer_rxe);
+	assert_true(slist_empty(&srx_ctx->msg_queue));
+
+	util_entry = container_of(peer_rxe, struct util_rx_entry, peer_entry);
+	assert_int_equal(util_entry->status, RX_ENTRY_MATCHED);
+
+	/* Pretend the EFA provider stashed a peer_context — re-queue must
+	 * clear it so the next match round populates a fresh one. */
+	peer_rxe->peer_context = (void *) 0xdeadbeef;
+
+	/* 3. Re-queue. */
+	ret = efa_rdm_srx_repost_peer_rxe(peer_rxe);
+	assert_int_equal(ret, FI_SUCCESS);
+
+	/* 4. Verify state. */
+	assert_false(slist_empty(&srx_ctx->msg_queue));
+	assert_ptr_equal(srx_ctx->msg_queue.head, &util_entry->s_entry);
+	assert_int_equal(util_entry->status, RX_ENTRY_POSTED);
+	assert_null(peer_rxe->peer_context);
+
+	/* The user's posted-recv context must be preserved so a future
+	 * matching message reports the right op_context. */
+	assert_ptr_equal(peer_rxe->context, (void *) 0xa1);
+	ofi_genlock_unlock(srx_ctx->lock);
+}
+
+/**
+ * @brief Same as test_efa_srx_repost_peer_rxe_msg_unspec but for a
+ *        tagged recv — confirms tag_queue routing.
+ */
+void test_efa_srx_repost_peer_rxe_tag_unspec(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct util_srx_ctx *srx_ctx;
+	struct fid_peer_srx *peer_srx;
+	struct fi_peer_match_attr match_attr = {0};
+	struct fi_peer_rx_entry *peer_rxe = NULL;
+	struct util_rx_entry *util_entry;
+	struct iovec iov;
+	char buf[16];
+	void *desc = NULL;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+	srx_ctx = efa_rdm_ep_get_peer_srx_ctx(efa_rdm_ep);
+	peer_srx = util_get_peer_srx(efa_rdm_ep->peer_srx_ep);
+
+	iov.iov_base = buf;
+	iov.iov_len = sizeof(buf);
+	ret = util_srx_generic_trecv(efa_rdm_ep->peer_srx_ep, &iov, &desc, 1,
+				     FI_ADDR_UNSPEC, /*context=*/(void *) 0xb2,
+				     /*tag=*/0x42, /*ignore=*/0,
+				     /*flags=*/0);
+	assert_int_equal(ret, FI_SUCCESS);
+	assert_false(slist_empty(&srx_ctx->tag_queue));
+
+	match_attr.addr = FI_ADDR_UNSPEC;
+	match_attr.tag = 0x42;
+	match_attr.msg_size = 16;
+
+	ofi_genlock_lock(srx_ctx->lock);
+	ret = peer_srx->owner_ops->get_tag(peer_srx, &match_attr, &peer_rxe);
+	assert_int_equal(ret, FI_SUCCESS);
+	assert_non_null(peer_rxe);
+	assert_true(slist_empty(&srx_ctx->tag_queue));
+
+	util_entry = container_of(peer_rxe, struct util_rx_entry, peer_entry);
+	assert_int_equal(util_entry->status, RX_ENTRY_MATCHED);
+
+	ret = efa_rdm_srx_repost_peer_rxe(peer_rxe);
+	assert_int_equal(ret, FI_SUCCESS);
+
+	assert_false(slist_empty(&srx_ctx->tag_queue));
+	assert_ptr_equal(srx_ctx->tag_queue.head, &util_entry->s_entry);
+	assert_int_equal(util_entry->status, RX_ENTRY_POSTED);
+	ofi_genlock_unlock(srx_ctx->lock);
+}
+
+/**
+ * @brief Verify efa_rdm_srx_repost_peer_rxe rejects NULL inputs cleanly.
+ *
+ * The helper guards against NULL peer_rxe and a NULL .srx pointer on
+ * the peer_rxe (either of which would otherwise dereference NULL).
+ */
+void test_efa_srx_repost_peer_rxe_null_input(struct efa_resource **state)
+{
+	struct fi_peer_rx_entry stub;
+	(void) state;
+
+	assert_int_equal(efa_rdm_srx_repost_peer_rxe(NULL), -FI_EINVAL);
+
+	memset(&stub, 0, sizeof(stub));
+	stub.srx = NULL;
+	assert_int_equal(efa_rdm_srx_repost_peer_rxe(&stub), -FI_EINVAL);
 }

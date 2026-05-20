@@ -10,6 +10,64 @@
 #include "efa_rdm_tracepoint.h"
 
 /**
+ * @brief Re-queue a matched fi_peer_rx_entry back into its SRX queue.
+ *
+ * Used by receiver-side peer-abort handling: after the receiver
+ * decides to abandon an in-flight protocol step that it cannot
+ * complete (because the peer cleanly went away), it returns the
+ * matched peer_rxe to the head of the appropriate SRX posted-recv
+ * queue (msg or tag) so the user's original fi_recv survives and
+ * can match a subsequent message.
+ *
+ * The entry is inserted at the HEAD of the queue. This preserves
+ * matching order: the abandoned message would have been the
+ * head match if it were posted again, so re-queueing at the head
+ * keeps the posted-recv at its original position relative to
+ * other still-posted recvs.
+ *
+ * The caller must hold the SRX genlock (the same lock the matcher
+ * runs under).
+ *
+ * @param[in] peer_rxe	fi_peer_rx_entry_msg contains iov,iov_count,context for ths operation
+ */
+int efa_rdm_srx_repost_peer_rxe(struct fi_peer_rx_entry *peer_rxe)
+{
+	struct util_srx_ctx *srx_ctx;
+	struct util_rx_entry *util_entry;
+	struct slist *queue;
+	bool is_tagged;
+
+	if (!peer_rxe || !peer_rxe->srx)
+		return -FI_EINVAL;
+
+	srx_ctx = efa_rdm_srx_get_srx_ctx(peer_rxe);
+	assert(ofi_genlock_held(srx_ctx->lock));
+
+	util_entry = container_of(peer_rxe, struct util_rx_entry, peer_entry);
+
+	/* Decide which SRX queue this entry came from. The
+	 * peer_entry.flags carry FI_MSG or FI_TAGGED depending on the
+	 * posting API. EFA's RDM SRX is constructed with dir_recv=false,
+	 * so matched entries always carry FI_ADDR_UNSPEC and land in the
+	 * global msg/tag queue; there is no per-source queue to return
+	 * to. Assert that invariant rather than carrying a dead
+	 * directed-recv branch. */
+	is_tagged = (peer_rxe->flags & FI_TAGGED) != 0;
+
+	assert(peer_rxe->addr == FI_ADDR_UNSPEC);
+	queue = is_tagged ? &srx_ctx->tag_queue : &srx_ctx->msg_queue;
+
+	/* Reset the entry to its posted state. */
+	util_entry->status = RX_ENTRY_POSTED;
+	peer_rxe->owner_context = NULL;
+	peer_rxe->peer_context = NULL;
+	peer_rxe->srx = NULL;
+
+	slist_insert_head(&util_entry->s_entry, queue);
+	return FI_SUCCESS;
+}
+
+/**
  * @brief update an rxe for a peer rx entry.
  *        This function is used by two sided operation only.
  *
