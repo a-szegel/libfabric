@@ -14,6 +14,7 @@
 #include "efa_rdm_pkt_type.h"
 #include "efa_rdm_mr.h"
 #include "efa_rdm_cq.h"
+#include "efa_rdm_srx.h"
 
 void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
 			   struct efa_rdm_ep *ep,
@@ -678,6 +679,176 @@ void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno)
 
 	efa_cntr_report_error(&ep->base_ep.util_ep, err_entry.flags);
 	efa_rdm_cq_write_error(&ep->base_ep, util_cq, &err_entry, "RXE");
+}
+
+/**
+ * @brief Decide whether a user-posted recv rxe can be safely re-queued
+ *        to the SRX after a peer-clean abort.
+ *
+ * Re-queueing returns the matched peer_rxe to the SRX so the user's
+ * posted fi_recv survives and can match a future incoming message,
+ * without a user-visible CQ entry. It's the preferred remedy when
+ * safe; the caller must fall back to writing a user CQ error
+ * otherwise. The rejection conditions and their rationale are
+ * documented inline below.
+ *
+ * @param[in] rxe    receiver-side rxe whose in-protocol device op
+ *                   failed with a peer-clean-abort prov_errno.
+ */
+static bool efa_rdm_rxe_can_requeue(struct efa_rdm_ope *rxe)
+{
+	struct efa_rdm_ep *ep = rxe->ep;
+
+	/* Re-queue only applies to user-posted two-sided recvs which
+	 * have a peer_rxe to return to the SRX. Internal opes are
+	 * already filtered out by the OPE_INTERNAL branch in
+	 * efa_rdm_rxe_handle_error. */
+	if (rxe->op != ofi_op_msg && rxe->op != ofi_op_tagged)
+		return false;
+
+	if (!rxe->peer_rxe)
+		return false;
+
+	/* Multi-recv children cannot be re-queued. The owner buffer's
+	 * iov has already been advanced past the carved slice when
+	 * this child was matched, and the SRX has no mechanism to
+	 * un-advance. Per fi_cq(3) the user is owed an error CQ
+	 * entry for the failed message, and per fi_msg(3) a single
+	 * FI_MULTI_RECV release entry must be generated when the
+	 * owner is consumed. The user-CQ-error case
+	 * (handle_error + freeing the peer_rxe through
+	 * util_free_entry) honors both. */
+	if (rxe->peer_rxe->owner_context)
+		return false;
+
+	if (ep->sendrecv_in_order_aligned_128_bytes &&
+	    (rxe->bytes_received > 0 || rxe->bytes_copied > 0))
+		return false;
+
+	return true;
+}
+
+/**
+ * @brief Handle a peer-aborted in-protocol failure on a user-posted recv
+ *
+ * Called when a receiver-initiated device op (RDMA READ for
+ * LONGREAD/RUNTREAD; control SENDs for LONGCTS/EOR/etc.) failed
+ * because the peer cleanly went away mid-protocol. Disposition is
+ * decided up front by efa_rdm_rxe_can_requeue.
+ *
+ * Re-queue case: the matched peer_rxe is returned to the SRX so the
+ * user's posted fi_recv survives and can match a future incoming
+ * message. The cached pointer on the rxe is cleared so the standard
+ * release path won't double-free it, and the rxe is released via
+ * efa_rdm_rxe_release_internal — no user CQ entry, no user-visible
+ * error.
+ *
+ * User-CQ-error case: re-queue is unsafe and we instead delegate to
+ * efa_rdm_rxe_handle_error, which writes a user-visible error CQ
+ * entry. The rxe is kept alive (mirrors existing handle_error
+ * behavior).
+ *
+ * @param[in,out] rxe        failing user-posted recv rxe
+ * @param[in]     prov_errno the underlying prov_errno
+ * @param[in]     pkt_type   the packet type that triggered the abort
+ *                           (for logging context)
+ */
+void efa_rdm_rxe_handle_peer_aborted_op(struct efa_rdm_ope *rxe,
+					int prov_errno, int pkt_type)
+{
+	struct efa_rdm_ep *ep;
+	struct fid_peer_srx *peer_srx;
+	struct util_srx_ctx *srx_ctx;
+	struct dlist_entry *tmp;
+	struct efa_rdm_pke *pkt_entry;
+	struct fi_peer_rx_entry *peer_rxe;
+	int ret;
+
+	assert(rxe);
+	assert(rxe->type == EFA_RDM_RXE);
+	ep = rxe->ep;
+	assert(ep);
+
+	if (rxe->state == EFA_RDM_OPE_ERR) {
+		/* Already progressed through an error path; nothing to
+		 * do here.  The first error wins. */
+		return;
+	}
+
+	EFA_INFO(FI_LOG_CQ,
+		 "Peer-abort detected on user-posted rxe %p (op=%u, pkt_type=%d, "
+		 "prov_errno=%d %s)\n",
+		 rxe, rxe->op, pkt_type, prov_errno,
+		 efa_strerror(prov_errno));
+
+	if (!efa_rdm_rxe_can_requeue(rxe)) {
+		/* Write a user-visible CQ error. */
+		efa_rdm_rxe_handle_error(rxe, to_fi_errno(prov_errno),
+					 prov_errno);
+
+		/* For multi-recv children we must additionally free the
+		 * peer_rxe through the SRX's free_entry op
+		 * (util_free_entry). That decrements the owner's
+		 * multi_recv_ref and, if the owner buffer is now
+		 * consumed, writes the FI_MULTI_RECV release CQ entry
+		 * and frees the owner — honoring both the
+		 * "error completion for the failed message" rule from
+		 * fi_cq(3) and the "FI_MULTI_RECV release entry on
+		 * buffer consumption" rule from fi_msg(3).
+		 *
+		 * efa_rdm_rxe_handle_error does not touch peer_rxe (it
+		 * deliberately keeps the rxe alive for late packets,
+		 * see the ref-count TODO in that function), so for
+		 * single-buffer recvs we leave peer_rxe attached. The
+		 * extra release here is a multi-recv-only correctness
+		 * fix. */
+		if (rxe->peer_rxe && rxe->peer_rxe->owner_context) {
+			efa_rdm_ep_get_peer_srx(ep)->owner_ops->
+				free_entry(rxe->peer_rxe);
+			rxe->peer_rxe = NULL;
+		}
+		return;
+	}
+
+	/* Re-queue the matched peer_rxe back into the SRX so
+	 * the user's posted fi_recv survives. */
+	assert(ofi_genlock_held(&ep->base_ep.domain->srx_lock));
+	peer_rxe = rxe->peer_rxe;
+	assert(peer_rxe);
+
+	ret = efa_rdm_srx_repost_peer_rxe(peer_rxe);
+	if (OFI_UNLIKELY(ret)) {
+		EFA_WARN(FI_LOG_CQ,
+			 "efa_rdm_srx_repost_peer_rxe failed err=%d; "
+			 "falling back to user CQ error\n", ret);
+		efa_rdm_rxe_handle_error(rxe, to_fi_errno(prov_errno),
+					 prov_errno);
+		return;
+	}
+
+	/* The peer_rxe is now back in the SRX; the rxe must NOT free
+	 * it on release. Clear the cached pointer so
+	 * efa_rdm_rxe_release_internal skips the free_entry call. */
+	rxe->peer_rxe = NULL;
+
+	/* Drain any TX packets queued on the rxe; we will not be
+	 * progressing this rxe further. */
+	dlist_foreach_container_safe(&rxe->queued_pkts,
+				     struct efa_rdm_pke,
+				     pkt_entry, entry, tmp)
+		efa_rdm_pke_release_tx(pkt_entry);
+
+	if (rxe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS) {
+		dlist_remove(&rxe->queued_entry);
+		rxe->internal_flags &= ~EFA_RDM_OPE_QUEUED_FLAGS;
+	}
+
+	if (rxe->unexp_pkt) {
+		efa_rdm_pke_release_rx_list(rxe->unexp_pkt);
+		rxe->unexp_pkt = NULL;
+	}
+
+	efa_rdm_rxe_release_internal(rxe);
 }
 
 /**

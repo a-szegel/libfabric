@@ -4,6 +4,8 @@
 #include "efa_unit_tests.h"
 #include "rdm/efa_rdm_pke_cmd.h"
 #include "rdm/efa_rdm_pke_nonreq.h"
+#include "rdm/efa_rdm_srx.h"
+#include "ofi_util.h"
 
 typedef void (*efa_rdm_ope_handle_error_func_t)(struct efa_rdm_ope *ope, int err, int prov_errno);
 
@@ -1621,4 +1623,378 @@ void test_efa_rdm_msg_send_0_byte_with_inject_flag(struct efa_resource **state)
 
 	ret = fi_sendmsg(resource->ep, &msg, FI_INJECT);
 	assert_int_equal(ret, 0);
+}
+
+
+/**
+ * @brief Re-queue case: rxe is matched, peer-clean abort, no buffer touched —
+ *        re-queue the matched peer_rxe back into the SRX and release
+ *        the rxe internally with no user CQ entry.
+ */
+void test_efa_rdm_rxe_handle_peer_aborted_op_requeues_msg(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct util_srx_ctx *srx_ctx;
+	struct fid_peer_srx *peer_srx;
+	struct fi_peer_match_attr match_attr = {0};
+	struct fi_peer_rx_entry *peer_rxe = NULL;
+	struct util_rx_entry *util_entry;
+	struct efa_rdm_ope *rxe;
+	struct efa_rdm_peer *peer;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	fi_addr_t peer_addr = 0;
+	struct iovec iov;
+	char buf[16];
+	void *desc = NULL;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+	srx_ctx = efa_rdm_ep_get_peer_srx_ctx(efa_rdm_ep);
+	peer_srx = util_get_peer_srx(efa_rdm_ep->peer_srx_ep);
+
+	/* Create a fake peer so the error path can reach peer info. */
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &peer_addr, 0, NULL),
+			 1);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, peer_addr);
+	assert_non_null(peer);
+
+	/* Post a recv and match it. */
+	iov.iov_base = buf;
+	iov.iov_len = sizeof(buf);
+	ret = util_srx_generic_recv(efa_rdm_ep->peer_srx_ep, &iov, &desc, 1,
+				    FI_ADDR_UNSPEC, /*context=*/(void *) 0xa1, 0);
+	assert_int_equal(ret, FI_SUCCESS);
+
+	match_attr.addr = FI_ADDR_UNSPEC;
+	match_attr.tag = 0;
+	match_attr.msg_size = 16;
+	ofi_genlock_lock(srx_ctx->lock);
+	ret = peer_srx->owner_ops->get_msg(peer_srx, &match_attr, &peer_rxe);
+	assert_int_equal(ret, FI_SUCCESS);
+	assert_non_null(peer_rxe);
+	util_entry = container_of(peer_rxe, struct util_rx_entry, peer_entry);
+
+	/* Build an rxe that owns the matched peer_rxe. */
+	rxe = efa_rdm_ep_alloc_rxe(efa_rdm_ep, peer, ofi_op_msg);
+	assert_non_null(rxe);
+	rxe->state = EFA_RDM_RXE_MATCHED;
+	rxe->peer_rxe = peer_rxe;
+	rxe->bytes_received = 0;
+	rxe->bytes_copied = 0;
+
+	/* Invoke the handler. */
+	efa_rdm_rxe_handle_peer_aborted_op(rxe,
+		EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS,
+		EFA_RDM_RMA_CONTEXT_PKT);
+
+	/* peer_rxe must be back in the SRX msg_queue at the head as POSTED. */
+	assert_false(slist_empty(&srx_ctx->msg_queue));
+	assert_ptr_equal(srx_ctx->msg_queue.head, &util_entry->s_entry);
+	assert_int_equal(util_entry->status, RX_ENTRY_POSTED);
+	ofi_genlock_unlock(srx_ctx->lock);
+
+	/* No user-visible CQ error. */
+	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
+}
+
+/**
+ * @brief User-CQ-error case: rxe is matched but the 128-byte
+ *        once-only-delivery guarantee is active and the buffer has
+ *        been touched — write a CQ error and do NOT re-queue.
+ */
+void test_efa_rdm_rxe_handle_peer_aborted_op_writes_cq_err_when_buffer_touched(
+	struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct util_srx_ctx *srx_ctx;
+	struct fid_peer_srx *peer_srx;
+	struct fi_peer_match_attr match_attr = {0};
+	struct fi_peer_rx_entry *peer_rxe = NULL;
+	struct util_rx_entry *util_entry;
+	struct efa_rdm_ope *rxe;
+	struct efa_rdm_peer *peer;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	fi_addr_t peer_addr = 0;
+	struct iovec iov;
+	char buf[16];
+	void *desc = NULL;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+	srx_ctx = efa_rdm_ep_get_peer_srx_ctx(efa_rdm_ep);
+	peer_srx = util_get_peer_srx(efa_rdm_ep->peer_srx_ep);
+
+	/* Force the 128-byte once-only-delivery guarantee on for this
+	 * test. The setopt is currently EOPNOTSUPP, so we set the flag
+	 * directly on the ep — that's what production code consults. */
+	efa_rdm_ep->sendrecv_in_order_aligned_128_bytes = true;
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &peer_addr, 0, NULL),
+			 1);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, peer_addr);
+	assert_non_null(peer);
+
+	iov.iov_base = buf;
+	iov.iov_len = sizeof(buf);
+	ret = util_srx_generic_recv(efa_rdm_ep->peer_srx_ep, &iov, &desc, 1,
+				    FI_ADDR_UNSPEC, /*context=*/(void *) 0xc3, 0);
+	assert_int_equal(ret, FI_SUCCESS);
+
+	match_attr.addr = FI_ADDR_UNSPEC;
+	match_attr.tag = 0;
+	match_attr.msg_size = 16;
+	ofi_genlock_lock(srx_ctx->lock);
+	ret = peer_srx->owner_ops->get_msg(peer_srx, &match_attr, &peer_rxe);
+	assert_int_equal(ret, FI_SUCCESS);
+	assert_non_null(peer_rxe);
+	util_entry = container_of(peer_rxe, struct util_rx_entry, peer_entry);
+
+	rxe = efa_rdm_ep_alloc_rxe(efa_rdm_ep, peer, ofi_op_msg);
+	assert_non_null(rxe);
+	rxe->state = EFA_RDM_RXE_MATCHED;
+	rxe->peer_rxe = peer_rxe;
+	/* Buffer has been touched — write CQ error path. */
+	rxe->bytes_received = 64;
+	rxe->cq_entry.op_context = (void *) 0xc3;
+	rxe->cq_entry.flags = FI_RECV | FI_MSG;
+
+	efa_rdm_rxe_handle_peer_aborted_op(rxe,
+		EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS,
+		EFA_RDM_RMA_CONTEXT_PKT);
+
+	/* The CQ-error path goes through efa_rdm_rxe_handle_error,
+	 * which sets the rxe state to EFA_RDM_OPE_ERR. */
+	assert_int_equal(rxe->state, EFA_RDM_OPE_ERR);
+
+	/* The peer_rxe must remain owned by the rxe (it is NOT returned
+	 * to the SRX queue): rxe->peer_rxe is unchanged from what we set
+	 * before the call, and the SRX msg_queue is empty (the get_msg
+	 * call removed the entry and we did not re-insert it). */
+	assert_ptr_equal(rxe->peer_rxe, peer_rxe);
+	assert_true(slist_empty(&srx_ctx->msg_queue));
+	assert_int_equal(util_entry->status, RX_ENTRY_MATCHED);
+
+	/* Cleanup: free the matched peer_rxe and release the rxe. */
+	efa_rdm_ep_get_peer_srx(efa_rdm_ep)->owner_ops->free_entry(peer_rxe);
+	rxe->peer_rxe = NULL;
+	ofi_genlock_unlock(srx_ctx->lock);
+	efa_rdm_rxe_release(rxe);
+}
+
+/**
+ * @brief Spec-compliance for multi-recv on peer-abort: 1 success + 1 failure.
+ *
+ * Posts a single multi-recv buffer big enough for two messages, then:
+ *   1. Carves a child for message #1 and writes its success CQ entry
+ *      via the standard SRX free_entry path (simulating what happens
+ *      when the receive completes normally).
+ *   2. Carves a child for message #2 and runs it through
+ *      efa_rdm_rxe_handle_peer_aborted_op as if its in-protocol
+ *      device op failed with a peer-clean abort
+ *      (REMOTE_ERROR_BAD_ADDRESS).
+ *
+ * Assertions, against the relevant man-page rules:
+ *
+ *   - Message #1 produces a successful FI_RECV completion
+ *     (fi_cq(3)).
+ *   - Message #2 produces an FI_ECANCELED-style error completion
+ *     readable via fi_cq_readerr (fi_cq(3): "error completions are
+ *     generated for all operations").
+ *   - The owner buffer's multi_recv_ref is decremented exactly once
+ *     per child release and a single FI_MULTI_RECV release entry is
+ *     produced when the owner is consumed (fi_msg(3): "an entry to
+ *     the associated receive completion queue will always be
+ *     generated when the buffer has been consumed").
+ *   - No peer_rxe is left stranded; subsequent SRX state is clean.
+ *
+ * To force the FI_MULTI_RECV release event to fire deterministically
+ * within the test, we size the buffer so that after the second carve
+ * the remaining space falls below min_multi_recv_size — that's the
+ * condition util_free_entry checks before writing the release entry
+ * and freeing the owner.
+ */
+void test_efa_rdm_rxe_handle_peer_aborted_op_multi_recv_writes_err_for_failed_msg(
+	struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct util_srx_ctx *srx_ctx;
+	struct fid_peer_srx *peer_srx;
+	struct fi_peer_match_attr match_attr = {0};
+	struct fi_peer_rx_entry *peer_rxe1 = NULL, *peer_rxe2 = NULL;
+	struct util_rx_entry *owner_entry;
+	struct efa_rdm_ope *rxe2;
+	struct efa_rdm_peer *peer;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	struct fi_cq_err_entry err_entry;
+	struct fi_cq_data_entry cq_entry;
+	fi_addr_t peer_addr = 0;
+	struct iovec iov;
+	char buf[80];
+	void *desc = NULL;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+	srx_ctx = efa_rdm_ep_get_peer_srx_ctx(efa_rdm_ep);
+	peer_srx = util_get_peer_srx(efa_rdm_ep->peer_srx_ep);
+
+	/* 80-byte buffer, 32-byte messages, min_multi_recv_size = 32:
+	 *   - After carve #1 (32B): 48 left, 48 >= 32, owner stays.
+	 *   - After carve #2 (32B): 16 left, 16 < 32, owner released
+	 *     when its multi_recv_ref next hits zero.
+	 *
+	 * This way the FI_MULTI_RECV release entry is generated when
+	 * we free the second child (which is also the failed one),
+	 * exercising the path where util_free_entry must run for the
+	 * spec semantics to hold. */
+	srx_ctx->min_multi_recv_size = 32;
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len),
+			 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &peer_addr,
+				      0, NULL),
+			 1);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, peer_addr);
+	assert_non_null(peer);
+
+	/* 1. Post a multi-recv. */
+	iov.iov_base = buf;
+	iov.iov_len = sizeof(buf);
+	ret = util_srx_generic_recv(efa_rdm_ep->peer_srx_ep, &iov, &desc, 1,
+				    FI_ADDR_UNSPEC,
+				    /*context=*/(void *) 0x8AB071EDul,
+				    FI_MULTI_RECV);
+	assert_int_equal(ret, FI_SUCCESS);
+	assert_false(slist_empty(&srx_ctx->msg_queue));
+	owner_entry = container_of(srx_ctx->msg_queue.head,
+				   struct util_rx_entry, s_entry);
+
+	match_attr.addr = FI_ADDR_UNSPEC;
+	match_attr.tag = 0;
+	match_attr.msg_size = 32;
+
+	ofi_genlock_lock(srx_ctx->lock);
+
+	/* 2. Match message #1, simulate success. We don't go through
+	 *    the full provider receive path here (no real packet); we
+	 *    just call free_entry the way the success path does after
+	 *    delivering data, and we write the FI_RECV CQ entry the
+	 *    way efa_rdm_rxe_report_completion would. */
+	ret = peer_srx->owner_ops->get_msg(peer_srx, &match_attr, &peer_rxe1);
+	assert_int_equal(ret, FI_SUCCESS);
+	assert_non_null(peer_rxe1);
+	assert_ptr_equal(peer_rxe1->owner_context, owner_entry);
+	assert_int_equal(owner_entry->multi_recv_ref, 1);
+
+	/* Simulate success completion for message #1 by writing
+	 * directly to the user CQ — this is the contract the standard
+	 * receive path satisfies on success. */
+	ret = ofi_peer_cq_write(efa_rdm_ep->base_ep.util_ep.rx_cq,
+				peer_rxe1->context, FI_RECV | FI_MSG,
+				match_attr.msg_size, peer_rxe1->iov[0].iov_base,
+				0, 0, FI_ADDR_NOTAVAIL);
+	assert_int_equal(ret, 0);
+
+	peer_srx->owner_ops->free_entry(peer_rxe1);
+	assert_int_equal(owner_entry->multi_recv_ref, 0);
+
+	/* 3. Match message #2 — the one that's about to fail. */
+	ret = peer_srx->owner_ops->get_msg(peer_srx, &match_attr, &peer_rxe2);
+	assert_int_equal(ret, FI_SUCCESS);
+	assert_non_null(peer_rxe2);
+	assert_ptr_equal(peer_rxe2->owner_context, owner_entry);
+	assert_int_equal(owner_entry->multi_recv_ref, 1);
+
+	/* After carve #2, the owner has 16 bytes left (< min=32), so
+	 * it was removed from msg_queue by util_process_multi_recv. */
+	assert_true(slist_empty(&srx_ctx->msg_queue));
+
+	rxe2 = efa_rdm_ep_alloc_rxe(efa_rdm_ep, peer, ofi_op_msg);
+	assert_non_null(rxe2);
+	rxe2->state = EFA_RDM_RXE_MATCHED;
+	rxe2->peer_rxe = peer_rxe2;
+	rxe2->bytes_received = 0;
+	rxe2->bytes_copied = 0;
+	rxe2->cq_entry.op_context = peer_rxe2->context;
+	rxe2->cq_entry.flags = FI_RECV | FI_MSG;
+
+	/* 4. Trigger the abort path. Multi-recv child must take the
+	 *    write-CQ-error path per the spec: an error CQ entry is
+	 *    written for message #2 and the peer_rxe is released
+	 *    through util_free_entry so multi_recv_ref decrements
+	 *    and the FI_MULTI_RECV release entry is generated. */
+	efa_rdm_rxe_handle_peer_aborted_op(
+		rxe2, EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS,
+		EFA_RDM_RMA_CONTEXT_PKT);
+
+	/* The handler must have released peer_rxe2 via the SRX
+	 * (not just left it dangling). */
+	assert_null(rxe2->peer_rxe);
+
+	/* The rxe was put into OPE_ERR by efa_rdm_rxe_handle_error. */
+	assert_int_equal(rxe2->state, EFA_RDM_OPE_ERR);
+
+	ofi_genlock_unlock(srx_ctx->lock);
+
+	/* 5. Spec assertions on the user CQ.
+	 *
+	 *    Message #1: a success FI_RECV entry. */
+	memset(&cq_entry, 0, sizeof(cq_entry));
+	ret = fi_cq_read(resource->cq, &cq_entry, 1);
+	assert_int_equal(ret, 1);
+	assert_true(cq_entry.flags & FI_RECV);
+	assert_false(cq_entry.flags & FI_MULTI_RECV);
+	assert_ptr_equal(cq_entry.op_context, (void *) 0x8AB071EDul);
+
+	/*    Message #2: an error CQ entry. */
+	memset(&err_entry, 0, sizeof(err_entry));
+	ret = fi_cq_readerr(resource->cq, &err_entry, 0);
+	assert_int_equal(ret, 1);
+	assert_int_equal(err_entry.prov_errno,
+			 EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS);
+	assert_ptr_equal(err_entry.op_context, (void *) 0x8AB071EDul);
+
+	/*    A single FI_MULTI_RECV release entry, with no FI_RECV
+	 *    bundled (util_free_entry writes it as a standalone
+	 *    completion). */
+	memset(&cq_entry, 0, sizeof(cq_entry));
+	ret = fi_cq_read(resource->cq, &cq_entry, 1);
+	assert_int_equal(ret, 1);
+	assert_true(cq_entry.flags & FI_MULTI_RECV);
+	assert_false(cq_entry.flags & FI_RECV);
+	assert_ptr_equal(cq_entry.op_context, (void *) 0x8AB071EDul);
+
+	/* And nothing else queued. */
+	ret = fi_cq_read(resource->cq, &cq_entry, 1);
+	assert_int_equal(ret, -FI_EAGAIN);
+
+	/* SRX is clean: msg_queue empty, owner has been freed (the
+	 * util_free_entry on the second child saw multi_recv_ref hit
+	 * 0 with remaining=16 < min=32 and ofi_buf_free'd the
+	 * owner). */
+	assert_true(slist_empty(&srx_ctx->msg_queue));
+
+	efa_rdm_rxe_release(rxe2);
 }
