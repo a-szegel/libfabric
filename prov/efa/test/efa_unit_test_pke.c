@@ -3,6 +3,8 @@
 #include "rdm/efa_rdm_pke_rta.h"
 #include "rdm/efa_rdm_pke_rtw.h"
 #include "rdm/efa_rdm_pke_utils.h"
+#include "rdm/efa_rdm_pke_cmd.h"
+#include "rdm/efa_rdm_pke_nonreq.h"
 
 
 /**
@@ -552,4 +554,134 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_second_packet_error(struct efa_res
 	 */
 	efa_rdm_pke_release_rx(pkt_entry);
 	efa_rdm_rxe_release(rxe);
+}
+
+/**
+ * @brief Verify efa_rdm_prov_errno_is_peer_abort() classifies the
+ *        in-scope and out-of-scope provider errnos correctly.
+ *
+ * Peer-abort statuses are EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS
+ * and EFA_IO_COMP_STATUS_REMOTE_ERROR_ABORT. All other statuses
+ * (LOCAL_ERROR_*, BAD_LENGTH, RNR, UNRESP_REMOTE, UNKNOWN_PEER, ...)
+ * must classify as non-peer-abort so the existing user-visible error
+ * paths remain untouched.
+ */
+void test_efa_rdm_prov_errno_is_peer_abort(struct efa_resource **state)
+{
+	(void) state;
+
+	struct {
+		int prov_errno;
+		bool expected;
+	} cases[] = {
+		/* In scope: peer-clean-abort statuses. */
+		{ EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS, true },
+		{ EFA_IO_COMP_STATUS_REMOTE_ERROR_ABORT, true },
+
+		/* Out of scope: genuine local/network/protocol errors that
+		 * the user must continue to see. */
+		{ EFA_IO_COMP_STATUS_OK, false },
+		{ EFA_IO_COMP_STATUS_FLUSHED, false },
+		{ EFA_IO_COMP_STATUS_LOCAL_ERROR_QP_INTERNAL_ERROR, false },
+		{ EFA_IO_COMP_STATUS_LOCAL_ERROR_UNSUPPORTED_OP, false },
+		{ EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_AH, false },
+		{ EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY, false },
+		{ EFA_IO_COMP_STATUS_LOCAL_ERROR_BAD_LENGTH, false },
+		{ EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_DEST_QPN, false },
+		{ EFA_IO_COMP_STATUS_REMOTE_ERROR_RNR, false },
+		{ EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_LENGTH, false },
+		{ EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_STATUS, false },
+		{ EFA_IO_COMP_STATUS_LOCAL_ERROR_UNRESP_REMOTE, false },
+		{ EFA_IO_COMP_STATUS_REMOTE_ERROR_UNKNOWN_PEER, false },
+		{ EFA_IO_COMP_STATUS_LOCAL_ERROR_UNREACH_REMOTE, false },
+		{ EFA_IO_COMP_STATUS_REMOTE_ERROR_FEATURE_MISMATCH, false },
+		{ FI_EFA_ERR_OOM, false },
+		{ FI_EFA_ERR_OTHER, false },
+	};
+
+	for (size_t i = 0; i < sizeof(cases)/sizeof(cases[0]); i++) {
+		bool got = efa_rdm_prov_errno_is_peer_abort(cases[i].prov_errno);
+		if (got != cases[i].expected) {
+			fprintf(stderr,
+				"prov_errno %d: expected %d, got %d\n",
+				cases[i].prov_errno,
+				cases[i].expected, got);
+		}
+		assert_int_equal(got, cases[i].expected);
+	}
+}
+
+/**
+ * @brief Verify efa_rdm_pkt_is_rxe_protocol_op() classifies the
+ *        receiver-side protocol packet types correctly.
+ *
+ * Receiver-side protocol ops in scope are:
+ *  - EFA_RDM_RMA_CONTEXT_PKT with context_type == EFA_RDM_RDMA_READ_CONTEXT
+ *  - EFA_RDM_CTS_PKT
+ *  - EFA_RDM_EOR_PKT
+ *  - EFA_RDM_RECEIPT_PKT
+ *
+ * Out-of-scope are RTM/RTW/RTR/RTA REQ packets, the RDMA WRITE context
+ * variant of the rma context packet, HANDSHAKE, READ_NACK, etc.
+ */
+void test_efa_rdm_pkt_is_rxe_protocol_op(struct efa_resource **state)
+{
+	(void) state;
+
+	const size_t pke_size = sizeof(struct efa_rdm_pke) +
+				sizeof(struct efa_rdm_rma_context_pkt) + 64;
+	struct efa_rdm_pke *pkt_entry = calloc(1, pke_size);
+	struct efa_rdm_base_hdr *base_hdr;
+	struct efa_rdm_rma_context_pkt *ctx_pkt;
+
+	assert_non_null(pkt_entry);
+	pkt_entry->flags = 0;
+
+	base_hdr = (struct efa_rdm_base_hdr *) pkt_entry->wiredata;
+
+	/* Receiver-initiated RDMA READ context packet — in scope */
+	ctx_pkt = (struct efa_rdm_rma_context_pkt *) pkt_entry->wiredata;
+	ctx_pkt->type = EFA_RDM_RMA_CONTEXT_PKT;
+	ctx_pkt->context_type = EFA_RDM_RDMA_READ_CONTEXT;
+	assert_true(efa_rdm_pkt_is_rxe_protocol_op(pkt_entry));
+
+	/* Sender-initiated RDMA WRITE context packet — out of scope */
+	ctx_pkt->context_type = EFA_RDM_RDMA_WRITE_CONTEXT;
+	assert_false(efa_rdm_pkt_is_rxe_protocol_op(pkt_entry));
+
+	/* Other receiver-side control SENDs — in scope */
+	memset(pkt_entry->wiredata, 0,
+	       sizeof(struct efa_rdm_rma_context_pkt) + 64);
+	base_hdr->type = EFA_RDM_CTS_PKT;
+	assert_true(efa_rdm_pkt_is_rxe_protocol_op(pkt_entry));
+
+	base_hdr->type = EFA_RDM_EOR_PKT;
+	assert_true(efa_rdm_pkt_is_rxe_protocol_op(pkt_entry));
+
+	base_hdr->type = EFA_RDM_RECEIPT_PKT;
+	assert_true(efa_rdm_pkt_is_rxe_protocol_op(pkt_entry));
+
+	/* Sender-side / non-rxe-protocol packets — out of scope */
+	base_hdr->type = EFA_RDM_HANDSHAKE_PKT;
+	assert_false(efa_rdm_pkt_is_rxe_protocol_op(pkt_entry));
+
+	base_hdr->type = EFA_RDM_CTSDATA_PKT;
+	assert_false(efa_rdm_pkt_is_rxe_protocol_op(pkt_entry));
+
+	base_hdr->type = EFA_RDM_READRSP_PKT;
+	assert_false(efa_rdm_pkt_is_rxe_protocol_op(pkt_entry));
+
+	base_hdr->type = EFA_RDM_READ_NACK_PKT;
+	assert_false(efa_rdm_pkt_is_rxe_protocol_op(pkt_entry));
+
+	base_hdr->type = EFA_RDM_EAGER_MSGRTM_PKT;
+	assert_false(efa_rdm_pkt_is_rxe_protocol_op(pkt_entry));
+
+	base_hdr->type = EFA_RDM_LONGCTS_TAGRTM_PKT;
+	assert_false(efa_rdm_pkt_is_rxe_protocol_op(pkt_entry));
+
+	base_hdr->type = EFA_RDM_LONGREAD_MSGRTM_PKT;
+	assert_false(efa_rdm_pkt_is_rxe_protocol_op(pkt_entry));
+
+	free(pkt_entry);
 }
