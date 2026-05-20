@@ -1528,6 +1528,8 @@ void test_efa_direct_ope_released_on_recv_error(struct efa_resource **state)
 
 	/* The ope list must be empty - ope released on error path */
 	assert_true(dlist_empty(&base_ep->efa_direct_ope_list));
+
+	free(buf);
 }
 
 /*
@@ -1814,6 +1816,8 @@ void test_efa_direct_ope_released_on_write_error(struct efa_resource **state)
 	assert_int_equal(ret, -FI_EINVAL);
 
 	assert_true(dlist_empty(&base_ep->efa_direct_ope_list));
+
+	free(buf);
 }
 
 /**
