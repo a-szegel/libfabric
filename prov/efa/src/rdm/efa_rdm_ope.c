@@ -748,6 +748,21 @@ static bool efa_rdm_rxe_can_requeue(struct efa_rdm_ope *rxe)
  * entry. The rxe is kept alive (mirrors existing handle_error
  * behavior).
  *
+ * After applying the user-visible remedy, if the peer advertises
+ * EFA_RDM_EXTRA_FEATURE_PEER_ERROR we post a PEER_ERROR_PKT to the
+ * sender so it can reap its txe and write a TX CQ error. The rxe is
+ * the wr_id context for that send, so its release is deferred to
+ * efa_rdm_pke_handle_send_completion (gated by
+ * EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT).
+ *
+ * If the peer does not support PEER_ERROR (handshake completed
+ * without the bit), or if posting fails outright, we fall back to
+ * status quo: the abort is processed locally and the rxe is
+ * released or left in OPE_ERR (matching today's behavior). The
+ * sender's txe will leak in that case — same as before this commit.
+ * A warning is logged so operators can detect mixed-version
+ * deployments.
+ *
  * @param[in,out] rxe        failing user-posted recv rxe
  * @param[in]     prov_errno the underlying prov_errno
  * @param[in]     pkt_type   the packet type that triggered the abort
@@ -762,6 +777,9 @@ void efa_rdm_rxe_handle_peer_aborted_op(struct efa_rdm_ope *rxe,
 	struct dlist_entry *tmp;
 	struct efa_rdm_pke *pkt_entry;
 	struct fi_peer_rx_entry *peer_rxe;
+	bool requeue_peer_rxe;
+	bool peer_supports;
+	ssize_t err;
 	int ret;
 
 	assert(rxe);
@@ -781,8 +799,62 @@ void efa_rdm_rxe_handle_peer_aborted_op(struct efa_rdm_ope *rxe,
 		 rxe, rxe->op, pkt_type, prov_errno,
 		 efa_strerror(prov_errno));
 
-	if (!efa_rdm_rxe_can_requeue(rxe)) {
-		/* Write a user-visible CQ error. */
+	requeue_peer_rxe = efa_rdm_rxe_can_requeue(rxe);
+
+	if (requeue_peer_rxe) {
+		/* Apply the user-visible remedy: return the peer_rxe to
+		 * the SRX so the user's posted recv survives. */
+		peer_srx = efa_rdm_ep_get_peer_srx(ep);
+		srx_ctx = (struct util_srx_ctx *) peer_srx->ep_fid.fid.context;
+		(void) srx_ctx;
+		assert(ofi_genlock_held(srx_ctx->lock));
+
+		peer_rxe = rxe->peer_rxe;
+		assert(peer_rxe);
+
+		ret = efa_rdm_srx_repost_peer_rxe(peer_rxe);
+		if (OFI_UNLIKELY(ret)) {
+			EFA_WARN(FI_LOG_CQ,
+				 "efa_rdm_srx_repost_peer_rxe failed err=%d; "
+				 "falling back to user CQ error\n", ret);
+			efa_rdm_rxe_handle_error(rxe,
+						 to_fi_errno(prov_errno),
+						 prov_errno);
+			return;
+		}
+
+		/* The peer_rxe is now back in the SRX; the rxe must NOT
+		 * free it on release. */
+		rxe->peer_rxe = NULL;
+
+		/* Drain any TX packets queued on the rxe. */
+		dlist_foreach_container_safe(&rxe->queued_pkts,
+					     struct efa_rdm_pke,
+					     pkt_entry, entry, tmp)
+			efa_rdm_pke_release_tx(pkt_entry);
+
+		if (rxe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS) {
+			dlist_remove(&rxe->queued_entry);
+			rxe->internal_flags &= ~EFA_RDM_OPE_QUEUED_FLAGS;
+		}
+
+		if (rxe->unexp_pkt) {
+			efa_rdm_pke_release_rx_list(rxe->unexp_pkt);
+			rxe->unexp_pkt = NULL;
+		}
+
+		/* Mark the rxe as terminally errored so a second
+		 * failure on the same rxe (e.g., a second RDMA READ
+		 * WR for the same long-read transfer) early-returns
+		 * at the top of this function rather than attempting
+		 * to re-queue an already-cleared peer_rxe or post
+		 * another PEER_ERROR_PKT. The user-CQ-error path's
+		 * efa_rdm_rxe_handle_error sets this state itself. */
+		rxe->state = EFA_RDM_OPE_ERR;
+	} else {
+		/* User-CQ-error path: write a user-visible CQ error.
+		 * The rxe is left alive (mirror existing
+		 * efa_rdm_rxe_handle_error behavior). */
 		efa_rdm_rxe_handle_error(rxe, to_fi_errno(prov_errno),
 					 prov_errno);
 
@@ -807,48 +879,43 @@ void efa_rdm_rxe_handle_peer_aborted_op(struct efa_rdm_ope *rxe,
 				free_entry(rxe->peer_rxe);
 			rxe->peer_rxe = NULL;
 		}
+	}
+
+	/* Now decide whether to send PEER_ERROR_PKT to the sender. */
+	peer_supports = (rxe->peer != NULL) &&
+			efa_rdm_peer_support_peer_error(rxe->peer);
+
+	if (!peer_supports) {
+		EFA_INFO(FI_LOG_CQ,
+			 "Peer does not advertise EFA_RDM_EXTRA_FEATURE_PEER_ERROR; "
+			 "skipping PEER_ERROR_PKT emission. Sender's txe will leak.\n");
+		if (requeue_peer_rxe) {
+			/* No deferred send completion to wait for; release
+			 * the rxe immediately. */
+			efa_rdm_rxe_release_internal(rxe);
+		}
+		/* User-CQ-error path: rxe remains alive with state
+		 * OPE_ERR (status quo). */
 		return;
 	}
 
-	/* Re-queue the matched peer_rxe back into the SRX so
-	 * the user's posted fi_recv survives. */
-	assert(ofi_genlock_held(&ep->base_ep.domain->srx_lock));
-	peer_rxe = rxe->peer_rxe;
-	assert(peer_rxe);
+	/* Stash the prov_errno so efa_rdm_pke_init_peer_error_for_ope
+	 * can populate the wire header. */
+	rxe->peer_error_prov_errno = prov_errno;
+	rxe->internal_flags |= EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT;
 
-	ret = efa_rdm_srx_repost_peer_rxe(peer_rxe);
-	if (OFI_UNLIKELY(ret)) {
+	err = efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_PEER_ERROR_PKT);
+	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ,
-			 "efa_rdm_srx_repost_peer_rxe failed err=%d; "
-			 "falling back to user CQ error\n", ret);
-		efa_rdm_rxe_handle_error(rxe, to_fi_errno(prov_errno),
-					 prov_errno);
-		return;
+			 "Failed to post PEER_ERROR_PKT err=%zd; falling back "
+			 "to local cleanup. Sender's txe will leak.\n", err);
+		rxe->internal_flags &= ~EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT;
+		if (requeue_peer_rxe)
+			efa_rdm_rxe_release_internal(rxe);
+		/* User-CQ-error path: rxe stays alive in OPE_ERR. */
 	}
-
-	/* The peer_rxe is now back in the SRX; the rxe must NOT free
-	 * it on release. Clear the cached pointer so
-	 * efa_rdm_rxe_release_internal skips the free_entry call. */
-	rxe->peer_rxe = NULL;
-
-	/* Drain any TX packets queued on the rxe; we will not be
-	 * progressing this rxe further. */
-	dlist_foreach_container_safe(&rxe->queued_pkts,
-				     struct efa_rdm_pke,
-				     pkt_entry, entry, tmp)
-		efa_rdm_pke_release_tx(pkt_entry);
-
-	if (rxe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS) {
-		dlist_remove(&rxe->queued_entry);
-		rxe->internal_flags &= ~EFA_RDM_OPE_QUEUED_FLAGS;
-	}
-
-	if (rxe->unexp_pkt) {
-		efa_rdm_pke_release_rx_list(rxe->unexp_pkt);
-		rxe->unexp_pkt = NULL;
-	}
-
-	efa_rdm_rxe_release_internal(rxe);
+	/* On success, the rxe lives until the PEER_ERROR_PKT send
+	 * completion fires and clears the in-flight flag. */
 }
 
 /**

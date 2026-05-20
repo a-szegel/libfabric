@@ -183,6 +183,17 @@ struct efa_rdm_ope {
 
 	/** the source packet entry of a local read operation */
 	struct efa_rdm_pke *local_read_pkt_entry;
+
+	/**
+	 * @brief Provider errno to attach when emitting an EFA_RDM_PEER_ERROR_PKT
+	 *
+	 * Set by efa_rdm_rxe_handle_peer_aborted_op (LONGREAD direction)
+	 * and by the LONGCTS sender-side abort path (later commit), and
+	 * read by efa_rdm_pke_init_peer_error to populate the wire
+	 * header's prov_errno field. Has no meaning if no PEER_ERROR_PKT
+	 * is being emitted from this ope.
+	 */
+	int peer_error_prov_errno;
 };
 
 void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
@@ -231,6 +242,18 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
  * hence the rxe cannot be released
  */
 #define EFA_RDM_RXE_EOR_IN_FLIGHT BIT_ULL(10)
+
+/**
+ * @brief Flag to indicate an rxe has a PEER_ERROR_PKT in flight.
+ *
+ * Peer-abort handling sends a PEER_ERROR_PKT to the sender to let it
+ * reap its txe. The rxe is the wr_id context for that send, so the
+ * rxe cannot be released until the send completes. The user-visible
+ * remedy (re-queue the peer_rxe or write a CQ error) happens up
+ * front in the abort handler; only the rxe release itself is
+ * deferred to the PEER_ERROR_PKT send completion.
+ */
+#define EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT BIT_ULL(19)
 
 /**
  * @brief flag to indicate a txe has already written an cq error entry for RNR
