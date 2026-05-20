@@ -381,6 +381,8 @@ int main(void)
 		cmocka_unit_test_setup_teardown(test_efa_rdm_pke_proc_matched_eager_rtm_error, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
 		cmocka_unit_test_setup_teardown(test_efa_rdm_pke_proc_matched_mulreq_rtm_first_packet_error, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
 		cmocka_unit_test_setup_teardown(test_efa_rdm_pke_proc_matched_mulreq_rtm_second_packet_error, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
+		cmocka_unit_test_setup_teardown(test_efa_rdm_prov_errno_is_peer_abort, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
+		cmocka_unit_test_setup_teardown(test_efa_rdm_pkt_is_rxe_remote_read, efa_unit_test_mocks_setup, efa_unit_test_mocks_teardown),
 		/* end of efa_unit_test_pke.c */
 
 		/* begin efa_unit_test_domain.c */
