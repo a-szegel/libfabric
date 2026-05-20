@@ -787,30 +787,92 @@ int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,
 }
 
 /*
- * Placeholder handler for inbound EFA_RDM_PEER_ERROR_PKT.
+ * Receiver-side dispatcher for inbound EFA_RDM_PEER_ERROR_PKT.
  *
- * Subsequent commits replace this with the real dispatcher that
- * routes the packet to the matching txe (LONGREAD direction) or
- * rxe (LONGCTS direction). For now we just consume and release the
- * packet so a peer that already advertises EFA_RDM_EXTRA_FEATURE_PEER_ERROR
- * (after this commit lands) does not trip the "unknown packet
- * type" assertion in the receive dispatcher.
+ * The packet type is bidirectional. Direction is encoded by which
+ * id field is set vs sentinel:
  *
- * No code path emits EFA_RDM_PEER_ERROR_PKT yet, so this function
- * is unreachable in normal operation; it exists only to keep the
- * wire-protocol additions in this commit self-consistent.
+ *   - send_id != EFA_RDM_PEER_ERROR_ID_SENTINEL → LONGREAD direction:
+ *     the receiver of the original message told us our send op
+ *     failed mid-protocol. Look up our txe by send_id, decrement
+ *     num_read_msg_in_flight (mirroring how EOR recv handles the
+ *     LONGREAD success path), write a TX CQ error, and release.
+ *
+ *   - recv_id != EFA_RDM_PEER_ERROR_ID_SENTINEL → LONGCTS direction:
+ *     the sender told us its source MR is gone mid-CTSDATA. Look
+ *     up our rxe by recv_id and route through the same peer-abort
+ *     handler that the receiver-side error-dispatch site uses, so
+ *     the matched peer_rxe is returned to the SRX (or, in the rare
+ *     buffer-touched case, the user sees a CQ error).
+ *
+ * Both directions consume the inbound packet via release_rx.
+ *
+ * Note: this handler runs under the SRX lock (acquired by the CQ
+ * read path; see efa_rdm_cq_readfrom), which is required by the
+ * peer-aborted-op handler when it calls into the SRX re-queue
+ * helper.
  */
 void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_peer_error_hdr *err_hdr;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *ope;
+	int prov_errno;
+	int err;
 
+	ep = pkt_entry->ep;
 	err_hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
-	(void) err_hdr;
+	prov_errno = (int) err_hdr->prov_errno;
 
 	EFA_INFO(FI_LOG_CQ,
-		 "Received PEER_ERROR_PKT (send_id=%u recv_id=%u prov_errno=%u). "
-		 "Placeholder handler — no action taken.\n",
-		 err_hdr->send_id, err_hdr->recv_id, err_hdr->prov_errno);
+		 "Received PEER_ERROR_PKT (send_id=%u recv_id=%u prov_errno=%d %s)\n",
+		 err_hdr->send_id, err_hdr->recv_id, prov_errno,
+		 efa_strerror(prov_errno));
+
+	if (err_hdr->send_id != EFA_RDM_PEER_ERROR_ID_SENTINEL) {
+		/* LONGREAD direction: receiver told us our send failed.
+		 * Reap the txe. */
+		ope = ofi_bufpool_get_ibuf(ep->ope_pool, err_hdr->send_id);
+		if (OFI_UNLIKELY(!ope)) {
+			EFA_WARN(FI_LOG_CQ,
+				 "PEER_ERROR_PKT (LONGREAD) send_id=%u "
+				 "no longer valid; dropping.\n",
+				 err_hdr->send_id);
+			efa_rdm_pke_release_rx(pkt_entry);
+			return;
+		}
+		assert(ope->type == EFA_RDM_TXE);
+
+		/* Mirror EOR recv: decrement read-msg-in-flight that
+		 * the sender incremented when it sent the LONGREAD or
+		 * RUNTREAD RTM. */
+		efa_rdm_ep_domain(ep)->num_read_msg_in_flight -= 1;
+
+		err = to_fi_errno(prov_errno);
+		efa_rdm_txe_handle_error(ope, err, prov_errno);
+		efa_rdm_txe_release(ope);
+	} else if (err_hdr->recv_id != EFA_RDM_PEER_ERROR_ID_SENTINEL) {
+		/* LONGCTS direction: sender told us their MR is gone.
+		 * Re-queue the rxe back into the SRX (or write a user
+		 * CQ error if the buffer was touched). */
+		ope = ofi_bufpool_get_ibuf(ep->ope_pool, err_hdr->recv_id);
+		if (OFI_UNLIKELY(!ope)) {
+			EFA_WARN(FI_LOG_CQ,
+				 "PEER_ERROR_PKT (LONGCTS) recv_id=%u "
+				 "no longer valid; dropping.\n",
+				 err_hdr->recv_id);
+			efa_rdm_pke_release_rx(pkt_entry);
+			return;
+		}
+		assert(ope->type == EFA_RDM_RXE);
+
+		efa_rdm_rxe_handle_peer_aborted_op(ope, prov_errno,
+						   EFA_RDM_PEER_ERROR_PKT);
+	} else {
+		EFA_WARN(FI_LOG_CQ,
+			 "PEER_ERROR_PKT with both id fields = SENTINEL; "
+			 "dropping.\n");
+	}
 
 	efa_rdm_pke_release_rx(pkt_entry);
 }

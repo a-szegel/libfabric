@@ -710,15 +710,15 @@ void test_efa_rdm_ep_advertises_peer_error_feature(struct efa_resource **state)
 
 /**
  * @brief Verify the wire format of EFA_RDM_PEER_ERROR_PKT round-trips
- *        through init and the receive dispatcher cleanly.
+ *        through init() cleanly in both directions.
  *
- * This commit ships only the placeholder receive handler — its
- * contract is that decoding the packet does not crash, does not
- * write any CQ entry, and consumes the packet from the rx pool.
- *
- * We exercise both directions:
+ * Exercises the wire layout for the two supported directions:
  *  - LONGREAD direction (send_id set, recv_id sentinel)
  *  - LONGCTS direction (recv_id set, send_id sentinel)
+ *
+ * The dispatcher (efa_rdm_pke_handle_peer_error_recv) is exercised
+ * separately by tests that bind the packet to a real ope; it
+ * requires valid send_id/recv_id ope indices.
  */
 void test_efa_rdm_pke_init_and_handle_peer_error(struct efa_resource **state)
 {
@@ -734,10 +734,9 @@ void test_efa_rdm_pke_init_and_handle_peer_error(struct efa_resource **state)
 			  base_ep.util_ep.ep_fid);
 
 	/* Build the LONGREAD direction: receiver -> sender */
-	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_rx_pkt_pool,
-				      EFA_RDM_PKE_FROM_EFA_RX_POOL);
+	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
 	assert_non_null(pkt_entry);
-	ep->efa_rx_pkts_posted = efa_base_ep_get_rx_pool_size(&ep->base_ep);
 
 	err = efa_rdm_pke_init_peer_error(pkt_entry,
 					  /*send_id=*/42,
@@ -757,23 +756,12 @@ void test_efa_rdm_pke_init_and_handle_peer_error(struct efa_resource **state)
 	assert_int_equal(err_hdr->prov_errno,
 			 EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS);
 	assert_int_equal(err_hdr->connid, 0xc0ffee);
+	efa_rdm_pke_release_tx(pkt_entry);
 
-	/* Verify the placeholder receive handler decodes cleanly and
-	 * releases the rx pkt without crashing. We invoke it directly
-	 * (avoiding fi_cq_read) so we don't disturb rx-pool accounting. */
-	efa_rdm_pke_handle_peer_error_recv(pkt_entry);
-
-	/* LONGCTS direction: sender -> receiver. Reuse a freshly
-	 * allocated pkt to keep the rx-pool count consistent: we
-	 * decrement efa_rx_pkts_posted to match the prior release
-	 * before allocating the next one. */
-	ep->efa_rx_pkts_to_post = 0;
-	ep->efa_rx_pkts_posted -= 1;
-
-	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_rx_pkt_pool,
-				      EFA_RDM_PKE_FROM_EFA_RX_POOL);
+	/* LONGCTS direction: sender -> receiver. */
+	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
 	assert_non_null(pkt_entry);
-	ep->efa_rx_pkts_posted += 1;
 
 	err = efa_rdm_pke_init_peer_error(pkt_entry,
 					  /*send_id=*/EFA_RDM_PEER_ERROR_ID_SENTINEL,
@@ -788,8 +776,7 @@ void test_efa_rdm_pke_init_and_handle_peer_error(struct efa_resource **state)
 	assert_int_equal(err_hdr->prov_errno,
 			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
 	assert_int_equal(err_hdr->connid, 0xbeef);
-
-	efa_rdm_pke_handle_peer_error_recv(pkt_entry);
+	efa_rdm_pke_release_tx(pkt_entry);
 }
 
 /**

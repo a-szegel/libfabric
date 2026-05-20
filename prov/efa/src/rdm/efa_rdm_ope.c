@@ -836,7 +836,20 @@ void efa_rdm_rxe_handle_peer_aborted_op(struct efa_rdm_ope *rxe,
 					 prov_errno);
 	}
 
-	/* Now decide whether to send PEER_ERROR_PKT to the sender. */
+	/* Now decide whether to send PEER_ERROR_PKT to the sender.
+	 *
+	 * Skip emission entirely when we were invoked from an inbound
+	 * PEER_ERROR_PKT (LONGCTS direction): the sender already knows
+	 * the error happened — it told us. Sending one back would
+	 * loop.
+	 */
+	if (pkt_type == EFA_RDM_PEER_ERROR_PKT) {
+		if (group_a)
+			efa_rdm_rxe_release_internal(rxe);
+		/* Group B: rxe stays alive in OPE_ERR (status quo). */
+		return;
+	}
+
 	peer_supports = (rxe->peer != NULL) &&
 			efa_rdm_peer_support_peer_error(rxe->peer);
 
