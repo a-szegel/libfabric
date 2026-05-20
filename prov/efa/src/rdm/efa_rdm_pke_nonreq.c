@@ -761,6 +761,31 @@ int efa_rdm_pke_init_peer_error(struct efa_rdm_pke *pkt_entry,
 	return 0;
 }
 
+int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,
+					struct efa_rdm_ope *ope)
+{
+	uint32_t send_id, recv_id;
+	uint32_t connid;
+
+	if (ope->type == EFA_RDM_RXE) {
+		/* LONGREAD direction: receiver -> sender. */
+		send_id = ope->tx_id;
+		recv_id = EFA_RDM_PEER_ERROR_ID_SENTINEL;
+	} else {
+		/* LONGCTS direction: sender -> receiver. */
+		assert(ope->type == EFA_RDM_TXE);
+		send_id = EFA_RDM_PEER_ERROR_ID_SENTINEL;
+		recv_id = ope->rx_id;
+	}
+
+	connid = efa_rdm_ep_raw_addr(ope->ep)->qkey;
+
+	pkt_entry->ope = ope;
+	pkt_entry->peer = ope->peer;
+	return efa_rdm_pke_init_peer_error(pkt_entry, send_id, recv_id,
+					   ope->peer_error_prov_errno, connid);
+}
+
 /*
  * Placeholder handler for inbound EFA_RDM_PEER_ERROR_PKT.
  *

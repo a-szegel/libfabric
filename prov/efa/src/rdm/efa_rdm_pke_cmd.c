@@ -226,6 +226,10 @@ int efa_rdm_pke_fill_data(struct efa_rdm_pke *pkt_entry,
 		assert(data_offset == -1 && data_size == -1);
 		ret = efa_rdm_pke_init_read_nack(pkt_entry, ope);
 		break;
+	case EFA_RDM_PEER_ERROR_PKT:
+		assert(data_offset == -1 && data_size == -1);
+		ret = efa_rdm_pke_init_peer_error_for_ope(pkt_entry, ope);
+		break;
 	default:
 		assert(0 && "unknown pkt type to init");
 		ret = -FI_EINVAL;
@@ -686,10 +690,26 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		/* no action needed for NACK packet */
 		break;
 	case EFA_RDM_PEER_ERROR_PKT:
-		/* No txe/rxe action needed for the placeholder. The real
-		 * commit that emits PEER_ERROR_PKT will plug in the rxe
-		 * cleanup hook here.
+		/* The user-visible remedy (re-queue or CQ error) was
+		 * already performed by the abort handler before this
+		 * packet was posted. All that remains is to release the
+		 * rxe (or, for the LONGCTS direction in a future commit,
+		 * the txe).
+		 *
+		 * For the LONGREAD direction we know pkt_entry->ope is
+		 * an rxe; for the LONGCTS direction (added later) it
+		 * will be a txe and the cleanup site will branch
+		 * accordingly. Today only the rxe path emits this
+		 * packet, so handle that case here.
 		 */
+		if (pkt_entry->ope &&
+		    pkt_entry->ope->type == EFA_RDM_RXE &&
+		    (pkt_entry->ope->internal_flags &
+		     EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT)) {
+			pkt_entry->ope->internal_flags &=
+				~EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT;
+			efa_rdm_rxe_release_internal(pkt_entry->ope);
+		}
 		break;
 	default:
 		EFA_WARN(FI_LOG_CQ,

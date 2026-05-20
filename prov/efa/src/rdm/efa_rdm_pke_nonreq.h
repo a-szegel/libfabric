@@ -266,6 +266,30 @@ int efa_rdm_pke_init_peer_error(struct efa_rdm_pke *pkt_entry,
 				uint32_t send_id, uint32_t recv_id,
 				int prov_errno, uint32_t connid);
 
+/**
+ * @brief Initialize a PEER_ERROR_PKT from a failing ope (rxe or txe).
+ *
+ * This is the variant called from efa_rdm_pke_fill_data when the
+ * caller posts via efa_rdm_ope_post_send_or_queue with pkt_type
+ * EFA_RDM_PEER_ERROR_PKT. It derives direction (LONGREAD vs LONGCTS)
+ * from the ope's type:
+ *
+ *   - rxe (EFA_RDM_RXE) → LONGREAD direction:
+ *       send_id = rxe->tx_id (sender's send op id from the RTM)
+ *       recv_id = EFA_RDM_PEER_ERROR_ID_SENTINEL
+ *
+ *   - txe (EFA_RDM_TXE) → LONGCTS direction:
+ *       send_id = EFA_RDM_PEER_ERROR_ID_SENTINEL
+ *       recv_id = txe->rx_id (receiver's recv op id from the CTS)
+ *
+ * The prov_errno is read from ope->peer_error_prov_errno; the caller
+ * must have set it before posting.
+ *
+ * @return 0 on success
+ */
+int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,
+					struct efa_rdm_ope *ope);
+
 void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry);
 
 /* ATOMRSP packet related functions */
