@@ -317,6 +317,36 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno);
 
 void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno);
 
+/**
+ * @brief Handle a peer-aborted in-protocol failure on a user-posted recv rxe.
+ *
+ * Called when a receiver-initiated device op (RDMA READ for
+ * LONGREAD/RUNTREAD, control SENDs for LONGCTS/EOR, etc.) failed
+ * because the sender cleanly went away mid-protocol.
+ *
+ * Group A (re-queue): the matched peer_rxe is returned to the SRX
+ * so the user's posted fi_recv survives and can match a future
+ * incoming message. The rxe is released via the internal release
+ * path so no user CQ entry is written.
+ *
+ * Group B (write user CQ error and release): when the opt-in
+ * 128-byte once-only-delivery guarantee is active and the recv
+ * buffer has been touched, we cannot re-queue (a later matching
+ * message could double-write a 128-byte block). Fall through to
+ * the existing efa_rdm_rxe_handle_error path.
+ *
+ * The dispositoning logic is local to this function so callers
+ * (the error-dispatch site and, in later commits, the inbound
+ * PEER_ERROR_PKT handler) share the same behavior.
+ *
+ * @param[in,out] rxe        failing user-posted recv rxe
+ * @param[in]     prov_errno the underlying prov_errno
+ * @param[in]     pkt_type   the packet type that triggered the abort
+ *                           (for logging context)
+ */
+void efa_rdm_rxe_handle_peer_aborted_op(struct efa_rdm_ope *rxe,
+					int prov_errno, int pkt_type);
+
 void efa_rdm_txe_report_completion(struct efa_rdm_ope *txe);
 
 void efa_rdm_rxe_report_completion(struct efa_rdm_ope *rxe);
