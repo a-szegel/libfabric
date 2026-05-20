@@ -741,6 +741,55 @@ void efa_rdm_pke_handle_read_nack_recv(struct efa_rdm_pke *pkt_entry)
 	}
 }
 
+/* PEER_ERROR packet related functions */
+
+int efa_rdm_pke_init_peer_error(struct efa_rdm_pke *pkt_entry,
+				uint32_t send_id, uint32_t recv_id,
+				int prov_errno, uint32_t connid)
+{
+	struct efa_rdm_peer_error_hdr *err_hdr;
+
+	err_hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
+	err_hdr->type = EFA_RDM_PEER_ERROR_PKT;
+	err_hdr->version = EFA_RDM_PROTOCOL_VERSION;
+	err_hdr->flags = EFA_RDM_PKT_CONNID_HDR;
+	err_hdr->send_id = send_id;
+	err_hdr->recv_id = recv_id;
+	err_hdr->prov_errno = (uint32_t) prov_errno;
+	err_hdr->connid = connid;
+	pkt_entry->pkt_size = sizeof(struct efa_rdm_peer_error_hdr);
+	return 0;
+}
+
+/*
+ * Placeholder handler for inbound EFA_RDM_PEER_ERROR_PKT.
+ *
+ * Subsequent commits replace this with the real dispatcher that
+ * routes the packet to the matching txe (LONGREAD direction) or
+ * rxe (LONGCTS direction). For now we just consume and release the
+ * packet so a peer that already advertises EFA_RDM_EXTRA_FEATURE_PEER_ERROR
+ * (after this commit lands) does not trip the "unknown packet
+ * type" assertion in the receive dispatcher.
+ *
+ * No code path emits EFA_RDM_PEER_ERROR_PKT yet, so this function
+ * is unreachable in normal operation; it exists only to keep the
+ * wire-protocol additions in this commit self-consistent.
+ */
+void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
+{
+	struct efa_rdm_peer_error_hdr *err_hdr;
+
+	err_hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
+	(void) err_hdr;
+
+	EFA_INFO(FI_LOG_CQ,
+		 "Received PEER_ERROR_PKT (send_id=%u recv_id=%u prov_errno=%u). "
+		 "Placeholder handler — no action taken.\n",
+		 err_hdr->send_id, err_hdr->recv_id, err_hdr->prov_errno);
+
+	efa_rdm_pke_release_rx(pkt_entry);
+}
+
 /* receipt packet related functions */
 int efa_rdm_pke_init_receipt(struct efa_rdm_pke *pkt_entry, struct efa_rdm_ope *rxe)
 {

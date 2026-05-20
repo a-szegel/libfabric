@@ -384,6 +384,9 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_first_packet_error();
 void test_efa_rdm_pke_proc_matched_mulreq_rtm_second_packet_error();
 void test_efa_rdm_prov_errno_is_peer_abort();
 void test_efa_rdm_pkt_is_rxe_protocol_op();
+void test_efa_rdm_ep_advertises_peer_error_feature();
+void test_efa_rdm_pke_init_and_handle_peer_error();
+void test_efa_rdm_peer_support_peer_error();
 /* end of efa_unit_test_pke.c */
 
 void test_efa_msg_fi_recv();

@@ -236,6 +236,38 @@ int efa_rdm_pke_init_read_nack(struct efa_rdm_pke *pkt_entry, struct efa_rdm_ope
 
 void efa_rdm_pke_handle_read_nack_recv(struct efa_rdm_pke *pkt_entry);
 
+/* PEER ERROR packet functions */
+
+#define EFA_RDM_PEER_ERROR_ID_SENTINEL UINT32_MAX
+
+static inline
+struct efa_rdm_peer_error_hdr *efa_rdm_pke_get_peer_error_hdr(struct efa_rdm_pke *pke)
+{
+	return (struct efa_rdm_peer_error_hdr *)pke->wiredata;
+}
+
+/**
+ * @brief Initialize an EFA_RDM_PEER_ERROR_PKT packet entry's wiredata
+ *
+ * Fills the base header, both ID fields (with the inactive direction
+ * set to EFA_RDM_PEER_ERROR_ID_SENTINEL), the prov_errno cause field,
+ * and the optional CONNID header. Does not bind the packet to an ope
+ * or peer; the caller is responsible for setting pkt_entry->peer
+ * and pkt_entry->ope before posting.
+ *
+ * @param[out] pkt_entry  packet entry whose wiredata will be filled
+ * @param[in]  send_id    sender-side ope id, or EFA_RDM_PEER_ERROR_ID_SENTINEL
+ * @param[in]  recv_id    receiver-side ope id, or EFA_RDM_PEER_ERROR_ID_SENTINEL
+ * @param[in]  prov_errno the prov_errno that triggered the abort
+ * @param[in]  connid     local endpoint's connection ID (qkey)
+ * @return     0 on success
+ */
+int efa_rdm_pke_init_peer_error(struct efa_rdm_pke *pkt_entry,
+				uint32_t send_id, uint32_t recv_id,
+				int prov_errno, uint32_t connid);
+
+void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry);
+
 /* ATOMRSP packet related functions */
 static inline struct efa_rdm_atomrsp_hdr *efa_rdm_pke_get_atomrsp_hdr(struct efa_rdm_pke *pke)
 {

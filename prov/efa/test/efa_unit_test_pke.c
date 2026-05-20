@@ -685,3 +685,159 @@ void test_efa_rdm_pkt_is_rxe_protocol_op(struct efa_resource **state)
 
 	free(pkt_entry);
 }
+
+/**
+ * @brief Verify that an enabled RDM endpoint advertises the
+ *        EFA_RDM_EXTRA_FEATURE_PEER_ERROR bit in extra_info[0].
+ *
+ * Without this assertion, peers cannot negotiate support for
+ * EFA_RDM_PEER_ERROR_PKT and the new abort signaling would silently
+ * fall back to the legacy "leak the txe / write user CQ error"
+ * behavior on every connection.
+ */
+void test_efa_rdm_ep_advertises_peer_error_feature(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	assert_true(ep->extra_info[0] & EFA_RDM_EXTRA_FEATURE_PEER_ERROR);
+}
+
+/**
+ * @brief Verify the wire format of EFA_RDM_PEER_ERROR_PKT round-trips
+ *        through init and the receive dispatcher cleanly.
+ *
+ * This commit ships only the placeholder receive handler — its
+ * contract is that decoding the packet does not crash, does not
+ * write any CQ entry, and consumes the packet from the rx pool.
+ *
+ * We exercise both directions:
+ *  - LONGREAD direction (send_id set, recv_id sentinel)
+ *  - LONGCTS direction (recv_id set, send_id sentinel)
+ */
+void test_efa_rdm_pke_init_and_handle_peer_error(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_pke *pkt_entry;
+	struct efa_rdm_peer_error_hdr *err_hdr;
+	int err;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	/* Build the LONGREAD direction: receiver -> sender */
+	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_rx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_RX_POOL);
+	assert_non_null(pkt_entry);
+	ep->efa_rx_pkts_posted = efa_base_ep_get_rx_pool_size(&ep->base_ep);
+
+	err = efa_rdm_pke_init_peer_error(pkt_entry,
+					  /*send_id=*/42,
+					  /*recv_id=*/EFA_RDM_PEER_ERROR_ID_SENTINEL,
+					  EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS,
+					  /*connid=*/0xc0ffee);
+	assert_int_equal(err, 0);
+	assert_int_equal(pkt_entry->pkt_size,
+			 sizeof(struct efa_rdm_peer_error_hdr));
+
+	err_hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
+	assert_int_equal(err_hdr->type, EFA_RDM_PEER_ERROR_PKT);
+	assert_int_equal(err_hdr->version, EFA_RDM_PROTOCOL_VERSION);
+	assert_true(err_hdr->flags & EFA_RDM_PKT_CONNID_HDR);
+	assert_int_equal(err_hdr->send_id, 42);
+	assert_int_equal(err_hdr->recv_id, EFA_RDM_PEER_ERROR_ID_SENTINEL);
+	assert_int_equal(err_hdr->prov_errno,
+			 EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS);
+	assert_int_equal(err_hdr->connid, 0xc0ffee);
+
+	/* Verify the placeholder receive handler decodes cleanly and
+	 * releases the rx pkt without crashing. We invoke it directly
+	 * (avoiding fi_cq_read) so we don't disturb rx-pool accounting. */
+	efa_rdm_pke_handle_peer_error_recv(pkt_entry);
+
+	/* LONGCTS direction: sender -> receiver. Reuse a freshly
+	 * allocated pkt to keep the rx-pool count consistent: we
+	 * decrement efa_rx_pkts_posted to match the prior release
+	 * before allocating the next one. */
+	ep->efa_rx_pkts_to_post = 0;
+	ep->efa_rx_pkts_posted -= 1;
+
+	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_rx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_RX_POOL);
+	assert_non_null(pkt_entry);
+	ep->efa_rx_pkts_posted += 1;
+
+	err = efa_rdm_pke_init_peer_error(pkt_entry,
+					  /*send_id=*/EFA_RDM_PEER_ERROR_ID_SENTINEL,
+					  /*recv_id=*/7,
+					  EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY,
+					  /*connid=*/0xbeef);
+	assert_int_equal(err, 0);
+
+	err_hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
+	assert_int_equal(err_hdr->send_id, EFA_RDM_PEER_ERROR_ID_SENTINEL);
+	assert_int_equal(err_hdr->recv_id, 7);
+	assert_int_equal(err_hdr->prov_errno,
+			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+	assert_int_equal(err_hdr->connid, 0xbeef);
+
+	efa_rdm_pke_handle_peer_error_recv(pkt_entry);
+}
+
+/**
+ * @brief Verify efa_rdm_peer_support_peer_error() reflects the
+ *        peer's handshake state and the feature bit.
+ *
+ * The helper must require both the handshake-received flag AND the
+ * bit. With either one missing, support must read as false so the
+ * sender path falls back to legacy behavior.
+ */
+void test_efa_rdm_peer_support_peer_error(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_peer *peer;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	fi_addr_t peer_addr = 0;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &peer_addr, 0, NULL),
+			 1);
+	peer = efa_rdm_ep_get_peer(ep, peer_addr);
+	assert_non_null(peer);
+
+	/* No handshake yet, no bit. */
+	peer->flags = 0;
+	peer->extra_info[0] = 0;
+	assert_false(efa_rdm_peer_support_peer_error(peer));
+
+	/* Bit set but no handshake => still unsupported. */
+	peer->extra_info[0] = EFA_RDM_EXTRA_FEATURE_PEER_ERROR;
+	assert_false(efa_rdm_peer_support_peer_error(peer));
+
+	/* Handshake only, no bit => unsupported. */
+	peer->flags = EFA_RDM_PEER_HANDSHAKE_RECEIVED;
+	peer->extra_info[0] = 0;
+	assert_false(efa_rdm_peer_support_peer_error(peer));
+
+	/* Both => supported. */
+	peer->flags = EFA_RDM_PEER_HANDSHAKE_RECEIVED;
+	peer->extra_info[0] = EFA_RDM_EXTRA_FEATURE_PEER_ERROR;
+	assert_true(efa_rdm_peer_support_peer_error(peer));
+}
