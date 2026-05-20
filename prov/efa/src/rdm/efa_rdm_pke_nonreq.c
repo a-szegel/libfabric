@@ -226,10 +226,10 @@ int efa_rdm_pke_init_ctsdata(struct efa_rdm_pke *pkt_entry,
 	data_hdr->version = EFA_RDM_PROTOCOL_VERSION;
 	data_hdr->flags = 0;
 
-	/* Data is sent using rxe in the emulated longcts read 
-	 * protocol. The emulated longcts write and the longcts 
+	/* Data is sent using rxe in the emulated longcts read
+	 * protocol. The emulated longcts write and the longcts
 	 * message protocols sends data using txe.
-	 * This check ensures appropriate recv_id is 
+	 * This check ensures appropriate recv_id is
 	 * assigned for the respective protocols */
 	if (ope->type == EFA_RDM_RXE) {
 		data_hdr->recv_id = ope->tx_id;
@@ -739,6 +739,43 @@ void efa_rdm_pke_handle_read_nack_recv(struct efa_rdm_pke *pkt_entry)
 			     EFA_RDM_DC_LONGCTS_MSGRTM_PKT :
 			     EFA_RDM_LONGCTS_MSGRTM_PKT);
 	}
+}
+
+/* PEER_ERROR packet related functions */
+
+/**
+ * @brief Initialize an EFA_RDM_PEER_ERROR_PKT packet entry's wiredata
+ *
+ * @param[out] pkt_entry  packet entry whose wiredata will be filled
+ * @param[in]  op_id      ope id owned by the packet's receiver
+ * @param[in]  prov_errno the prov_errno that triggered the abort
+ * @param[in]  connid     local endpoint's connection ID (qkey)
+ * @return     0 on success
+ */
+int efa_rdm_pke_init_peer_error(struct efa_rdm_pke *pkt_entry,
+				uint32_t op_id,
+				int prov_errno, uint32_t connid)
+{
+	struct efa_rdm_peer_error_hdr *err_hdr;
+
+	err_hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
+	err_hdr->type = EFA_RDM_PEER_ERROR_PKT;
+	err_hdr->version = EFA_RDM_PROTOCOL_VERSION;
+	err_hdr->flags = EFA_RDM_PKT_CONNID_HDR;
+	err_hdr->op_id = op_id;
+	err_hdr->prov_errno = (uint32_t) prov_errno;
+	err_hdr->connid = connid;
+	pkt_entry->pkt_size = sizeof(struct efa_rdm_peer_error_hdr);
+	return 0;
+}
+
+/**
+ * @param[in] pkt_entry inbound rx packet whose wiredata holds the
+ *                      EFA_RDM_PEER_ERROR_PKT to dispatch
+ */
+void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
+{
+	efa_rdm_pke_release_rx(pkt_entry);
 }
 
 /* receipt packet related functions */
