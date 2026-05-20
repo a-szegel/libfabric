@@ -30,7 +30,8 @@
 #define EFA_RDM_EXTRA_FEATURE_READ_NACK		BIT_ULL(6)
 #define EFA_RDM_EXTRA_FEATURE_REQUEST_USER_RECV_QP	BIT_ULL(7)
 #define EFA_RDM_EXTRA_FEATURE_UNSOLICITED_WRITE_RECV	BIT_ULL(8)
-#define EFA_RDM_NUM_EXTRA_FEATURE_OR_REQUEST		9
+#define EFA_RDM_EXTRA_FEATURE_PEER_ERROR		BIT_ULL(9)
+#define EFA_RDM_NUM_EXTRA_FEATURE_OR_REQUEST		10
 /*
  * The length of 64-bit extra_info array used in efa_rdm_ep
  * and efa_rdm_peer
@@ -60,6 +61,7 @@
 #define EFA_RDM_HANDSHAKE_PKT		9
 #define EFA_RDM_RECEIPT_PKT 		10
 #define EFA_RDM_READ_NACK_PKT		11
+#define EFA_RDM_PEER_ERROR_PKT		12
 
 #define EFA_RDM_REQ_PKT_BEGIN		64
 #define EFA_RDM_BASELINE_REQ_PKT_BEGIN	64
@@ -287,6 +289,58 @@ struct efa_rdm_read_nack_hdr {
 };
 
 EFA_RDM_ENSURE_HEADER_SIZE(efa_rdm_read_nack_hdr, 16);
+
+/*
+ * @brief format of the peer error packet. (Packet Type ID 12)
+ *
+ * PEER_ERROR is a bidirectional control packet used to tell the
+ * remote peer that this side is abandoning an in-flight two-sided
+ * protocol step.
+ *
+ * The wire format is intentionally generic: it carries a single
+ * `op_id` referencing an ope owned by the receiver-of-the-packet,
+ * and a `prov_errno` carrying the underlying provider error code
+ * that triggered the abort. The receiving side uses op_id to find
+ * the affected local ope, and prov_errno for accurate CQ-entry
+ * and log attribution. The receive-side dispatcher recovers
+ * direction by looking up the ope and inspecting its `type`
+ * field — no on-the-wire direction discriminator is needed, so a
+ * single packet type can serve both directions without churning
+ * the protocol.
+ *
+ * Currently used in two directions for peer-clean-abort scenarios:
+ *
+ *  1. Receiver -> sender, when the receiver's RDMA READ posted as
+ *     part of a LONGREAD or RUNTREAD RTM fails because the sender
+ *     canceled its source MR or tore down its endpoint. The sender
+ *     uses this signal to reap the txe and write a TX CQ error.
+ *  2. Sender -> receiver, when the sender's source MR is canceled
+ *     mid-LONGCTS-CTSDATA (detected pre-post via the MR generation
+ *     check or post-post via LOCAL_ERROR_INVALID_LKEY). The
+ *     receiver uses this signal to re-queue its rxe back into the
+ *     SRX so the user's posted recv survives.
+ *
+ * Future commits may extend its use to other in-flight protocol
+ * failure modes (e.g. resource-exhaustion aborts, application
+ * cancel) by adding new emit sites; the wire format does not
+ * need to change. Note that the rxe-side "re-queue the SRX entry"
+ * remedy assumes the user's recv buffer is in a state consistent
+ * with the once-only-delivery rules — a property of the current
+ * trigger conditions, not a property of the wire format. New
+ * trigger conditions that violate that assumption must extend
+ * the receiver-side dispatcher accordingly.
+ */
+struct efa_rdm_peer_error_hdr {
+	EFA_RDM_BASE_HEADER();
+	uint32_t op_id;     /* ID of the ope owned by the receiver of this packet */
+	uint32_t prov_errno;/* the prov_errno that triggered the abort, for logging */
+	union {
+		uint32_t connid;  /* set when EFA_RDM_PKT_CONNID_HDR is on */
+		uint32_t padding;
+	};
+};
+
+EFA_RDM_ENSURE_HEADER_SIZE(efa_rdm_peer_error_hdr, 16);
 
 /**
  * @brief header format of ATOMRSP packet. (Packet Type ID 8)
