@@ -302,6 +302,8 @@ void test_efa_rdm_ope_eor_packet_tracking_cq_read();
 void test_efa_rdm_ope_eor_packet_tracking_wait_send();
 void test_efa_rdm_ope_eor_packet_failed_posting();
 void test_efa_rdm_ope_eor_packet_tracking_unresponsive_wait_send();
+void test_efa_rdm_rxe_peer_abort_writes_error_completion_at_drain();
+void test_efa_rdm_rxe_mark_peer_aborted_multi_recv_writes_err();
 void test_efa_rdm_atomic_compare_desc_persistence();
 void test_efa_rdm_txe_dc_send_first();
 void test_efa_rdm_txe_dc_receipt_first();
