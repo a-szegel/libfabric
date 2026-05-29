@@ -821,6 +821,57 @@ void efa_rdm_rxe_emit_peer_error(struct efa_rdm_ope *rxe, int prov_errno)
 }
 
 /**
+ * @brief Release a sender-side errored txe once its PEER_ERROR_PKT
+ *        cleanup has drained.
+ *
+ * No-op until the txe is marked EFA_RDM_OPE_PEER_ABORT_PENDING and
+ * every WR using it as wr_id has drained (efa_outstanding_tx_ops == 0,
+ * no queued pkt). Called from every send-completion / tx-error site
+ * that can retire the last such WR.
+ *
+ * Two phases (EFA_RDM_TXE_PEER_ERROR_EMITTED):
+ *  - already emitted: the PEER_ERROR_PKT has drained, so free the txe.
+ *  - not yet emitted: emit one now and keep the txe alive until that
+ *    packet's own completion frees it. Emitting only after every
+ *    CTSDATA WR has drained is what makes the receiver's rxe safe to
+ *    delete -- no CTSDATA can race the notification (mr_abort design
+ *    §5); the emitted packet is itself a WR, so releasing now would UAF.
+ */
+void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
+{
+	ssize_t err;
+
+	if (!(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING))
+		return;
+	if (txe->efa_outstanding_tx_ops != 0)
+		return;
+	if (txe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS)
+		return;
+
+	if (txe->internal_flags & EFA_RDM_TXE_PEER_ERROR_EMITTED) {
+		/* The emitted PEER_ERROR_PKT has drained; free the txe. */
+		efa_rdm_txe_release(txe);
+		return;
+	}
+
+	/* All data WRs have drained: notify the receiver so it can
+	 * abandon the doomed message. Keep the txe alive -- the emitted
+	 * PEER_ERROR_PKT's own completion runs this helper again to release
+	 * it (see EMITTED phase above). */
+	txe->internal_flags |= EFA_RDM_TXE_PEER_ERROR_EMITTED;
+	err = efa_rdm_ope_post_send_or_queue(txe, EFA_RDM_PEER_ERROR_PKT);
+	if (OFI_UNLIKELY(err)) {
+		EFA_WARN(FI_LOG_CQ,
+			 "Sender-side abort: failed to post "
+			 "PEER_ERROR_PKT err=%zd. Receiver's rxe will leak.\n",
+			 err);
+		/* The post failed so no PEER_ERROR_PKT completion will
+		 * arrive to release the txe; release it now (still drained). */
+		efa_rdm_txe_release(txe);
+	}
+}
+
+/**
  * @brief handle the situation that a TX operation encountered error
  *
  * This function does the follow to handle error:
@@ -849,6 +900,7 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	struct util_cq *util_cq;
 	struct dlist_entry *tmp;
 	struct efa_rdm_pke *pkt_entry;
+	enum efa_rdm_ope_state prev_state = txe->state;
 	char err_msg[EFA_ERROR_MSG_BUFFER_LENGTH] = {0};
 
 	ep = txe->ep;
@@ -959,6 +1011,46 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 
 	efa_cntr_report_error(&ep->base_ep.util_ep, txe->cq_entry.flags);
 	efa_rdm_cq_write_error(&ep->base_ep, util_cq, &err_entry, "TXE");
+
+	/*
+	 * LONGCTS sender-side abort emission.
+	 *
+	 * If the user canceled the source MR mid-CTSDATA -- detected
+	 * pre-post by the MR generation check (-FI_ECANCELED) or post-post
+	 * by the NIC (LOCAL_ERROR_INVALID_LKEY) -- and the peer supports
+	 * the feature, tell the receiver so its matched recv completes with
+	 * an error instead of hanging.
+	 *
+	 * The gate keys on prev_state == EFA_RDM_OPE_SEND (not bytes_sent):
+	 * the packet carries op_id = txe->rx_id, which efa_rdm_pke_handle_cts_recv()
+	 * sets at the same time it moves the txe to OPE_SEND, so any other
+	 * state has a stale rx_id. The pre-post FI_ECANCELED path only
+	 * iterates ope_longcts_send_list (OPE_SEND txes), so both detection
+	 * paths are covered.
+	 *
+	 * We do NOT emit here: sibling CTSDATA WRs (still using the txe as
+	 * wr_id) are in flight. Mark PEER_ABORT_PENDING and defer the emit
+	 * to efa_rdm_txe_progress_peer_abort_if_drained() once they drain,
+	 * so no CTSDATA can race the notification (mr_abort design §5); the
+	 * txe is freed when the PEER_ERROR_PKT's own completion drains.
+	 */
+	if (!(txe->internal_flags & EFA_RDM_OPE_INTERNAL) &&
+	    (txe->op == ofi_op_msg || txe->op == ofi_op_tagged) &&
+	    prev_state == EFA_RDM_OPE_SEND &&
+	    (err == FI_ECANCELED ||
+	     prov_errno == EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY) &&
+	    txe->peer != NULL &&
+	    (ep->homogeneous_peers ||
+	     txe->peer->is_self ||
+	     efa_rdm_peer_support_peer_error(txe->peer))) {
+
+		txe->peer_error_prov_errno = prov_errno;
+		txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING;
+		/* Try now in case this was the last reference; otherwise
+		 * a later sibling CTSDATA drain (success or error) or the
+		 * PEER_ERROR_PKT's own completion runs it. */
+		efa_rdm_txe_progress_peer_abort_if_drained(txe);
+	}
 }
 
 /**

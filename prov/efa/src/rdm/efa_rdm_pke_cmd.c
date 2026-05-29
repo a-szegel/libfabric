@@ -502,8 +502,14 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 				efa_rdm_ep_queue_rnr_pkt(ep, pkt_entry);
 			}
 		} else {
-			efa_rdm_txe_handle_error(pkt_entry->ope, err, prov_errno);
+			efa_rdm_txe_handle_error(txe, err, prov_errno);
 			efa_rdm_pke_release_tx(pkt_entry);
+			/*
+			 * No-op unless EFA_RDM_OPE_PEER_ABORT_PENDING is set
+			 * (LONGCTS sender-side abort): frees the errored txe
+			 * once this sibling WR was the last to drain.
+			 */
+			efa_rdm_txe_progress_peer_abort_if_drained(txe);
 		}
 		break;
 	case EFA_RDM_RXE:
@@ -589,6 +595,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ep *ep;
+	bool peer_abort_pending;
 
 	ep = pkt_entry->ep;
 
@@ -629,11 +636,50 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		efa_rdm_txe_release(pkt_entry->ope);
 		break;
 	case EFA_RDM_CTS_PKT:
+		/*
+		 * Snapshot PENDING before the handler: a healthy rxe may be
+		 * released by efa_rdm_pke_handle_cts_send_completion (when
+		 * cts_ready_for_release), so reading the flag afterward would
+		 * be a use-after-free. A PEER_ABORT_PENDING rxe is never
+		 * cts_ready_for_release (recv never completed), so it survives
+		 * the handler and the drain below frees it.
+		 */
+		peer_abort_pending = pkt_entry->ope &&
+			(pkt_entry->ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
 		efa_rdm_pke_handle_cts_send_completion(pkt_entry);
+		/*
+		 * A CTS can be in flight (window refill) when an inbound
+		 * PEER_ERROR_PKT recovers this rxe on the LONGCTS recv
+		 * path. Recovery marks the rxe PEER_ABORT_HANDLED but the
+		 * drain it attempts is a no-op while this CTS is
+		 * outstanding. Now that the CTS has drained
+		 * (record_tx_op_completed above decremented
+		 * efa_outstanding_tx_ops), retry the drain so the rxe is
+		 * freed. No-op for a healthy (non-recovered) rxe.
+		 */
+		if (peer_abort_pending)
+			efa_rdm_rxe_release_peer_abort_if_drained(pkt_entry->ope);
 		break;
-	case EFA_RDM_CTSDATA_PKT:
+	case EFA_RDM_CTSDATA_PKT: {
+		/*
+		 * Snapshot PENDING before the handler: on a healthy full
+		 * completion the handler releases the txe, so the flag must
+		 * be read first. PENDING is only ever set on an aborting
+		 * (OPE_ERR) txe the handler will NOT release.
+		 */
+		peer_abort_pending = pkt_entry->ope &&
+			(pkt_entry->ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
 		efa_rdm_pke_handle_ctsdata_send_completion(pkt_entry);
+		/*
+		 * A successful CTSDATA WR of a LONGCTS transfer aborting on
+		 * source-MR cancel: the txe was not released by the handler
+		 * (bytes_acked never reaches total_len). If this is the last
+		 * WR to drain, free the errored txe.
+		 */
+		if (peer_abort_pending)
+			efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
 		break;
+	}
 	case EFA_RDM_READRSP_PKT:
 		efa_rdm_pke_handle_readrsp_send_completion(pkt_entry);
 		break;
@@ -660,6 +706,14 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 	case EFA_RDM_LONGCTS_MSGRTM_PKT:
 	case EFA_RDM_LONGCTS_TAGRTM_PKT:
 		efa_rdm_pke_handle_longcts_rtm_send_completion(pkt_entry);
+		/*
+		 * Peer-abort race: the source MR was canceled mid-transfer and
+		 * this txe was marked PEER_ABORT_PENDING while this RTM SEND was
+		 * still outstanding. The emit was deferred to WR drain; now that
+		 * this WR drained, re-drive it. No-op for a healthy transfer.
+		 */
+		if (pkt_entry->ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
+			efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
 		break;
 	case EFA_RDM_LONGREAD_MSGRTM_PKT:
 	case EFA_RDM_LONGREAD_TAGRTM_PKT:
@@ -747,16 +801,18 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		break;
 	case EFA_RDM_PEER_ERROR_PKT:
 		/*
-		 * The PEER_ERROR_PKT send completed. Defer rxe release
-		 * to the drain helper -- sibling RDMA READ WRs of the
-		 * same long-read transfer may still use the rxe as
-		 * wr_id. The TXE direction (LONGCTS sender) does not
-		 * release here; its txe lifecycle is handled elsewhere.
+		 * PEER_ERROR_PKT send completed; both helpers are
+		 * drain-gated (an rxe/txe may still have sibling WRs
+		 * in flight using it as wr_id).
+		 *
+		 * RXE: receiver-initiated abort -> drain-gated release.
+		 * TXE: LONGCTS sender-side abort -> drain-gated release.
 		 */
-		if (pkt_entry->ope &&
-		    pkt_entry->ope->type == EFA_RDM_RXE) {
+		assert(pkt_entry->ope);
+		if (pkt_entry->ope->type == EFA_RDM_RXE)
 			efa_rdm_rxe_release_peer_abort_if_drained(pkt_entry->ope);
-		}
+		else
+			efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
 		break;
 	default:
 		EFA_WARN(FI_LOG_CQ,
