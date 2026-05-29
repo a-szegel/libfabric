@@ -510,6 +510,33 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			 * resource management is only applied to send operation.
 			 */
 			efa_rdm_ep_queue_rnr_pkt(ep, pkt_entry);
+		} else if (efa_rdm_pkt_is_rxe_remote_read(pkt_entry) &&
+			   efa_rdm_prov_errno_is_peer_abort(prov_errno)) {
+			struct efa_rdm_ope *rxe = pkt_entry->ope;
+			/*
+			 * Receiver-side RDMA READ (LONGREAD / RUNTREAD)
+			 * failed because the peer cleanly went away
+			 * mid-protocol. Recover locally instead of
+			 * surfacing an internal-protocol error on the
+			 * user's RX CQ.  Release of the rxe is gated on
+			 * every WR that uses the rxe as wr_id (a
+			 * long-read transfer posts multiple READ WRs;
+			 * the rxe must outlive all of them) having
+			 * drained -- the drain helper is a no-op until
+			 * efa_outstanding_tx_ops reaches 0. recover is
+			 * idempotent against re-entry on the same rxe,
+			 * so subsequent sibling failures fall back into
+			 * this branch and just decrement the count.
+			 *
+			 * Receiver-side control SENDs (CTS / EOR /
+			 * RECEIPT) are intentionally NOT routed here;
+			 * they still fall through to
+			 * efa_rdm_rxe_handle_error.
+			 */
+			(void) efa_rdm_rxe_recover_from_peer_abort(rxe,
+								   prov_errno);
+			efa_rdm_pke_release_tx(pkt_entry);
+			efa_rdm_rxe_release_peer_abort_if_drained(rxe);
 		} else {
 			efa_rdm_rxe_handle_error(pkt_entry->ope, err, prov_errno);
 			efa_rdm_pke_release_tx(pkt_entry);
