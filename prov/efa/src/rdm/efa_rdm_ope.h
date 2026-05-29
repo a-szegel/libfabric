@@ -175,6 +175,17 @@ struct efa_rdm_ope {
 
 	/** the source packet entry of a local read operation */
 	struct efa_rdm_pke *local_read_pkt_entry;
+
+	/**
+	 * @brief Provider errno to attach when emitting an EFA_RDM_PEER_ERROR_PKT
+	 *
+	 * Set by efa_rdm_rxe_emit_peer_error (LONGREAD direction)
+	 * and by the LONGCTS sender-side abort path (later commit), and
+	 * read by efa_rdm_pke_init_peer_error to populate the wire
+	 * header's prov_errno field. Has no meaning if no PEER_ERROR_PKT
+	 * is being emitted from this ope.
+	 */
+	int peer_error_prov_errno;
 };
 
 void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
@@ -225,12 +236,32 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
 #define EFA_RDM_RXE_EOR_IN_FLIGHT BIT_ULL(10)
 
 /**
+ * @brief Flag to indicate an rxe has a PEER_ERROR_PKT in flight.
+ *
+ * Set when a PEER_ERROR_PKT has been posted (or queued) for this
+ * rxe. Used by efa_rdm_rxe_emit_peer_error() as an idempotency
+ * guard so a second failing READ WR on the same long-read transfer
+ * does not post a duplicate PEER_ERROR_PKT, and by the dispatcher
+ * to recognize an async TX failure of the PEER_ERROR_PKT itself.
+ *
+ * The rxe lifetime is NOT tied to this flag alone -- see
+ * EFA_RDM_RXE_PEER_ABORT_HANDLED. A long-read transfer can have
+ * many in-flight RDMA READ WRs that also use the rxe as wr_id; the
+ * rxe must outlive all of them, not just this packet.
+ *
+ * Bit 19: bits 10-18 are taken by the txe/rxe-overlapping flags
+ * above, so this rxe-only flag starts the next free range at 19.
+ */
+#define EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT BIT_ULL(19)
+
+/**
  * @brief Flag to indicate the peer-abort machinery owns this rxe's
  *        release.
  *
  * Set on the rxe when efa_rdm_rxe_recover_from_peer_abort() commits
  * to handling the abort (re-queues the matched peer_rxe back into
- * the SRX). Sticky -- never cleared until the rxe is freed.
+ * the SRX), or when efa_rdm_rxe_emit_peer_error() posts a
+ * PEER_ERROR_PKT. Sticky -- never cleared until the rxe is freed.
  *
  * Means: "release this rxe via efa_rdm_rxe_release_peer_abort_if_drained()
  * once every device WR that uses it as wr_id has drained
@@ -244,10 +275,11 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
  * efa_rdm_rxe_handle_error). The flag marks the subset of rxes
  * whose lifetime the peer-abort path has taken responsibility for.
  *
- * NOT set by recover's multi-recv write-CQ-error sub-path: that
- * sub-path follows the pre-existing "rxe stays alive after
- * handle_error" behavior so this fix does not change release
- * semantics outside the peer-abort recover-and-requeue path.
+ * NOT set by recover's multi-recv write-CQ-error sub-path that
+ * does not also emit a PEER_ERROR_PKT: that sub-path follows the
+ * pre-existing "rxe stays alive after handle_error" behavior so
+ * this fix does not change release semantics outside the
+ * peer-abort path.
  *
  * Bit 20: bits 10-18 are taken by the txe/rxe-overlapping flags
  * above; this rxe-only flag takes the next free bit after 19.
@@ -341,6 +373,8 @@ void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno);
 
 bool efa_rdm_rxe_recover_from_peer_abort(struct efa_rdm_ope *rxe,
 					 int prov_errno);
+
+void efa_rdm_rxe_emit_peer_error(struct efa_rdm_ope *rxe, int prov_errno);
 
 /**
  * @brief Release the rxe iff the peer-abort machinery owns its
