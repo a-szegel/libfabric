@@ -847,11 +847,113 @@ int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,
 }
 
 /**
+ * @brief Receiver-side dispatcher for inbound EFA_RDM_PEER_ERROR_PKT
+ *
+ * The packet type is bidirectional. The wire packet carries a
+ * single op_id that always references an ope owned by us (the
+ * receiver of this packet). Direction is recovered by looking up
+ * the ope and inspecting its type:
+ *
+ *   - ope->type == EFA_RDM_TXE → LONGREAD direction:
+ *     the receiver of the original message told us our send op
+ *     failed mid-protocol. Decrement num_read_msg_in_flight
+ *     (mirroring how EOR recv handles the LONGREAD success path),
+ *     write a clean TX CQ error (FI_ECANCELED /
+ *     FI_EFA_ERR_PEER_ABORTED), and release the txe.
+ *
+ *   - ope->type == EFA_RDM_RXE → LONGCTS direction:
+ *     the sender told us its source MR is gone mid-CTSDATA. Route
+ *     through the same peer-abort handler that the receiver-side
+ *     error-dispatch site uses: mark the matched rxe peer-aborted;
+ *     once it drains, a clean RX CQ error (FI_ECANCELED /
+ *     FI_EFA_ERR_PEER_ABORTED) is written and the rxe is reaped.
+ *
+ * Both directions consume the inbound packet via release_rx.
+ *
+ *
  * @param[in] pkt_entry inbound rx packet whose wiredata holds the
  *                      EFA_RDM_PEER_ERROR_PKT to dispatch
  */
 void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 {
+	struct efa_rdm_peer_error_hdr *err_hdr;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *ope;
+	int prov_errno;
+
+	ep = pkt_entry->ep;
+	err_hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
+	prov_errno = (int) err_hdr->prov_errno;
+
+	EFA_INFO(FI_LOG_CQ,
+		 "Received PEER_ERROR_PKT (op_id=%u prov_errno=%d %s)\n",
+		 err_hdr->op_id, prov_errno, efa_strerror(prov_errno));
+
+	/*
+	 * op_id is wire-supplied. ofi_bufpool_get_ibuf() does not
+	 * bounds-check its index and would return a bogus non-NULL
+	 * pointer (or a pointer to a freed/unallocated slot) for an
+	 * out-of-range or stale id, which the !ope check below cannot
+	 * catch. Validate the index against the pool first so a
+	 * malformed, duplicate, or stale PEER_ERROR_PKT cannot make us
+	 * act on an arbitrary ope.
+	 */
+	if (OFI_UNLIKELY(!ofi_bufpool_ibuf_is_valid(ep->ope_pool,
+						    err_hdr->op_id))) {
+		EFA_WARN(FI_LOG_CQ,
+			 "PEER_ERROR_PKT op_id=%u out of range or no longer "
+			 "valid; dropping.\n", err_hdr->op_id);
+		efa_rdm_pke_release_rx(pkt_entry);
+		return;
+	}
+
+	ope = ofi_bufpool_get_ibuf(ep->ope_pool, err_hdr->op_id);
+	if (OFI_UNLIKELY(!ope)) {
+		EFA_WARN(FI_LOG_CQ,
+			 "PEER_ERROR_PKT op_id=%u no longer valid; "
+			 "dropping.\n", err_hdr->op_id);
+		efa_rdm_pke_release_rx(pkt_entry);
+		return;
+	}
+
+	switch (ope->type) {
+	case EFA_RDM_TXE:
+		/* LONGREAD direction: the peer told us our send failed.
+		 * The PEER_ERROR packet gets sent instead of the EOR packet,
+		 * and the num_read_msg_in_flight would get decremented upon
+		 * receipt of the EOR packet, mirror book keeping.
+		 */
+		if (OFI_LIKELY(efa_rdm_ep_domain(ep)->num_read_msg_in_flight > 0))
+			efa_rdm_ep_domain(ep)->num_read_msg_in_flight -= 1;
+
+		/* Surface the same clean, dedicated peer-abort code on the
+		 * sender's TX CQ that the receiver wrote on its RX CQ,
+		 * rather than the raw internal device prov_errno. */
+		efa_rdm_txe_handle_error(ope, FI_ECANCELED,
+					 FI_EFA_ERR_PEER_ABORTED);
+		efa_rdm_txe_release(ope);
+		break;
+	case EFA_RDM_RXE:
+		/* LONGCTS direction: the peer told us their MR is gone.
+		 * Mark our matched rxe peer-aborted; the clean RX error
+		 * completion (FI_ECANCELED / FI_EFA_ERR_PEER_ABORTED) and
+		 * the rxe release are deferred to WR drain.
+		 * We do NOT emit a PEER_ERROR_PKT back: the sender
+		 * already knows, it told us.  Release the rxe via the
+		 * drain helper -- a no-op if any control send (e.g.,
+		 * CTS) is still outstanding on this rxe.
+		 */
+		efa_rdm_rxe_mark_peer_aborted(ope, prov_errno);
+		efa_rdm_rxe_release_peer_abort_if_drained(ope);
+		break;
+	default:
+		EFA_WARN(FI_LOG_CQ,
+			 "PEER_ERROR_PKT op_id=%u resolved to ope of "
+			 "unexpected type %d; dropping.\n",
+			 err_hdr->op_id, ope->type);
+		break;
+	}
+
 	efa_rdm_pke_release_rx(pkt_entry);
 }
 
