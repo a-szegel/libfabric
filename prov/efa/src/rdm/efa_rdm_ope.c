@@ -967,6 +967,8 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	struct util_cq *util_cq;
 	struct dlist_entry *tmp;
 	struct efa_rdm_pke *pkt_entry;
+	ssize_t post_err;
+	enum efa_rdm_ope_state prev_state = txe->state;
 	char err_msg[EFA_ERROR_MSG_BUFFER_LENGTH] = {0};
 
 	ep = txe->ep;
@@ -1077,6 +1079,56 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 
 	efa_cntr_report_error(&ep->base_ep.util_ep, txe->cq_entry.flags);
 	efa_rdm_cq_write_error(&ep->base_ep, util_cq, &err_entry, "TXE");
+
+	/*
+	 * LONGCTS sender-side abort emission.
+	 *
+	 * If the failure was caused by the user canceling the source
+	 * MR mid-LONGCTS-CTSDATA — detected pre-post by the MR
+	 * generation check (returns -FI_ECANCELED) or post-post by the
+	 * NIC (LOCAL_ERROR_INVALID_LKEY) — and the peer is known to
+	 * support PEER_ERROR_PKT, emit one so the receiver can
+	 * re-queue its rxe back into the SRX. Without this signal the
+	 * receiver's posted recv would wait indefinitely.
+	 *
+	 * The gate requires prev_state == EFA_RDM_OPE_SEND, NOT merely
+	 * bytes_sent > 0. The PEER_ERROR_PKT carries op_id = txe->rx_id
+	 * (the receiver's rxe id), and txe->rx_id is populated ONLY by
+	 * efa_rdm_pke_handle_cts_recv(), which is also the only place
+	 * that transitions a txe into EFA_RDM_OPE_SEND. A txe in any
+	 * other state (e.g. a medium or runting-read RTM txe, which set
+	 * bytes_sent but never receive a CTS) has a stale/garbage
+	 * rx_id; emitting for it would send a wild op_id on the wire.
+	 * Gating on the state that establishes rx_id keeps the wire
+	 * op_id valid. The pre-post FI_ECANCELED path (efa_domain.c)
+	 * only iterates ope_longcts_send_list, i.e. OPE_SEND txes, so
+	 * both detection paths are covered.
+	 *
+	 *  The txe is NOT released on PEER_ERROR_PKT send completion,
+	 *  the other CTSDATA WRs already posted to fill the current
+	 *  window are still in flight on our send queue, and their
+	 *  device completions will dereference this txe.
+	 */
+	if (!(txe->internal_flags & EFA_RDM_OPE_INTERNAL) &&
+	    (txe->op == ofi_op_msg || txe->op == ofi_op_tagged) &&
+	    prev_state == EFA_RDM_OPE_SEND &&
+	    (err == FI_ECANCELED ||
+	     prov_errno == EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY) &&
+	    txe->peer != NULL &&
+	    (ep->homogeneous_peers ||
+	     txe->peer->is_self ||
+	     efa_rdm_peer_support_peer_error(txe->peer))) {
+
+		txe->peer_error_prov_errno = prov_errno;
+		post_err = efa_rdm_ope_post_send_or_queue(
+				txe, EFA_RDM_PEER_ERROR_PKT);
+		if (OFI_UNLIKELY(post_err)) {
+			EFA_WARN(FI_LOG_CQ,
+				 "LONGCTS sender-side abort: failed to post "
+				 "PEER_ERROR_PKT err=%zd. Receiver's rxe will "
+				 "leak.\n", post_err);
+		}
+	}
 }
 
 /**

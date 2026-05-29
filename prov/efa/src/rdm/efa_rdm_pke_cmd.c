@@ -640,6 +640,17 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		efa_rdm_txe_release(pkt_entry->ope);
 		break;
 	case EFA_RDM_CTS_PKT:
+		/*
+		 * A CTS can be in flight (window refill) when an inbound
+		 * PEER_ERROR_PKT recovers this rxe on the LONGCTS recv
+		 * path. Recovery marks the rxe PEER_ABORT_HANDLED but the
+		 * drain it attempts is a no-op while this CTS is
+		 * outstanding. Now that the CTS has drained
+		 * (record_tx_op_completed above decremented
+		 * efa_outstanding_tx_ops), retry the drain so the rxe is
+		 * freed. No-op for a healthy (non-recovered) rxe.
+		 */
+		efa_rdm_rxe_release_peer_abort_if_drained(pkt_entry->ope);
 		break;
 	case EFA_RDM_CTSDATA_PKT:
 		efa_rdm_pke_handle_ctsdata_send_completion(pkt_entry);
