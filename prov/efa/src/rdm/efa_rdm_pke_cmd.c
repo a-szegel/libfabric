@@ -226,6 +226,10 @@ int efa_rdm_pke_fill_data(struct efa_rdm_pke *pkt_entry,
 		assert(data_offset == -1 && data_size == -1);
 		ret = efa_rdm_pke_init_read_nack(pkt_entry, ope);
 		break;
+	case EFA_RDM_PEER_ERROR_PKT:
+		assert(data_offset == -1 && data_size == -1);
+		ret = efa_rdm_pke_init_peer_error_for_ope(pkt_entry, ope);
+		break;
 	default:
 		assert(0 && "unknown pkt type to init");
 		ret = -FI_EINVAL;
@@ -402,6 +406,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 {
 	struct efa_rdm_ope *txe;
 	struct efa_rdm_ep *ep;
+	bool requeued;
 
 	int err = to_fi_errno(prov_errno);
 
@@ -505,11 +510,35 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 		if (prov_errno == EFA_IO_COMP_STATUS_REMOTE_ERROR_RNR) {
 			/*
 			 * This packet is associated with a recv operation, (such packets
-			 * include CTS and EOR) thus should always be queued for RNR. This
-			 * is regardless value of ep->handle_resource_management, because
-			 * resource management is only applied to send operation.
+			 * include CTS and EOR, and PEER_ERROR_PKT) thus should always be
+			 * queued for RNR. This is regardless of the value of
+			 * ep->handle_resource_management, because resource management is
+			 * only applied to send operation.
 			 */
 			efa_rdm_ep_queue_rnr_pkt(ep, pkt_entry);
+		} else if (pkt_entry->ope->internal_flags &
+			   EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT) {
+			/*
+			 * The PEER_ERROR_PKT send failed with a non-RNR error.
+			 * The user-visible remedy (re-queue or CQ error) was
+			 * already applied by efa_rdm_rxe_recover_from_peer_abort
+			 * before the PKT was posted.
+			 *
+			 * Mirror the success path: clear the in-flight flag and
+			 * release the rxe. Do NOT call efa_rdm_rxe_handle_error,
+			 * it would either write a duplicate CQ error (multi-recv)
+			 * or fail to free the rxe (re-queue, since handle_error
+			 * never releases).
+			 */
+			EFA_WARN(FI_LOG_CQ,
+				 "PEER_ERROR_PKT TX failed asynchronously "
+				 "prov_errno=%d (%s); releasing rxe locally. "
+				 "Sender's txe will leak.\n",
+				 prov_errno, efa_strerror(prov_errno));
+			pkt_entry->ope->internal_flags &=
+				~EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT;
+			efa_rdm_rxe_release_internal(pkt_entry->ope);
+			efa_rdm_pke_release_tx(pkt_entry);
 		} else if (efa_rdm_pkt_is_rxe_remote_read(pkt_entry) &&
 			   efa_rdm_prov_errno_is_peer_abort(prov_errno)) {
 			/*
@@ -517,18 +546,22 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			 * failed because the peer cleanly went away
 			 * mid-protocol. Recover locally instead of
 			 * surfacing an internal-protocol error on the
-			 * user's RX CQ.  On a successful re-queue the
-			 * recovery owns no user CQ entry, so we release
-			 * the rxe here.
+			 * user's RX CQ, then notify the sender so it can
+			 * reap its txe.  emit_peer_error owns the rxe
+			 * release: it defers release to the PEER_ERROR_PKT
+			 * send completion on success, or releases now (when
+			 * recovery re-queued, i.e. requeued==true) if it
+			 * does not emit.
 			 *
 			 * Receiver-side control SENDs (CTS / EOR /
 			 * RECEIPT) are intentionally NOT routed here;
 			 * they still fall through to
 			 * efa_rdm_rxe_handle_error.
 			 */
-			if (efa_rdm_rxe_recover_from_peer_abort(
-				    pkt_entry->ope, prov_errno))
-				efa_rdm_rxe_release_internal(pkt_entry->ope);
+			requeued = efa_rdm_rxe_recover_from_peer_abort(
+				pkt_entry->ope, prov_errno);
+			efa_rdm_rxe_emit_peer_error(pkt_entry->ope, prov_errno,
+						    requeued);
 			efa_rdm_pke_release_tx(pkt_entry);
 		} else {
 			efa_rdm_rxe_handle_error(pkt_entry->ope, err, prov_errno);
@@ -681,7 +714,18 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		/* no action needed for NACK packet */
 		break;
 	case EFA_RDM_PEER_ERROR_PKT:
-		/* Placeholder */
+	    /* Release the rxe kept alive as wr_id context for this
+	     * send. The txe direction does not release here (late
+	     * CTSDATA completions may still reference it).
+		 */
+		if (pkt_entry->ope &&
+		    pkt_entry->ope->type == EFA_RDM_RXE &&
+		    (pkt_entry->ope->internal_flags &
+		     EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT)) {
+			pkt_entry->ope->internal_flags &=
+				~EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT;
+			efa_rdm_rxe_release_internal(pkt_entry->ope);
+		}
 		break;
 	default:
 		EFA_WARN(FI_LOG_CQ,

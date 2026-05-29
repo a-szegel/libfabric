@@ -827,6 +827,100 @@ bool efa_rdm_rxe_recover_from_peer_abort(struct efa_rdm_ope *rxe,
 }
 
 /**
+ * @brief Notify the sender of a peer abort by posting a PEER_ERROR_PKT.
+ *
+ * Called after efa_rdm_rxe_recover_from_peer_abort() on the
+ * self-detected (RDMA READ) path so the sender can reap its txe and
+ * write a TX CQ error.  Without this signal the sender's txe leaks
+ * indefinitely.
+ *
+ * Emit only when prov_errno is REMOTE_ERROR_BAD_ADDRESS (sender's MR
+ * canceled, peer endpoint still alive) and the peer is known to
+ * support EFA_RDM_EXTRA_FEATURE_PEER_ERROR.  Peer support is
+ * recognized via the standard extra-feature gate:
+ * ep->homogeneous_peers || peer->is_self ||
+ * efa_rdm_peer_support_peer_error(peer).  For REMOTE_ERROR_ABORT the
+ * peer is gone, so the packet has nowhere to land and emission is
+ * skipped.  When emission is skipped the sender's txe leaks.
+ *
+ * On a successful post the rxe must outlive the PEER_ERROR_PKT send,
+ * so EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT is set and the rxe release is
+ * deferred to efa_rdm_pke_handle_send_completion (or _handle_tx_error
+ * on an async failure of the PEER_ERROR_PKT itself).  When emission
+ * is skipped or fails outright, @p requeued tells us whether the
+ * recovery left a live rxe with no user CQ entry that we must now
+ * release.
+ *
+ * Re-entry safe: if EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT is already set
+ * (a prior failed WR on the same long-read transfer already emitted)
+ * this is a no-op so we do not post a duplicate or double-release.
+ *
+ * Must be called with the SRX lock held.
+ *
+ * @param[in,out] rxe        the recovered rxe (already in OPE_ERR)
+ * @param[in]     prov_errno underlying prov_errno
+ * @param[in]     requeued   the value returned by
+ *                           efa_rdm_rxe_recover_from_peer_abort: when
+ *                           true the rxe carries no user CQ entry and
+ *                           must be released once the PEER_ERROR_PKT
+ *                           is no longer in flight.
+ */
+void efa_rdm_rxe_emit_peer_error(struct efa_rdm_ope *rxe, int prov_errno,
+				 bool requeued)
+{
+	struct efa_rdm_ep *ep = rxe->ep;
+	bool should_emit;
+	ssize_t err;
+
+	/* Already emitted for an earlier WR on this transfer. */
+	if (rxe->internal_flags & EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT)
+		return;
+
+	should_emit = (prov_errno == EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS) &&
+		      (rxe->peer != NULL) &&
+		      (ep->homogeneous_peers ||
+		       rxe->peer->is_self ||
+		       efa_rdm_peer_support_peer_error(rxe->peer));
+
+	if (!should_emit) {
+		if (prov_errno != EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS) {
+			EFA_INFO(FI_LOG_CQ,
+				 "Peer-abort prov_errno=%d (%s) is not the "
+				 "MR-cancel case; skipping PEER_ERROR_PKT emission.\n",
+				 prov_errno, efa_strerror(prov_errno));
+		} else {
+			EFA_INFO(FI_LOG_CQ,
+				 "Peer does not advertise EFA_RDM_EXTRA_FEATURE_PEER_ERROR "
+				 "(or its handshake has not arrived yet, and "
+				 "FI_OPT_EFA_HOMOGENEOUS_PEERS is not set); "
+				 "skipping PEER_ERROR_PKT emission. Sender's txe "
+				 "will leak.\n");
+		}
+		if (requeued)
+			efa_rdm_rxe_release_internal(rxe);
+		return;
+	}
+
+	/* Post PEER_ERROR_PKT; defer rxe release to send completion. */
+	rxe->peer_error_prov_errno = prov_errno;
+	rxe->internal_flags |= EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT;
+
+	err = efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_PEER_ERROR_PKT);
+	if (OFI_UNLIKELY(err)) {
+		EFA_WARN(FI_LOG_CQ,
+			 "Failed to post PEER_ERROR_PKT err=%zd; falling back "
+			 "to local cleanup. Sender's txe will leak.\n", err);
+		rxe->internal_flags &= ~EFA_RDM_RXE_PEER_ERROR_IN_FLIGHT;
+		if (requeued)
+			efa_rdm_rxe_release_internal(rxe);
+	}
+	/*
+	 * On success the rxe lives until the PEER_ERROR_PKT send
+	 * completion fires (or tx_error releases it on async failure).
+	 */
+}
+
+/**
  * @brief handle the situation that a TX operation encountered error
  *
  * This function does the follow to handle error:
