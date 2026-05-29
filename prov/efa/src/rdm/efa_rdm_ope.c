@@ -680,6 +680,115 @@ void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno)
 }
 
 /**
+ * @brief Mark a receiver-side rxe as peer-aborted (mark-only).
+ *
+ * Called on the first failure whose root cause is a peer-side abort
+ * (sender source MR canceled, peer EP closed, etc.) -- whether the
+ * receiver detected it locally (a failed RDMA READ) or learned of it
+ * from an inbound PEER_ERROR_PKT.
+ *
+ * This does NO user-visible work: it does not write a CQ entry, does
+ * not free the peer_rxe, and does not release the rxe. At the moment
+ * of the abort, sibling device WRs the receiver posted (RDMA READs,
+ * control sends) may still be in flight and may still be DMAing into
+ * the user's recv buffer, so completing now would let the application
+ * reclaim a buffer the device is still writing into, and would free
+ * state still referenced by outstanding WRs. All of that is deferred
+ * to the drain point (efa_rdm_rxe_release_peer_abort_if_drained),
+ * reached once efa_outstanding_tx_ops == 0.
+ *
+ * Idempotent: the first failure wins. A long-read posts many sibling
+ * READ WRs that can each fail, and the inbound PEER_ERROR_PKT path may
+ * also reach here; only the first call sets the flag. The underlying
+ * device prov_errno is logged here for diagnostics; the user-visible
+ * completion uses the dedicated FI_ECANCELED / FI_EFA_ERR_PEER_ABORTED.
+ *
+ * @param[in,out] rxe        failing user-posted recv rxe
+ * @param[in]     prov_errno underlying device prov_errno (for logging)
+ */
+void efa_rdm_rxe_mark_peer_aborted(struct efa_rdm_ope *rxe, int prov_errno)
+{
+	assert(rxe);
+	assert(rxe->type == EFA_RDM_RXE);
+
+	if (rxe->internal_flags & EFA_RDM_RXE_PEER_ABORT_HANDLED)
+		return;
+
+	EFA_INFO(FI_LOG_CQ,
+		 "Peer-abort marked on rxe %p (op=%u, device prov_errno=%d %s); "
+		 "deferring user error completion to WR drain\n",
+		 rxe, rxe->op, prov_errno, efa_strerror(prov_errno));
+
+	/* The peer-abort machinery now owns this rxe's release. The rxe
+	 * must outlive any sibling device WR still in flight that uses it
+	 * as wr_id; the drain helper performs the user completion and the
+	 * actual free. See EFA_RDM_RXE_PEER_ABORT_HANDLED. */
+	rxe->internal_flags |= EFA_RDM_RXE_PEER_ABORT_HANDLED;
+}
+
+/**
+ * @brief At WR drain, write the deferred RX error completion and reap
+ *        a peer-aborted rxe.
+ *
+ * The rxe is used as wr_id by every RDMA READ WR a long-read transfer
+ * posts (efa_rdm_ope_post_read posts up to N WRs in a loop, each
+ * bumping rxe->efa_outstanding_tx_ops), by the receiver's control
+ * sends (CTS / EOR), and by an optional PEER_ERROR_PKT. Those same
+ * READ WRs may still be DMAing into the user's recv buffer. The RX
+ * *completion* authorizes the application to reuse that buffer
+ * (fi_msg(3)), and freeing the rxe while a WR references it is a
+ * use-after-free -- so BOTH the completion and the release are deferred
+ * to here, the point at which every WR that uses the rxe as wr_id has
+ * drained.
+ *
+ * Drain conditions, all required:
+ *  - EFA_RDM_RXE_PEER_ABORT_HANDLED set: efa_rdm_rxe_mark_peer_aborted()
+ *    has taken responsibility for this rxe.
+ *  - efa_outstanding_tx_ops == 0: no device WR uses the rxe as wr_id.
+ *    record_tx_op_completed() at the top of every TX completion/error
+ *    path has already decremented for the current packet, so this
+ *    reflects "no remaining outstanding."
+ *  - !EFA_RDM_OPE_QUEUED_FLAGS: nothing on rxe->queued_pkts (e.g., a
+ *    PEER_ERROR_PKT awaiting RNR retransmit).
+ *
+ * Once drained it writes the user-visible RX error completion
+ * (FI_ECANCELED / FI_EFA_ERR_PEER_ABORTED -- a clean, dedicated code,
+ * not the raw device errno), returns the matched peer_rxe to the SRX
+ * (firing the FI_MULTI_RECV release entry for a multi-recv child per
+ * fi_msg(3)), and frees the rxe.
+ *
+ * Idempotent and safe to call from every drain point: handle_tx_error
+ * (mark branch and HANDLED branch), handle_send_completion
+ * (PEER_ERROR_PKT case), rma_read_completion, and the inbound
+ * PEER_ERROR_PKT dispatcher.
+ */
+void efa_rdm_rxe_release_peer_abort_if_drained(struct efa_rdm_ope *rxe)
+{
+	if (!(rxe->internal_flags & EFA_RDM_RXE_PEER_ABORT_HANDLED))
+		return;
+	if (rxe->efa_outstanding_tx_ops != 0)
+		return;
+	if (rxe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS)
+		return;
+
+	/* The device is done with the rxe and its buffer. Surface the
+	 * clean, dedicated peer-abort completion (the raw device status
+	 * was logged at mark time), not the internal-protocol errno. */
+	efa_rdm_rxe_handle_error(rxe, FI_ECANCELED, FI_EFA_ERR_PEER_ABORTED);
+
+	/* Return the util_srx entry. free_entry decrements multi_recv_ref
+	 * and fires the FI_MULTI_RECV release entry for a multi-recv child
+	 * (fi_msg(3)). Clear peer_rxe so release_internal does not touch
+	 * it again. */
+	if (rxe->peer_rxe) {
+		efa_rdm_ep_get_peer_srx(rxe->ep)->owner_ops->free_entry(rxe->peer_rxe);
+		rxe->peer_rxe = NULL;
+	}
+
+	efa_rdm_rxe_release_internal(rxe);
+}
+
+/**
  * @brief handle the situation that a TX operation encountered error
  *
  * This function does the follow to handle error:

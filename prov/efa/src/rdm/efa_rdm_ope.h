@@ -225,6 +225,21 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
 #define EFA_RDM_RXE_EOR_IN_FLIGHT BIT_ULL(10)
 
 /**
+ * @brief Flag to indicate the peer-abort machinery owns this rxe's
+ *        release.
+ *
+ * Set on the rxe by efa_rdm_rxe_mark_peer_aborted() on the first
+ * peer-abort failure. Sticky -- never cleared until the rxe is freed.
+ *
+ * Means: "this rxe is peer-aborted; once every device WR that uses it
+ * as wr_id has drained (efa_outstanding_tx_ops == 0) and no packet is
+ * queued on it, efa_rdm_rxe_release_peer_abort_if_drained() writes the
+ * deferred RX error completion (FI_ECANCELED / FI_EFA_ERR_PEER_ABORTED)
+ * and frees the rxe."
+ */
+#define EFA_RDM_RXE_PEER_ABORT_HANDLED BIT_ULL(19)
+
+/**
  * @brief flag to indicate a txe has already written an cq error entry for RNR
  *
  * This flag is used to prevent writing multiple cq error entries
@@ -308,6 +323,10 @@ size_t efa_rdm_txe_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_rdm_o
 void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno);
 
 void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno);
+
+void efa_rdm_rxe_mark_peer_aborted(struct efa_rdm_ope *rxe, int prov_errno);
+
+void efa_rdm_rxe_release_peer_abort_if_drained(struct efa_rdm_ope *rxe);
 
 void efa_rdm_txe_report_completion(struct efa_rdm_ope *txe);
 
