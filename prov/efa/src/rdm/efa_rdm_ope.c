@@ -949,6 +949,7 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	struct util_cq *util_cq;
 	struct dlist_entry *tmp;
 	struct efa_rdm_pke *pkt_entry;
+	ssize_t post_err;
 	char err_msg[EFA_ERROR_MSG_BUFFER_LENGTH] = {0};
 
 	ep = txe->ep;
@@ -1059,6 +1060,43 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 
 	efa_cntr_report_error(&ep->base_ep.util_ep, txe->cq_entry.flags);
 	efa_rdm_cq_write_error(&ep->base_ep, util_cq, &err_entry, "TXE");
+
+	/*
+	 * LONGCTS sender-side abort emission.
+	 *
+	 * If the failure was caused by the user canceling the source
+	 * MR mid-LONGCTS-CTSDATA — detected pre-post by the MR
+	 * generation check (returns -FI_ECANCELED) or post-post by the
+	 * NIC (LOCAL_ERROR_INVALID_LKEY) — and the peer is known to
+	 * support PEER_ERROR_PKT, emit one so the receiver can
+	 * re-queue its rxe back into the SRX. Without this signal the
+	 * receiver's posted recv would wait indefinitely.
+	 *
+	 *  The txe is NOT released on PEER_ERROR_PKT send completion,
+	 *  the other CTSDATA WRs already posted to fill the current
+	 *  window are still in flight on our send queue, and their
+	 *  device completions will dereference this txe.
+	 */
+	if (!(txe->internal_flags & EFA_RDM_OPE_INTERNAL) &&
+	    (txe->op == ofi_op_msg || txe->op == ofi_op_tagged) &&
+	    txe->bytes_sent > 0 &&
+	    (err == FI_ECANCELED ||
+	     prov_errno == EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY) &&
+	    txe->peer != NULL &&
+	    (ep->homogeneous_peers ||
+	     txe->peer->is_self ||
+	     efa_rdm_peer_support_peer_error(txe->peer))) {
+
+		txe->peer_error_prov_errno = prov_errno;
+		post_err = efa_rdm_ope_post_send_or_queue(
+				txe, EFA_RDM_PEER_ERROR_PKT);
+		if (OFI_UNLIKELY(post_err)) {
+			EFA_WARN(FI_LOG_CQ,
+				 "LONGCTS sender-side abort: failed to post "
+				 "PEER_ERROR_PKT err=%zd. Receiver's rxe will "
+				 "leak.\n", post_err);
+		}
+	}
 }
 
 /**
