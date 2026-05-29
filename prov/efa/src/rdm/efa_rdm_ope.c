@@ -1228,6 +1228,13 @@ void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope)
 		assert(ope->type == EFA_RDM_RXE);
 		rxe = ope; /* Intentionally assigned for easier understanding */
 
+		/* Aborting recv: the one error completion + release belong to
+		 * the drain helper; never write a success completion here. */
+		if (rxe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING) {
+			efa_rdm_rxe_release_peer_abort_if_drained(rxe);
+			return;
+		}
+
 		assert(rxe->op == ofi_op_msg || rxe->op == ofi_op_tagged);
 
 		efa_rdm_rxe_report_completion(rxe);
