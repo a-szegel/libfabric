@@ -802,6 +802,171 @@ void efa_rdm_rxe_emit_peer_error(struct efa_rdm_ope *rxe, int prov_errno)
 }
 
 /**
+ * @brief Write the single withheld TX completion for a peer-aborted txe.
+ *
+ * Surfaced as the dedicated FI_ECANCELED / FI_EFA_ERR_PEER_ABORTED pair (same
+ * as the RX side), not the raw device errno -- that raw errno only rides the
+ * wire to the peer in the PEER_ERROR_PKT. All cq_entry fields are stable across
+ * the abort window, so nothing needs snapshotting.
+ */
+static void efa_rdm_txe_write_deferred_peer_abort_completion(struct efa_rdm_ope *txe)
+{
+	struct efa_rdm_ep *ep = txe->ep;
+	struct fi_cq_err_entry err_entry;
+	char err_msg[EFA_ERROR_MSG_BUFFER_LENGTH] = {0};
+
+	memset(&err_entry, 0, sizeof(err_entry));
+	err_entry.err = FI_ECANCELED;
+	err_entry.prov_errno = FI_EFA_ERR_PEER_ABORTED;
+	err_entry.flags = txe->cq_entry.flags;
+	err_entry.op_context = txe->cq_entry.op_context;
+	err_entry.buf = txe->cq_entry.buf;
+	err_entry.data = txe->cq_entry.data;
+	err_entry.tag = txe->cq_entry.tag;
+	if (OFI_UNLIKELY(efa_rdm_write_error_msg(ep, txe->peer, err_entry.prov_errno,
+						 err_msg, &err_entry.err_data_size)))
+		err_entry.err_data_size = 0;
+	else
+		err_entry.err_data = err_msg;
+
+	efa_cntr_report_error(&ep->base_ep.util_ep, txe->cq_entry.flags);
+	efa_rdm_cq_write_error(&ep->base_ep, ep->base_ep.util_ep.tx_cq,
+			       &err_entry, "TXE");
+}
+
+/**
+ * @brief Release a sender-side errored txe once its PEER_ERROR_PKT
+ *        cleanup has drained.
+ *
+ * No-op until the txe is marked EFA_RDM_OPE_PEER_ABORT_PENDING and
+ * every WR using it as wr_id has drained (efa_outstanding_tx_ops == 0,
+ * no queued pkt). Called from every send-completion / tx-error site
+ * that can retire the last such WR.
+ *
+ * Two phases (EFA_RDM_PEER_ERROR_EMITTED):
+ *  - already emitted: the PEER_ERROR_PKT has drained, so write the
+ *    withheld completion (if deferred) and free the txe.
+ *  - not yet emitted: Emit a PEER_ERROR_PKT and keep the txe alive
+ *    until that packet's own completion frees it. Emitting only after
+ *    every data WR has drained is what makes the receiver's rxe safe to
+ *    delete -- no data segment can race the notification; the emitted
+ *    packet is itself a WR, so releasing now would UAF.
+ */
+void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
+{
+	ssize_t err;
+	bool peer_support_err_pkt;
+
+	if (!(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING))
+		return;
+	if (txe->efa_outstanding_tx_ops != 0)
+		return;
+	if (txe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS)
+		return;
+
+	if (txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED) {
+		/* Drained, and the PEER_ERROR_PKT (if any) has been sent: the
+		 * peer can no longer expect data from us, so surface the one
+		 * terminal completion now and free the txe. Withholding it until
+		 * here is what keeps a manual-progress app polling long enough to
+		 * drive the notification out. */
+		efa_rdm_txe_write_deferred_peer_abort_completion(txe);
+		efa_rdm_txe_release(txe);
+		return;
+	}
+
+	/*
+	 * Every data WR has drained -- stage-2 emit decision. Notify the peer
+	 * only if it can parse a PEER_ERROR_PKT (feature negotiated, self, or
+	 * homogeneous_peers); peer-support is decided here, not at marking time.
+	 * If the peer cannot be notified there is no one to tell, so surface the
+	 * single completion now and free the txe.
+	 *
+	 * When we do emit, keep the txe alive -- the PEER_ERROR_PKT's own
+	 * completion runs this helper again (EMITTED branch) to release it. The
+	 * wire ref_kind (REF_OPE_INDEX / REF_MSG_ID / REF_MSG_ID_SKIP) is derived
+	 * from the txe at emit time in efa_rdm_pke_init_peer_error_for_ope();
+	 * bytes_acked is final here, so the SKIP-vs-completion choice is stable.
+	 */
+	peer_support_err_pkt = txe->peer &&
+	    (txe->ep->homogeneous_peers || txe->peer->is_self ||
+	     efa_rdm_peer_support_peer_error(txe->peer));
+	if (peer_support_err_pkt) {
+		txe->internal_flags |= EFA_RDM_PEER_ERROR_EMITTED;
+		/* The PEER_ERROR_PKT is a control packet built in a provider TX
+		 * buffer; it carries no user payload from txe->desc[]. The source
+		 * MR was just closed, and from here on this txe only ever (re)posts
+		 * the PEER_ERROR_PKT, so drop its source-MR association. This keeps
+		 * the requeue-path MR gen check (efa_rdm_ope_process_queued_ope ->
+		 * efa_rdm_mr_gen_check_ope) from cancelling the very notification
+		 * that tells the peer to recover: with no iov there is nothing for
+		 * it to validate. */
+		txe->iov_count = 0;
+		err = efa_rdm_ope_post_send_or_queue(txe, EFA_RDM_PEER_ERROR_PKT);
+		if (OFI_UNLIKELY(err)) {
+			EFA_WARN(FI_LOG_CQ,
+				 "Sender-side abort: failed to post PEER_ERROR_PKT "
+				 "err=%zd. Receiver's rxe/reorder window may stall.\n",
+				 err);
+			/* No PEER_ERROR_PKT completion will arrive to run the
+			 * EMITTED branch, so surface the completion and free now. */
+			efa_rdm_txe_write_deferred_peer_abort_completion(txe);
+			efa_rdm_txe_release(txe);
+		}
+		return;
+	}
+
+	/* Peer cannot be notified (no PEER_ERROR support); surface the single
+	 * completion now and free the txe. */
+	efa_rdm_txe_write_deferred_peer_abort_completion(txe);
+	efa_rdm_txe_release(txe);
+}
+
+/**
+ * @brief Decide whether a TX error is a source-MR-cancel peer abort and, if
+ *        so, mark the txe so the drain helper will notify the peer.
+ *
+ * @param[in]	txe		txe that encountered the error
+ * @param[in]	prov_errno	positive EFA provider error code
+ * @param[in]	prev_state	txe->state before handle_error set it to OPE_ERR
+ * @return	true if this is a peer abort whose normal error CQ is withheld
+ *		(the drain delivers FI_ECANCELED / FI_EFA_ERR_PEER_ABORTED);
+ *		false for an ordinary error the caller should report.
+ */
+static bool efa_rdm_txe_mark_peer_abort_if_needed(struct efa_rdm_ope *txe,
+						  int prov_errno,
+						  enum efa_rdm_ope_state prev_state)
+{
+	bool is_longcts;
+
+	/*
+	 * This check must come first in order to properly handle txe errors
+	 * on READ based protocols.
+	 */
+	if (OFI_UNLIKELY(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING))
+		return true;
+
+	/* Definitive MR-cancel signal: if the source MR's gen still matches what
+	 * was captured at dispatch, the MR is intact and this is an ordinary
+	 * error the caller should report -- not a peer abort. */
+	if (OFI_LIKELY(efa_rdm_mr_gen_check_ope(txe)))
+		return false;
+
+	/* Only a LONGCTS two-sided RTM that has processed its first CTS is
+	 * sender-signalled here: prev_state == OPE_SEND means txe->rx_id is
+	 * valid, so the receiver is referenced by ope index at emit time. */
+	is_longcts = efa_rdm_pkt_type_is_longcts_rtm(txe->protocol) &&
+		     prev_state == EFA_RDM_OPE_SEND;
+	if (!is_longcts)
+		return false;
+
+	txe->peer_error_prov_errno = prov_errno;
+	txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING;
+
+	return true;
+}
+
+/**
  * @brief handle the situation that a TX operation encountered error
  *
  * This function does the follow to handle error:
@@ -830,6 +995,7 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	struct util_cq *util_cq;
 	struct dlist_entry *tmp;
 	struct efa_rdm_pke *pkt_entry;
+	enum efa_rdm_ope_state prev_state = txe->state;
 	char err_msg[EFA_ERROR_MSG_BUFFER_LENGTH] = {0};
 
 	ep = txe->ep;
@@ -848,7 +1014,11 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 			dlist_remove(&txe->entry);
 		break;
 	case EFA_RDM_OPE_ERR:
-		/* Already progressed, no-op */
+		/* Already errored. If this is a peer abort, drive the drain --
+		 * a no-op otherwise, since efa_rdm_txe_progress_peer_abort_if_drained
+		 * itself checks EFA_RDM_OPE_PEER_ABORT_PENDING. Nothing touches
+		 * txe after this, so calling it unconditionally is safe. */
+		efa_rdm_txe_progress_peer_abort_if_drained(txe);
 		return;
 	default:
 		EFA_WARN(FI_LOG_CQ, "txe unknown state %d\n",
@@ -937,6 +1107,11 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	if ((txe->internal_flags & EFA_RDM_TXE_NO_COMPLETION) &&
 	    !(txe->fi_flags & FI_INJECT))
 		return;
+
+	if (efa_rdm_txe_mark_peer_abort_if_needed(txe, prov_errno, prev_state)) {
+		efa_rdm_txe_progress_peer_abort_if_drained(txe);
+		return;
+	}
 
 	efa_cntr_report_error(&ep->base_ep.util_ep, txe->cq_entry.flags);
 	efa_rdm_cq_write_error(&ep->base_ep, util_cq, &err_entry, "TXE");
@@ -2157,6 +2332,11 @@ ssize_t efa_rdm_ope_repost_ope_queued_before_handshake(struct efa_rdm_ope *ope)
 int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope, uint32_t flag)
 {
 	int ret = 0;
+	/*
+	 * Default reason for the error path: a packet-post failure. Overridden
+	 * to FI_EFA_ERR_PEER_ABORTED below only when the MR gen check fails.
+	 */
+	int prov_errno = FI_EFA_ERR_PKT_POST;
 
 	assert(flag & EFA_RDM_OPE_QUEUED_FLAGS);
 
@@ -2182,7 +2362,14 @@ int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope, uint32_t flag)
 			break;
 		}
 	} else {
+		/*
+		 * The source MR was closed since dispatch (gen check failed).
+		 * This is a peer/MR abort, not a packet-post failure, so report
+		 * the dedicated peer-abort reason code -- matching
+		 * efa_rdm_domain_progress_peers_and_queues().
+		 */
 		ret = -FI_ECANCELED;
+		prov_errno = FI_EFA_ERR_PEER_ABORTED;
 	}
 
 	if (OFI_UNLIKELY(ret)) {
@@ -2190,10 +2377,11 @@ int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope, uint32_t flag)
 			return ret;
 
 		assert(ope->type == EFA_RDM_TXE || ope->type == EFA_RDM_RXE);
-		if (ope->type == EFA_RDM_TXE)
-			efa_rdm_txe_handle_error(ope, -ret, FI_EFA_ERR_PKT_POST);
-		else
-			efa_rdm_rxe_handle_error(ope, -ret, FI_EFA_ERR_PKT_POST);
+		if (ope->type == EFA_RDM_TXE) {
+			efa_rdm_txe_handle_error(ope, -ret, prov_errno);
+		} else {
+			efa_rdm_rxe_handle_error(ope, -ret, prov_errno);
+		}
 	} else {
 		ope->internal_flags &= ~flag;
 		dlist_remove(&ope->queued_entry);

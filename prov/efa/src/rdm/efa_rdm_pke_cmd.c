@@ -502,7 +502,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 				efa_rdm_ep_queue_rnr_pkt(ep, pkt_entry);
 			}
 		} else {
-			efa_rdm_txe_handle_error(pkt_entry->ope, err, prov_errno);
+			efa_rdm_txe_handle_error(txe, err, prov_errno);
 			efa_rdm_pke_release_tx(pkt_entry);
 		}
 		break;
@@ -581,6 +581,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ep *ep;
+	bool peer_abort_pending;
 
 	ep = pkt_entry->ep;
 
@@ -621,7 +622,24 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		efa_rdm_txe_release(pkt_entry->ope);
 		break;
 	case EFA_RDM_CTS_PKT:
+		/*
+		 * Snapshot PENDING before the handler: a healthy rxe may be
+		 * freed inside handle_cts_send_completion (reading the flag
+		 * after = UAF). A PEER_ABORT_PENDING rxe is never
+		 * cts_ready_for_release, so it survives -- and the retry below
+		 * frees it.
+		 *
+		 * LONGCTS keeps a single CTS in flight at a time; that CTS can
+		 * still be outstanding when an inbound PEER_ERROR_PKT (the
+		 * sender reporting its source MR was canceled) marks this rxe
+		 * aborted. The recovery's drain no-op'd while the CTS was
+		 * outstanding, so retry it now that the CTS has completed.
+		 */
+		peer_abort_pending = pkt_entry->ope &&
+			(pkt_entry->ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
 		efa_rdm_pke_handle_cts_send_completion(pkt_entry);
+		if (peer_abort_pending)
+			efa_rdm_rxe_release_peer_abort_if_drained(pkt_entry->ope);
 		break;
 	case EFA_RDM_CTSDATA_PKT:
 		efa_rdm_pke_handle_ctsdata_send_completion(pkt_entry);
@@ -662,6 +680,16 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		assert(pkt_entry->ope);
 		if (efa_rdm_txe_with_remote_ack_ready_for_release(pkt_entry->ope))
 			efa_rdm_txe_release(pkt_entry->ope);
+		/*
+		 * Peer-abort race: an inbound PEER_ERROR_PKT may have marked
+		 * this txe (source MR canceled, receiver's READ failed) while
+		 * this RTM SEND was still outstanding. The abort deferred the
+		 * free to WR drain; now that this WR has drained, reap it.
+		 * No-op for a healthy transfer (flag never set).
+		 */
+		else if (pkt_entry->ope->internal_flags &
+			 EFA_RDM_OPE_PEER_ABORT_PENDING)
+			efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
 		break;
 	case EFA_RDM_RUNTREAD_MSGRTM_PKT:
 	case EFA_RDM_RUNTREAD_TAGRTM_PKT:
@@ -681,6 +709,10 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		assert(pkt_entry->ope);
 		if (efa_rdm_txe_with_remote_ack_ready_for_release(pkt_entry->ope))
 			efa_rdm_txe_release(pkt_entry->ope);
+		/* Peer-abort race: see EFA_RDM_LONGREAD_*RTM_PKT above. */
+		else if (pkt_entry->ope->internal_flags &
+			 EFA_RDM_OPE_PEER_ABORT_PENDING)
+			efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
 		break;
 	case EFA_RDM_SHORT_RTR_PKT:
 	case EFA_RDM_LONGCTS_RTR_PKT:
@@ -717,7 +749,16 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		 * Only release TXE when both TX ops complete and receipt is received.
 		 */
 		efa_rdm_pke_assert_ope_valid(pkt_entry);
-		if (efa_rdm_txe_with_remote_ack_ready_for_release(pkt_entry->ope))
+		/*
+		 * A DC medium transfer aborting on source-MR cancel never
+		 * receives its RECEIPT, so the ready-for-release check stays
+		 * false. Take the deferred PEER_ERROR_PKT decision instead.
+		 * Guarded by PENDING (only ever set on medium txes), so
+		 * non-medium DC ops are untouched.
+		 */
+		if (pkt_entry->ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
+			efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
+		else if (efa_rdm_txe_with_remote_ack_ready_for_release(pkt_entry->ope))
 			efa_rdm_txe_release(pkt_entry->ope);
 		break;
 	case EFA_RDM_READ_NACK_PKT:
@@ -725,13 +766,14 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		break;
 	case EFA_RDM_PEER_ERROR_PKT:
 		/*
-		 * The PEER_ERROR_PKT send completed. Defer rxe release
+		 * The PEER_ERROR_PKT send completed. Defer OPE release
 		 * to the drain helper.
 		 */
-		if (pkt_entry->ope &&
-		    pkt_entry->ope->type == EFA_RDM_RXE) {
+		assert(pkt_entry->ope);
+		if (pkt_entry->ope->type == EFA_RDM_RXE)
 			efa_rdm_rxe_release_peer_abort_if_drained(pkt_entry->ope);
-		}
+		else
+			efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
 		break;
 	default:
 		EFA_WARN(FI_LOG_CQ,
