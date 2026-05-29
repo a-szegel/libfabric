@@ -225,6 +225,36 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
 #define EFA_RDM_RXE_EOR_IN_FLIGHT BIT_ULL(10)
 
 /**
+ * @brief Flag to indicate the peer-abort machinery owns this rxe's
+ *        release.
+ *
+ * Set on the rxe when efa_rdm_rxe_recover_from_peer_abort() commits
+ * to handling the abort (re-queues the matched peer_rxe back into
+ * the SRX). Sticky -- never cleared until the rxe is freed.
+ *
+ * Means: "release this rxe via efa_rdm_rxe_release_peer_abort_if_drained()
+ * once every device WR that uses it as wr_id has drained
+ * (efa_outstanding_tx_ops == 0) and no packet is queued on it."
+ *
+ * The flag is required because efa_outstanding_tx_ops alone cannot
+ * decide whether to free the rxe: that counter legitimately reaches
+ * zero many times during a healthy rxe's life (e.g., between RDMA
+ * READ WR completions on a long-read receive) and in baseline error
+ * paths whose rxes deliberately stay alive (the //release TODO in
+ * efa_rdm_rxe_handle_error). The flag marks the subset of rxes
+ * whose lifetime the peer-abort path has taken responsibility for.
+ *
+ * NOT set by recover's multi-recv write-CQ-error sub-path: that
+ * sub-path follows the pre-existing "rxe stays alive after
+ * handle_error" behavior so this fix does not change release
+ * semantics outside the peer-abort recover-and-requeue path.
+ *
+ * Bit 20: bits 10-18 are taken by the txe/rxe-overlapping flags
+ * above; this rxe-only flag takes the next free bit after 19.
+ */
+#define EFA_RDM_RXE_PEER_ABORT_HANDLED BIT_ULL(20)
+
+/**
  * @brief flag to indicate a txe has already written an cq error entry for RNR
  *
  * This flag is used to prevent writing multiple cq error entries
@@ -308,6 +338,21 @@ size_t efa_rdm_txe_max_req_data_capacity(struct efa_rdm_ep *ep, struct efa_rdm_o
 void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno);
 
 void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno);
+
+bool efa_rdm_rxe_recover_from_peer_abort(struct efa_rdm_ope *rxe,
+					 int prov_errno);
+
+/**
+ * @brief Release the rxe iff the peer-abort machinery owns its
+ *        lifetime and every WR/queued pkt that references it has
+ *        drained.
+ *
+ * Safe to call from any TX completion or TX error path on the rxe;
+ * a no-op when the rxe is still referenced by an in-flight or
+ * queued packet, in which case a later drain will fire it. Pairs
+ * with EFA_RDM_RXE_PEER_ABORT_HANDLED.
+ */
+void efa_rdm_rxe_release_peer_abort_if_drained(struct efa_rdm_ope *rxe);
 
 void efa_rdm_txe_report_completion(struct efa_rdm_ope *txe);
 
