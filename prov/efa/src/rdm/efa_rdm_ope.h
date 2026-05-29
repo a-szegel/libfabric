@@ -317,6 +317,9 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno);
 
 void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno);
 
+bool efa_rdm_rxe_recover_from_peer_abort(struct efa_rdm_ope *rxe,
+					 int prov_errno);
+
 void efa_rdm_txe_report_completion(struct efa_rdm_ope *txe);
 
 void efa_rdm_rxe_report_completion(struct efa_rdm_ope *rxe);
