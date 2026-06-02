@@ -869,14 +869,17 @@ void efa_rdm_rxe_emit_peer_error(struct efa_rdm_ope *rxe, int prov_errno)
  * Two phases, distinguished by EFA_RDM_TXE_PEER_ERROR_EMITTED:
  *  - Already emitted: the emitted PEER_ERROR_PKT has drained, so
  *    release the txe.
- *  - Not yet emitted: emit one PEER_ERROR_PKT now and keep the txe
- *    alive until that packet's own completion runs this helper again
- *    (the EMITTED phase). Deferring the emit to this point -- after
- *    every CTSDATA WR has drained -- is what makes the receiver's rxe
- *    safe to delete: no CTSDATA can still be in flight toward the
- *    receiver, nor arrive after, the PEER_ERROR_PKT (mr_abort design
- *    §5). The emitted packet is itself an outstanding WR; releasing
- *    now would UAF.
+ *  - Not yet emitted: for medium, a zero-delivery transfer
+ *    (bytes_acked == 0, so the receiver never built an rxe) suppresses
+ *    the un-actionable emit and releases the drained txe. Otherwise
+ *    emit one PEER_ERROR_PKT now and keep the txe alive until that
+ *    packet's own completion runs this helper again (the EMITTED
+ *    phase). Deferring the emit to this point -- after every data WR
+ *    has drained -- is what makes the receiver's rxe safe to delete:
+ *    no data segment can still be in flight toward the receiver, nor
+ *    arrive after, the PEER_ERROR_PKT (mr_abort design §5). The
+ *    emitted packet is itself an outstanding WR; releasing now would
+ *    UAF.
  */
 void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 {
@@ -891,6 +894,22 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 
 	if (txe->internal_flags & EFA_RDM_TXE_PEER_ERROR_EMITTED) {
 		/* The emitted PEER_ERROR_PKT has drained; free the txe. */
+		efa_rdm_txe_release(txe);
+		return;
+	}
+
+	/*
+	 * Zero-delivery suppression (medium only). A medium transfer
+	 * sprays all payload in REQ SENDs with no CTS; if every segment
+	 * failed (bytes_acked == 0) the receiver never built an rxe, so
+	 * a PEER_ERROR_PKT would be un-actionable -- suppress it and
+	 * release the drained txe. This must NOT apply to LONGCTS, whose
+	 * CTS handshake already built the receiver's rxe (it must always
+	 * be told, even at bytes_acked == 0); LONGCTS is not a medium
+	 * protocol so it skips this branch.
+	 */
+	if (efa_rdm_pkt_type_is_medium(txe->protocol) &&
+	    txe->bytes_acked == 0) {
 		efa_rdm_txe_release(txe);
 		return;
 	}
