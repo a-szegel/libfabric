@@ -940,6 +940,66 @@ void efa_rdm_rxe_emit_peer_error(struct efa_rdm_ope *rxe, int prov_errno)
 }
 
 /**
+ * @brief Take the deferred medium PEER_ERROR_PKT decision once a txe drains.
+ *
+ * Called from the medium handle_tx_error path and the TXE-direction
+ * PEER_ERROR_PKT send-completion/tx-error path, after
+ * efa_rdm_ep_record_tx_op_completed has decremented this packet's
+ * reference. No-op until the txe is marked EFA_RDM_TXE_PEER_ABORT_PENDING
+ * and every WR using it as wr_id has drained (efa_outstanding_tx_ops == 0,
+ * no queued pkt).
+ *
+ * Two phases, distinguished by EFA_RDM_TXE_PEER_ERROR_EMITTED:
+ *  - First drain (not yet emitted): decide. bytes_acked == 0 (zero-delivery)
+ *    suppresses the emit and releases the now-drained txe. bytes_acked > 0
+ *    emits one PEER_ERROR_PKT and keeps the txe alive (the emitted packet is
+ *    itself an outstanding WR on the txe; releasing now would UAF).
+ *  - Second drain (already emitted): the emitted PEER_ERROR_PKT has drained,
+ *    so release the txe.
+ */
+void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
+{
+	ssize_t err;
+
+	if (!(txe->internal_flags & EFA_RDM_TXE_PEER_ABORT_PENDING))
+		return;
+	if (txe->efa_outstanding_tx_ops != 0)
+		return;
+	if (txe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS)
+		return;
+
+	if (txe->internal_flags & EFA_RDM_TXE_PEER_ERROR_EMITTED) {
+		/* The emitted PEER_ERROR_PKT has drained; free the txe. */
+		efa_rdm_txe_release(txe);
+		return;
+	}
+
+	if (txe->bytes_acked == 0) {
+		/* Zero-delivery: no segment landed at the receiver, so it
+		 * never built an rxe. Suppress the un-actionable emit and
+		 * release the drained txe. */
+		efa_rdm_txe_release(txe);
+		return;
+	}
+
+	/* At least one segment landed: notify the receiver so it can
+	 * abandon the doomed message. Keep the txe alive -- the emitted
+	 * PEER_ERROR_PKT's own completion runs this helper again to release
+	 * it (see EMITTED phase above). */
+	txe->internal_flags |= EFA_RDM_TXE_PEER_ERROR_EMITTED;
+	err = efa_rdm_ope_post_send_or_queue(txe, EFA_RDM_PEER_ERROR_PKT);
+	if (OFI_UNLIKELY(err)) {
+		EFA_WARN(FI_LOG_CQ,
+			 "Medium sender-side abort: failed to post "
+			 "PEER_ERROR_PKT err=%zd. Receiver's rxe will leak.\n",
+			 err);
+		/* The post failed so no PEER_ERROR_PKT completion will
+		 * arrive to release the txe; release it now (still drained). */
+		efa_rdm_txe_release(txe);
+	}
+}
+
+/**
  * @brief handle the situation that a TX operation encountered error
  *
  * This function does the follow to handle error:
