@@ -832,11 +832,14 @@ void efa_rdm_rxe_emit_peer_error(struct efa_rdm_ope *rxe, int prov_errno)
  *
  * Two phases (EFA_RDM_TXE_PEER_ERROR_EMITTED):
  *  - already emitted: the PEER_ERROR_PKT has drained, so free the txe.
- *  - not yet emitted: emit one now and keep the txe alive until that
- *    packet's own completion frees it. Emitting only after every
- *    CTSDATA WR has drained is what makes the receiver's rxe safe to
- *    delete -- no CTSDATA can race the notification (mr_abort design
- *    §5); the emitted packet is itself a WR, so releasing now would UAF.
+ *  - not yet emitted: for medium, a zero-delivery transfer (bytes_acked
+ *    == 0, receiver never built an rxe) suppresses the un-actionable
+ *    emit and frees the txe; otherwise emit one and keep the txe alive
+ *    until that packet's own completion frees it. Emitting only after
+ *    every data WR has drained is what makes the receiver's rxe safe to
+ *    delete -- no data segment can race the notification (mr_abort
+ *    design §5); the emitted packet is itself a WR, so releasing now
+ *    would UAF.
  */
 void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 {
@@ -851,6 +854,22 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 
 	if (txe->internal_flags & EFA_RDM_TXE_PEER_ERROR_EMITTED) {
 		/* The emitted PEER_ERROR_PKT has drained; free the txe. */
+		efa_rdm_txe_release(txe);
+		return;
+	}
+
+	/*
+	 * Zero-delivery suppression (medium only). A medium transfer
+	 * sprays all payload in REQ SENDs with no CTS; if every segment
+	 * failed (bytes_acked == 0) the receiver never built an rxe, so
+	 * a PEER_ERROR_PKT would be un-actionable -- suppress it and
+	 * release the drained txe. This must NOT apply to LONGCTS, whose
+	 * CTS handshake already built the receiver's rxe (it must always
+	 * be told, even at bytes_acked == 0); LONGCTS is not a medium
+	 * protocol so it skips this branch.
+	 */
+	if (efa_rdm_pkt_type_is_medium(txe->protocol) &&
+	    txe->bytes_acked == 0) {
 		efa_rdm_txe_release(txe);
 		return;
 	}
