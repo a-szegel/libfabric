@@ -406,6 +406,7 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 {
 	struct efa_rdm_ope *txe;
 	struct efa_rdm_ep *ep;
+	enum efa_rdm_ope_state prev_state;
 
 	int err = to_fi_errno(prov_errno);
 
@@ -501,7 +502,45 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 				efa_rdm_ep_queue_rnr_pkt(ep, pkt_entry);
 			}
 		} else {
+			prev_state = txe->state;
 			efa_rdm_txe_handle_error(pkt_entry->ope, err, prov_errno);
+			/*
+			 * Medium sender-side source-MR cancel. A medium
+			 * transfer has no CTS, so efa_rdm_txe_handle_error's
+			 * LONGCTS emit (gated on OPE_SEND) never fires for it;
+			 * detect it here from the failing packet's own type
+			 * and emit a PEER_ERROR_PKT so the receiver can
+			 * re-queue its rxe. The receiver resolves the rxe by
+			 * msg_id via its rxe_map (no shared ope index exists).
+			 * Gate on INVALID_LKEY only: medium is not on
+			 * ope_longcts_send_list, so the pre-post FI_ECANCELED
+			 * path does not cover it. Read the type before
+			 * releasing the packet. A spurious emit (all WRs
+			 * failed, receiver built no rxe) is harmless: the
+			 * rxe_map lookup misses and the packet is dropped.
+			 *
+			 * A medium message posts multiple RTM WRs on one
+			 * txe, so the MR-cancel fails several of them. Emit
+			 * only on the first failure (prev_state != OPE_ERR):
+			 * efa_rdm_txe_handle_error sets state = OPE_ERR and
+			 * early-returns on later failures, so this matches
+			 * the LONGCTS emit's implicit once-only behavior and
+			 * avoids posting a duplicate PEER_ERROR_PKT per WR.
+			 */
+			if (prev_state != EFA_RDM_OPE_ERR &&
+			    efa_rdm_pkt_type_is_medium(efa_rdm_pkt_type_of(pkt_entry)) &&
+			    prov_errno == EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY &&
+			    txe->peer != NULL &&
+			    (ep->homogeneous_peers || txe->peer->is_self ||
+			     efa_rdm_peer_support_peer_error(txe->peer))) {
+				txe->peer_error_prov_errno = prov_errno;
+				if (OFI_UNLIKELY(efa_rdm_ope_post_send_or_queue(
+						txe, EFA_RDM_PEER_ERROR_PKT)))
+					EFA_WARN(FI_LOG_CQ,
+						 "Medium sender-side abort: failed to "
+						 "post PEER_ERROR_PKT. Receiver's rxe "
+						 "will leak.\n");
+			}
 			efa_rdm_pke_release_tx(pkt_entry);
 		}
 		break;
