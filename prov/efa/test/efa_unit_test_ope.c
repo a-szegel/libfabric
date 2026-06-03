@@ -4474,22 +4474,7 @@ void test_efa_rdm_pke_handle_tx_error_medium_emits_peer_error_once(struct efa_re
 	assert_false(txe->internal_flags & EFA_RDM_TXE_PEER_ERROR_EMITTED);
 	assert_int_equal(txe->efa_outstanding_tx_ops, 1);
 
-	/* Second failing sibling WR: run_rtm_tx_error_with_type bumps +1
-	 * then record_tx_op_completed decrements -1 → outstanding goes
-	 * from 1 to 1+1-1 = 1... no, wait. The extra outstanding=1 above
-	 * was not bumped on ep/peer; let me fix by using the helper's own
-	 * semantics: after first call, txe->efa_outstanding_tx_ops was
-	 * pre-set to 1, then helper +1=2, then record -1=1, then second
-	 * helper +1=2, record -1=1... this never drains to 0.
-	 *
-	 * Actually, the run_rtm_tx_error_with_type helper bumps ALL THREE
-	 * counters (ep, peer, txe) by 1 and handle_tx_error record at top
-	 * decrements all 3 by 1 — netting to 0 from its perspective. The
-	 * pre-set txe->efa_outstanding_tx_ops=1 represents the "in-flight
-	 * sibling" but we also need a decrement path for it. Let's just
-	 * manually decrement it to simulate that sibling's own completion
-	 * arriving between the two failures.
-	 */
+	/* Simulate the sibling WR draining (its completion arrived). */
 	txe->efa_outstanding_tx_ops--;
 	/* Now txe->efa_outstanding_tx_ops == 0 with PENDING set: the drain
 	 * helper emits (bytes_acked > 0). */
