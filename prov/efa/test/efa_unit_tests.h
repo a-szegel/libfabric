@@ -454,11 +454,16 @@ void test_efa_rdm_peer_reorder_expected_msg_id(void **state);
 void test_efa_rdm_peer_reorder_smaller_msg_id(void **state);
 void test_efa_rdm_peer_reorder_larger_msg_id(void **state);
 void test_efa_rdm_peer_reorder_overflow_msg_id(void **state);
+void test_efa_rdm_peer_abort_ooo_msg_overflow_multi_segment(void **state);
 void test_efa_rdm_peer_move_overflow_pke_to_recvwin(void **state);
 void test_efa_rdm_peer_keep_pke_in_overflow_list(void **state);
 void test_efa_rdm_peer_append_overflow_pke_to_recvwin(void **state);
 void test_efa_rdm_peer_recvwin_queue_or_append_pke(void **state);
 void test_efa_rdm_peer_destruct_clears_rnr_flag(void **state);
+void test_efa_rdm_peer_abort_ooo_in_overflow();
+void test_efa_rdm_peer_abort_ooo_in_recvwin();
+void test_efa_rdm_peer_abort_ooo_miss();
+void test_efa_rdm_peer_abort_ooo_recvwin_drain_progresses();
 /* end of efa_unit_test_rdm_peer.c */
 
 /* begin of efa_unit_test_pke.c */
