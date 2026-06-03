@@ -939,6 +939,18 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 			efa_rdm_pke_release_rx(pkt_entry);
 			return;
 		}
+		if (ope->state == EFA_RDM_RXE_UNEXP) {
+			/* No user op bound -> no CQ entry owed: release the
+			 * buffered segments, then the rxe (efa_rdm_rxe_release
+			 * frees peer_rxe via free_entry, then release_internal). */
+			if (ope->unexp_pkt) {
+				efa_rdm_pke_release_rx_list(ope->unexp_pkt);
+				ope->unexp_pkt = NULL;
+			}
+			efa_rdm_rxe_release(ope);
+			efa_rdm_pke_release_rx(pkt_entry);
+			return;
+		}
 		efa_rdm_rxe_mark_peer_aborted(ope, prov_errno);
 		efa_rdm_rxe_release_peer_abort_if_drained(ope);
 		efa_rdm_pke_release_rx(pkt_entry);
