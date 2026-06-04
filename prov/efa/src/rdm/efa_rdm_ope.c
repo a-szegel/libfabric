@@ -859,16 +859,16 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 	}
 
 	/*
-	 * Zero-delivery suppression (medium only). A medium transfer
-	 * sprays all payload in REQ SENDs with no CTS; if every segment
-	 * failed (bytes_acked == 0) the receiver never built an rxe, so
-	 * a PEER_ERROR_PKT would be un-actionable -- suppress it and
-	 * release the drained txe. This must NOT apply to LONGCTS, whose
-	 * CTS handshake already built the receiver's rxe (it must always
-	 * be told, even at bytes_acked == 0); LONGCTS is not a medium
-	 * protocol so it skips this branch.
+	 * Zero-delivery suppression (medium / runt-only runtread). These
+	 * sender-detected protocols spray all payload in REQ SENDs with no
+	 * CTS; if every segment failed (bytes_acked == 0) the receiver
+	 * never built an rxe, so a PEER_ERROR_PKT would be un-actionable --
+	 * suppress it and release the drained txe. This must NOT apply to
+	 * LONGCTS, whose CTS handshake already built the receiver's rxe (it
+	 * must always be told, even at bytes_acked == 0);
+	 * efa_rdm_txe_peer_abort_uses_msg_id() is false for LONGCTS.
 	 */
-	if (efa_rdm_pkt_type_is_medium(txe->protocol) &&
+	if (efa_rdm_txe_peer_abort_uses_msg_id(txe) &&
 	    txe->bytes_acked == 0) {
 		efa_rdm_txe_release(txe);
 		return;

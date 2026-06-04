@@ -863,16 +863,17 @@ int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,
 	/*
 	 * op_id names the ope owned by the RECEIVER of this packet, so we
 	 * send the peer's id: rxe->tx_id (LONGREAD, our rxe) or txe->rx_id
-	 * (LONGCTS, our txe), captured from the inbound RTM/CTS. Medium has
-	 * no CTS, so it instead sends the per-peer msg_id (resolved via the
-	 * receiver's rxe_map); a medium txe is identified by ope->protocol.
+	 * (LONGCTS, our txe), captured from the inbound RTM/CTS. The msg_id
+	 * protocols (medium and runt-only runtread; see
+	 * efa_rdm_txe_peer_abort_uses_msg_id()) have no CTS, so they instead
+	 * send the per-peer msg_id, resolved via the receiver's rxe_map.
 	 */
 	if (ope->type == EFA_RDM_RXE) {
 		ref_kind = EFA_RDM_PEER_ERROR_REF_OPE_INDEX;
 		op_id = ope->tx_id;
 	} else {
 		assert(ope->type == EFA_RDM_TXE);
-		if (efa_rdm_pkt_type_is_medium(ope->protocol)) {
+		if (efa_rdm_txe_peer_abort_uses_msg_id(ope)) {
 			ref_kind = EFA_RDM_PEER_ERROR_REF_MSG_ID;
 			op_id = ope->msg_id;
 		} else {
