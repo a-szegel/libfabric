@@ -362,6 +362,19 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
  */
 #define EFA_RDM_PEER_ERROR_EMITTED	BIT_ULL(21)
 
+/**
+ * @brief flag to indicate the txe's PEER_ERROR_PKT is a reorder-window
+ *        skip notification (ref_kind EFA_RDM_PEER_ERROR_REF_MSG_ID_SKIP).
+ *
+ * Set on the sender-side abort path for protocols that owe the receiver
+ * NO completion but whose msg_id the receiver's reorder window reserved:
+ * EAGER two-sided RTM, and medium / runt-only runtread that delivered
+ * zero bytes. When set, efa_rdm_pke_init_peer_error_for_ope() emits
+ * REF_MSG_ID_SKIP (op_id = txe->msg_id) rather than a completion-owing
+ * REF_MSG_ID / REF_OPE_INDEX.
+ */
+#define EFA_RDM_TXE_PEER_ERROR_SKIP	BIT_ULL(22)
+
 #define EFA_RDM_OPE_QUEUED_FLAGS (EFA_RDM_OPE_QUEUED_RNR | EFA_RDM_OPE_QUEUED_CTRL | EFA_RDM_OPE_QUEUED_READ | EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE)
 
 void efa_rdm_ope_try_fill_desc(struct efa_rdm_ope *ope, int mr_iov_start, uint64_t access);

@@ -688,6 +688,357 @@ void test_efa_rdm_peer_abort_ooo_miss(struct efa_resource **state)
 	assert_false(ret);
 }
 
+/*
+ * Build an inbound PEER_ERROR (skip) packet for msg_id and drive it
+ * through efa_rdm_peer_queue_aborted_msg_tombstone(). Mirrors how the
+ * real handler (efa_rdm_pke_handle_peer_error_recv) consumes the packet.
+ * Returns the helper's return value.
+ */
+static int deliver_peer_error_skip(struct efa_rdm_ep *efa_rdm_ep,
+				   struct efa_rdm_peer *peer, uint32_t msg_id)
+{
+	struct efa_rdm_pke *pkt_entry;
+	struct efa_rdm_peer_error_hdr *err_hdr;
+
+	pkt_entry = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->efa_rx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_RX_POOL);
+	assert_non_null(pkt_entry);
+	pkt_entry->peer = peer;
+
+	err_hdr = (struct efa_rdm_peer_error_hdr *) pkt_entry->wiredata;
+	err_hdr->type = EFA_RDM_PEER_ERROR_PKT;
+	err_hdr->version = EFA_RDM_PROTOCOL_VERSION;
+	err_hdr->flags = EFA_RDM_PKT_CONNID_HDR;
+	err_hdr->op_id = msg_id;
+	err_hdr->ref_kind = EFA_RDM_PEER_ERROR_REF_MSG_ID_SKIP;
+	err_hdr->prov_errno = EFA_IO_COMP_STATUS_FLUSHED;
+	err_hdr->connid = 0xbeef;
+	pkt_entry->pkt_size = sizeof(struct efa_rdm_peer_error_hdr);
+
+	return efa_rdm_peer_queue_aborted_msg_tombstone(peer, efa_rdm_ep,
+							pkt_entry, msg_id);
+}
+
+/**
+ * @brief The core fix: a source-aborted msg_id that NEVER arrived must
+ *        not head-of-line block the messages buffered behind it.
+ *
+ * Reproduces the EAGER/MEDIUM heisenbug deterministically. The sender
+ * allocated msg_id 0, posted it, then the device flushed it at the
+ * source (MR closed) before it ever reached the receiver. Later messages
+ * msg_id 1 and 2 DID arrive and are buffered out-of-order, waiting for
+ * msg_id 0. Without the fix the window parks on 0 forever and 1, 2 (and
+ * everything after) are stranded.
+ *
+ * An inbound PEER_ERROR (skip) packet for msg_id 0 is queued into the
+ * recvwin as a tombstone; the drain then slides past 0 and continues
+ * past the buffered 1 and 2 (tombstoned here so the test releases them
+ * cleanly without the full recv-match/CQ machinery), leaving
+ * exp_msg_id == 3.
+ */
+void test_efa_rdm_peer_skip_aborted_msg_id_never_arrived_unblocks_window(
+	struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct efa_rdm_peer *peer;
+	struct efa_rdm_pke *pke1, *pke2;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	struct efa_unit_test_eager_rtm_pkt_attr pkt_attr = {0};
+	fi_addr_t addr;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &addr, 0, NULL), 1);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, addr);
+	assert_non_null(peer);
+
+	/* pke1, pke2 and the PEER_ERROR tombstone packet are all rx-pool
+	 * pkes the drain releases; keep the rx-pkt accounting invariant
+	 * intact (see the abort_ooo drain test). */
+	efa_rdm_ep->efa_rx_pkts_posted =
+		efa_base_ep_get_rx_pool_size(&efa_rdm_ep->base_ep) - 3;
+	efa_env.rx_copy_ooo = 0;	/* keep our pkes in the slots */
+
+	/* exp_msg_id starts at 0. msg_id 0 will never arrive. */
+
+	/* msg_id 1 arrives OOO -> buffered in recvwin slot 1. */
+	pke1 = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->efa_rx_pkt_pool,
+				 EFA_RDM_PKE_FROM_EFA_RX_POOL);
+	assert_non_null(pke1);
+	pkt_attr.msg_id = 1;
+	pkt_attr.connid = raw_addr.qkey;
+	efa_unit_test_eager_msgrtm_pkt_construct(pke1, &pkt_attr);
+	assert_int_equal(efa_rdm_peer_reorder_msg(peer, efa_rdm_ep, pke1), 1);
+
+	/* msg_id 2 arrives OOO -> buffered in recvwin slot 2. */
+	pke2 = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->efa_rx_pkt_pool,
+				 EFA_RDM_PKE_FROM_EFA_RX_POOL);
+	assert_non_null(pke2);
+	pkt_attr.msg_id = 2;
+	pkt_attr.connid = raw_addr.qkey;
+	efa_unit_test_eager_msgrtm_pkt_construct(pke2, &pkt_attr);
+	assert_int_equal(efa_rdm_peer_reorder_msg(peer, efa_rdm_ep, pke2), 1);
+
+	/* Tombstone the buffered 1 and 2 so the drain releases them without
+	 * the full recv-match path (their delivery is exercised end-to-end
+	 * by the fabtest; here we focus on window advancement). */
+	assert_true(efa_rdm_peer_abort_ooo_msg(peer, 1));
+	assert_true(efa_rdm_peer_abort_ooo_msg(peer, 2));
+
+	/* Window is parked on msg_id 0 (head slot empty). */
+	assert_int_equal((&peer->robuf)->exp_msg_id, 0);
+	assert_null(*ofi_recvwin_peek((&peer->robuf)));
+
+	/* Inbound PEER_ERROR (skip) for the never-arrived msg_id 0: queued
+	 * as a tombstone, then the drain advances the window past 0 and the
+	 * (tombstoned) 1 and 2. */
+	ret = deliver_peer_error_skip(efa_rdm_ep, peer, 0);
+	assert_int_equal(ret, 1);
+
+	assert_true(ofi_recvwin_id_processed(&peer->robuf, 0));
+	assert_true(ofi_recvwin_id_processed(&peer->robuf, 1));
+	assert_true(ofi_recvwin_id_processed(&peer->robuf, 2));
+	assert_int_equal((&peer->robuf)->exp_msg_id, 3);
+
+	/* No rxe built, no user CQ entry for any skipped id. */
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->rxe_list), 0);
+	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
+}
+
+/**
+ * @brief A never-arrived msg_id that is the exact head of the window
+ *        (exp_msg_id) with nothing buffered behind it: the tombstone is
+ *        queued and the window advances by one on the same call.
+ */
+void test_efa_rdm_peer_skip_aborted_msg_id_head_advances(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct efa_rdm_peer *peer;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	fi_addr_t addr;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &addr, 0, NULL), 1);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, addr);
+	assert_non_null(peer);
+
+	/* One rx-pool pke (the tombstone) is released by the drain. */
+	efa_rdm_ep->efa_rx_pkts_posted =
+		efa_base_ep_get_rx_pool_size(&efa_rdm_ep->base_ep) - 1;
+	efa_env.rx_copy_ooo = 0;
+
+	(&peer->robuf)->exp_msg_id = 5;
+
+	ret = deliver_peer_error_skip(efa_rdm_ep, peer, 5);
+	assert_int_equal(ret, 1);
+
+	/* Window advanced exactly one past the head. */
+	assert_true(ofi_recvwin_id_processed(&peer->robuf, 5));
+	assert_int_equal((&peer->robuf)->exp_msg_id, 6);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->rxe_list), 0);
+	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
+}
+
+/**
+ * @brief PEER_ERROR (skip) for an already-processed msg_id (window slid
+ *        past it) is a clean no-op: the packet is released, return 0,
+ *        window unchanged.
+ */
+void test_efa_rdm_peer_skip_aborted_msg_id_already_processed_noop(
+	struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct efa_rdm_peer *peer;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	fi_addr_t addr;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &addr, 0, NULL), 1);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, addr);
+	assert_non_null(peer);
+
+	/* The tombstone packet is released immediately (case 1), counting
+	 * toward efa_rx_pkts_to_post. */
+	efa_rdm_ep->efa_rx_pkts_posted =
+		efa_base_ep_get_rx_pool_size(&efa_rdm_ep->base_ep) - 1;
+
+	/* Advance the window so msg_id 0..4 are already processed. */
+	(&peer->robuf)->exp_msg_id = 5;
+
+	/* A late/duplicate skip for already-processed msg_id 2: no-op. */
+	ret = deliver_peer_error_skip(efa_rdm_ep, peer, 2);
+	assert_int_equal(ret, 0);
+	assert_int_equal((&peer->robuf)->exp_msg_id, 5);
+}
+
+/**
+ * @brief PEER_ERROR (skip) for a msg_id whose first segment WAS buffered
+ *        out-of-order tombstones the buffered segment in place (case 2)
+ *        and releases the control packet, rather than queueing a second
+ *        tombstone. The window then advances when the head is skipped.
+ */
+void test_efa_rdm_peer_skip_aborted_msg_id_buffered_tombstones(
+	struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct efa_rdm_peer *peer;
+	struct efa_rdm_pke *pke1;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	struct efa_unit_test_eager_rtm_pkt_attr pkt_attr = {0};
+	fi_addr_t addr;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &addr, 0, NULL), 1);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, addr);
+	assert_non_null(peer);
+
+	/* Three rx-pool pkes are allocated and returned to the pool by the
+	 * release/drain paths: pke1 (buffered, drained), the control packet
+	 * for msg_id 1 (released in case 2), and the control packet for
+	 * msg_id 0 (queued as tombstone, drained). */
+	efa_rdm_ep->efa_rx_pkts_posted =
+		efa_base_ep_get_rx_pool_size(&efa_rdm_ep->base_ep) - 3;
+	efa_env.rx_copy_ooo = 0;
+
+	/* msg_id 1 arrives OOO (exp is 0) -> buffered in recvwin slot 1. */
+	pke1 = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->efa_rx_pkt_pool,
+				 EFA_RDM_PKE_FROM_EFA_RX_POOL);
+	assert_non_null(pke1);
+	pkt_attr.msg_id = 1;
+	pkt_attr.connid = raw_addr.qkey;
+	efa_unit_test_eager_msgrtm_pkt_construct(pke1, &pkt_attr);
+	assert_int_equal(efa_rdm_peer_reorder_msg(peer, efa_rdm_ep, pke1), 1);
+
+	/* Skip the BUFFERED msg_id 1: case 2 tombstones it in place. */
+	ret = deliver_peer_error_skip(efa_rdm_ep, peer, 1);
+	assert_int_equal(ret, 1);
+
+	/* The buffered pke at slot 1 is now tombstoned. */
+	assert_true((*ofi_recvwin_get_msg(&peer->robuf, 1))->flags &
+		    EFA_RDM_PKE_ABORTED);
+
+	/* Window still parked on the never-arrived head msg_id 0. */
+	assert_int_equal((&peer->robuf)->exp_msg_id, 0);
+
+	/* Skip the never-arrived head msg_id 0: window advances past 0 and
+	 * the tombstoned 1. */
+	ret = deliver_peer_error_skip(efa_rdm_ep, peer, 0);
+	assert_int_equal(ret, 1);
+	assert_true(ofi_recvwin_id_processed(&peer->robuf, 0));
+	assert_true(ofi_recvwin_id_processed(&peer->robuf, 1));
+	assert_int_equal((&peer->robuf)->exp_msg_id, 2);
+
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->rxe_list), 0);
+	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
+}
+
+/**
+ * @brief A tombstone queued behind the window head (not the most recent
+ *        slot) must wait, then be swept by the cascade once the head is
+ *        filled.
+ *
+ * Order of arrival is deliberately back-to-front: the PEER_ERROR (skip)
+ * for the highest msg_id arrives first and is queued behind the still-
+ * empty head, so it must NOT advance the window. Only when the head slot
+ * itself is finally skipped does the drain cascade forward and sweep all
+ * the queued tombstones in one pass.
+ *
+ * This exercises the case where the tombstone is not at the head: it sits
+ * in the recvwin until an earlier slot is resolved, exactly like a
+ * buffered OOO RTM.
+ */
+void test_efa_rdm_peer_skip_aborted_msg_id_tombstone_behind_head(
+	struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct efa_rdm_peer *peer;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	fi_addr_t addr;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &addr, 0, NULL), 1);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, addr);
+	assert_non_null(peer);
+
+	/* Three tombstone packets are queued and later drained, each
+	 * returning to the rx pool. */
+	efa_rdm_ep->efa_rx_pkts_posted =
+		efa_base_ep_get_rx_pool_size(&efa_rdm_ep->base_ep) - 3;
+	efa_env.rx_copy_ooo = 0;
+
+	/* exp_msg_id == 0. Skip for msg_id 2 arrives first: it is queued at
+	 * slot 2, behind the empty head 0, so the window must NOT move. */
+	ret = deliver_peer_error_skip(efa_rdm_ep, peer, 2);
+	assert_int_equal(ret, 1);
+	assert_int_equal((&peer->robuf)->exp_msg_id, 0);
+	assert_true((*ofi_recvwin_get_msg(&peer->robuf, 2))->flags &
+		    EFA_RDM_PKE_ABORTED);
+
+	/* Skip for msg_id 1 arrives next: still behind the head, no move. */
+	ret = deliver_peer_error_skip(efa_rdm_ep, peer, 1);
+	assert_int_equal(ret, 1);
+	assert_int_equal((&peer->robuf)->exp_msg_id, 0);
+	assert_true((*ofi_recvwin_get_msg(&peer->robuf, 1))->flags &
+		    EFA_RDM_PKE_ABORTED);
+
+	/* Skip for the head msg_id 0 arrives last: now the drain cascades
+	 * over 0, then the already-queued tombstones 1 and 2, in one pass. */
+	ret = deliver_peer_error_skip(efa_rdm_ep, peer, 0);
+	assert_int_equal(ret, 1);
+
+	assert_true(ofi_recvwin_id_processed(&peer->robuf, 0));
+	assert_true(ofi_recvwin_id_processed(&peer->robuf, 1));
+	assert_true(ofi_recvwin_id_processed(&peer->robuf, 2));
+	assert_int_equal((&peer->robuf)->exp_msg_id, 3);
+
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->rxe_list), 0);
+	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
+}
+
 /**
  * @brief Regression test for the MEDIUM overflow-list abort leak.
  *

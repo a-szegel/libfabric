@@ -406,7 +406,6 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 {
 	struct efa_rdm_ope *txe;
 	struct efa_rdm_ep *ep;
-	enum efa_rdm_ope_state prev_state;
 
 	int err = to_fi_errno(prov_errno);
 
@@ -503,30 +502,18 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 				efa_rdm_ep_queue_rnr_pkt(ep, pkt_entry);
 			}
 		} else {
-			prev_state = txe->state;
 			efa_rdm_txe_handle_error(txe, err, prov_errno);
-			/*
-			 * Medium sender-side source-MR cancel. LONGCTS is
-			 * handled inside efa_rdm_txe_handle_error (it has a
-			 * CTS and reaches OPE_SEND); medium never reaches
-			 * OPE_SEND, so its PENDING mark is set here from the
-			 * failing packet's own type.
-			 */
-			if (prev_state != EFA_RDM_OPE_ERR &&
-			    efa_rdm_pkt_type_is_medium(efa_rdm_pkt_type_of(pkt_entry)) &&
-			    (err == FI_ECANCELED ||
-			     prov_errno == EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY) &&
-			    txe->peer != NULL &&
-			    (ep->homogeneous_peers || txe->peer->is_self ||
-			     efa_rdm_peer_support_peer_error(txe->peer))) {
-				txe->peer_error_prov_errno = prov_errno;
-				txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING;
-			}
 			efa_rdm_pke_release_tx(pkt_entry);
 			/*
-			 * No-op unless EFA_RDM_OPE_PEER_ABORT_PENDING is set
-			 * (LONGCTS or medium sender-side abort): frees the errored
-			 * txe once this sibling WR was the last to drain.
+			 * No-op unless efa_rdm_txe_handle_error() set
+			 * EFA_RDM_OPE_PEER_ABORT_PENDING (sender-side
+			 * source-MR cancel for LONGCTS / medium / runt-only /
+			 * EAGER two-sided RTM -- the emit decision now lives in
+			 * efa_rdm_txe_handle_error so both the device-WR and the
+			 * pre-post gen-check cancellation paths are covered):
+			 * frees the errored txe, or emits the deferred
+			 * PEER_ERROR_PKT, once this sibling WR was the last to
+			 * drain.
 			 */
 			efa_rdm_txe_progress_peer_abort_if_drained(txe);
 		}
@@ -752,6 +739,13 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 	case EFA_RDM_RUNTREAD_MSGRTM_PKT:
 	case EFA_RDM_RUNTREAD_TAGRTM_PKT:
 		efa_rdm_pke_handle_runtread_rtm_send_completion(pkt_entry);
+		/*
+		 * A successful runt WR of a runt-only transfer that is
+		 * aborting (source MR canceled on a sibling WR), a healthy
+		 * transfer is never touched.
+		 */
+		if (pkt_entry->ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
+			efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
 		break;
 	case EFA_RDM_EAGER_RTW_PKT:
 		efa_rdm_pke_handle_eager_rtw_send_completion(pkt_entry);
