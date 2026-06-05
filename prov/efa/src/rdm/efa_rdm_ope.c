@@ -2198,7 +2198,18 @@ ssize_t efa_rdm_ope_post_send(struct efa_rdm_ope *ope, int pkt_type)
 	if (err)
 		return err;
 
-	if (!efa_rdm_mr_gen_check_ope(ope))
+	/*
+	 * The MR generation check guards against building a WR whose SGE
+	 * points into a deregistered source MR. It must not gate the
+	 * PEER_ERROR_PKT control packet: that packet's wiredata is built in
+	 * a provider TX buffer (see efa_rdm_pke_init_peer_error) and carries
+	 * no user payload from ope->desc[]. The PEER_ERROR_PKT is emitted
+	 * *because* the source MR was just closed (gen bumped), so applying
+	 * the gen check here would cancel the very notification that tells
+	 * the peer to recover -- leaking the peer's rxe/txe.
+	 */
+	if (pkt_type != EFA_RDM_PEER_ERROR_PKT &&
+	    !efa_rdm_mr_gen_check_ope(ope))
 		return -FI_ECANCELED;
 
 	assert(ep->send_pkt_entry_vec_size <=
