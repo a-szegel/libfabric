@@ -204,6 +204,13 @@ the endpoint type and protocol.  For connectionless endpoints, the
 src_addr parameter can be used to indicate that a buffer should be
 posted to receive incoming data from a specific remote endpoint.
 
+If a sender aborts a message after it has been matched to a posted
+receive (for example by deregistering the source memory region or
+closing its endpoint mid-transfer), the matched receive completes with
+an error (FI_ECANCELED); no data is delivered, and the buffer may be
+reposted.  A receive that was not yet matched is unaffected and remains
+posted.
+
 ## fi_recvv
 
 The fi_recvv call adds support for a scatter-gather list to fi_recv.
