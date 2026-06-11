@@ -152,6 +152,7 @@ void test_efa_rdm_ep_rma_without_caps();
 void test_efa_rdm_ep_atomic_without_caps();
 void test_efa_rdm_ep_setopt_shared_memory_permitted();
 void test_efa_rdm_ep_setopt_homogeneous_peers();
+void test_efa_rdm_ep_setopt_sendrecv_in_order_unsupported();
 void test_efa_rdm_ep_enable_qp_in_order_aligned_128_bytes_good();
 void test_efa_rdm_ep_enable_qp_in_order_aligned_128_bytes_bad();
 void test_efa_rdm_ep_close_shm_resource_happy();

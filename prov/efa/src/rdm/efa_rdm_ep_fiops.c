@@ -1800,6 +1800,23 @@ static int efa_rdm_ep_setopt(fid_t fid, int level, int optname,
 		/**
 		 * TODO: support this option after we fix the data copy atomicity
 		 * for general memory types of rx buffer
+		 *
+		 * NOTE: peer-abort / MR-abort handling (the FI_ECANCELED /
+		 * FI_EFA_ERR_PEER_ABORTED error-completion path, see
+		 * prov/efa/docs/efa_rdm_protocol_v4.md section 4.10) relies on
+		 * this option remaining unsupported. That work lets an
+		 * application abort an in-flight send/recv by closing the
+		 * source MR: the matched recv is errored and the buffer may be
+		 * reposted. "Delivered only once" is incompatible with that
+		 * flow -- after an aborted, partially-filled recv is errored
+		 * and the buffer reposted, an in-flight / retried 128-byte
+		 * block from the aborted transfer could land in the reposted
+		 * buffer, violating the guarantee. Anyone implementing this
+		 * option MUST re-validate peer-abort safety (the
+		 * repost-after-error flow and the late-packet analysis). The
+		 * unit test test_efa_rdm_ep_setopt_sendrecv_in_order_unsupported
+		 * pins this -FI_EOPNOTSUPP so the assumption cannot break
+		 * silently.
 		 */
 		EFA_WARN(FI_LOG_EP_CTRL,
 			"FI_OPT_EFA_SENDRECV_IN_ORDER_ALIGNED_128_BYTES is currently not supported\n");

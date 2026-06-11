@@ -921,6 +921,34 @@ void test_efa_rdm_ep_setopt_homogeneous_peers(struct efa_resource **state)
 }
 
 /**
+ * @brief FI_OPT_EFA_SENDRECV_IN_ORDER_ALIGNED_128_BYTES must remain
+ *        unsupported on an efa RDM endpoint.
+ *
+ * The peer-abort / MR-abort error-completion design (the FI_ECANCELED /
+ * FI_EFA_ERR_PEER_ABORTED path; see prov/efa/docs/efa_rdm_protocol_v4.md
+ * section 4.10) is only valid while "data delivered to the receive
+ * buffer only once" is NOT promised: the abort -> error -> repost flow
+ * can let an in-flight / retried 128-byte block from an aborted
+ * transfer land in the reposted buffer, violating the guarantee. This
+ * test fails loudly if the option ever becomes supported, forcing a
+ * conscious revisit of the MR-abort design rather than a silent
+ * correctness regression.
+ */
+void test_efa_rdm_ep_setopt_sendrecv_in_order_unsupported(struct efa_resource **state)
+{
+	struct efa_resource *resource = *state;
+	bool optval = true;
+
+	efa_unit_test_resource_construct_ep_not_enabled(resource, FI_EP_RDM,
+							EFA_FABRIC_NAME);
+
+	assert_int_equal(fi_setopt(&resource->ep->fid, FI_OPT_ENDPOINT,
+				   FI_OPT_EFA_SENDRECV_IN_ORDER_ALIGNED_128_BYTES,
+				   &optval, sizeof(optval)),
+			 -FI_EOPNOTSUPP);
+}
+
+/**
  * @brief Test fi_enable with different optval of fi_setopt for
  * FI_OPT_EFA_WRITE_IN_ORDER_ALIGNED_128_BYTES optname.
  * @param state struct efa_resource that is managed by the framework
