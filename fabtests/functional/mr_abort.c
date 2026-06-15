@@ -1232,18 +1232,26 @@ static int run_send_abort_server(int iter)
 	}
 
 	/*
-	 * Initiator-close: drain whatever completions arrived to free
-	 * RQ space. All recv completions should be successful — the
-	 * target didn't close any MRs.
+	 * Initiator-close: the initiator closes its local MRs mid-transfer.
+	 * For protocols where the receiver pulls the payload via RDMA read
+	 * (RUNTREAD/LONGREAD), or any transfer the sender aborts after the
+	 * receiver has already built its rx entry, the in-flight messages
+	 * whose source MR was yanked complete on this (target) side with a
+	 * clean FI_ECANCELED ("peer aborted the transfer") error. That is
+	 * the expected, correct outcome of the provider's peer-abort path,
+	 * not a test failure. Any other error is unexpected. Drain the CQ,
+	 * reposting successful recvs and tallying canceled ones.
 	 */
 	struct fi_cq_tagged_entry comp;
 	struct fi_cq_err_entry err;
 	struct op_ctx *o;
 	int repost_idx;
+	int recv_ok = 0, recv_canceled = 0;
 
 	for (;;) {
 		ret = fi_cq_read(rxcq, &comp, 1);
 		if (ret > 0) {
+			recv_ok++;
 			/*
 			 * A recv completed successfully, so its buffer is
 			 * owned by the application again. Immediately re-post
@@ -1265,7 +1273,24 @@ static int run_send_abort_server(int iter)
 			continue;
 		} else if (ret == -FI_EAVAIL) {
 			memset(&err, 0, sizeof(err));
-			fi_cq_readerr(rxcq, &err, 0);
+			ret = fi_cq_readerr(rxcq, &err, 0);
+			if (ret < 0) {
+				FT_PRINTERR("fi_cq_readerr", ret);
+				return ret;
+			}
+			/*
+			 * FI_ECANCELED is the documented clean signal that the
+			 * peer aborted this transfer (here, by closing its
+			 * source MR mid-flight). It is the expected result of
+			 * the initiator-close test, so count it and keep
+			 * draining. The errored recv's buffer is returned to
+			 * the app; it is not reposted, since the transfer is
+			 * finished and we only need to empty the CQ.
+			 */
+			if (err.err == FI_ECANCELED) {
+				recv_canceled++;
+				continue;
+			}
 			FT_ERR("Unexpected target recv error:");
 			FT_CQ_ERR(rxcq, err, NULL, 0);
 			return -FI_EOTHER;
@@ -1273,6 +1298,10 @@ static int run_send_abort_server(int iter)
 			break;
 		}
 	}
+
+	fprintf(stderr,
+		"[MRABORT-SERVER] initiator-close RX drain: posted=%d recv_ok=%d peer_aborted=%d\n",
+		total_posted, recv_ok, recv_canceled);
 
 	return 0;
 }
