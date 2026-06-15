@@ -2032,7 +2032,18 @@ int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope, uint32_t flag)
 	if (!(ope->internal_flags & flag))
 		return 0;
 
-	if (efa_rdm_mr_gen_check_ope(ope)) {
+	/*
+	 * The MR generation check guards against reposting a WR whose SGE
+	 * points into a deregistered source MR.  It must not gate the
+	 * PEER_ERROR_PKT control packet: that packet's wiredata is built in
+	 * a provider TX buffer and carries no user payload from ope->desc[].
+	 * The PEER_ERROR_PKT is emitted *because* the source MR was just
+	 * closed (gen bumped), so applying the gen check here would cancel
+	 * the very notification that tells the peer to recover.
+	 */
+	if (efa_rdm_mr_gen_check_ope(ope) ||
+	    (flag == EFA_RDM_OPE_QUEUED_CTRL &&
+	     ope->queued_ctrl_type == EFA_RDM_PEER_ERROR_PKT)) {
 		switch (flag) {
 		case EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE:
 			ret = efa_rdm_ope_repost_ope_queued_before_handshake(ope);
