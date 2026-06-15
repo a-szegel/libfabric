@@ -771,8 +771,14 @@ enum ibv_wc_status efa_rdm_cq_process_wc(struct efa_ibv_cq *cq, struct efa_rdm_e
 		case IBV_WC_RDMA_WRITE: /* fall through */
 		case IBV_WC_RDMA_READ:
 			assert(pkt_entry);
-			efa_rdm_pke_handle_tx_error(pkt_entry, prov_errno);
+			/*
+			 * Bump before the handler: efa_rdm_pke_handle_tx_error()
+			 * runs the peer-abort path, which can recycle this
+			 * buffer into an in-flight PEER_ERROR_PKT WR. Bumping
+			 * afterward would corrupt that packet's generation.
+			 */
 			efa_rdm_cq_increment_pkt_entry_gen(pkt_entry);
+			efa_rdm_pke_handle_tx_error(pkt_entry, prov_errno);
 			break;
 		case IBV_WC_RECV: /* fall through */
 		case IBV_WC_RECV_RDMA_WITH_IMM:
@@ -808,8 +814,18 @@ enum ibv_wc_status efa_rdm_cq_process_wc(struct efa_ibv_cq *cq, struct efa_rdm_e
 #if ENABLE_DEBUG
 			ep->send_comps++;
 #endif
-			efa_rdm_pke_handle_send_completion(pkt_entry);
+			/*
+			 * Bump the generation BEFORE invoking the completion
+			 * handler. The peer-abort path inside the handler can
+			 * synchronously release this buffer and re-allocate it
+			 * as an in-flight PEER_ERROR_PKT WR (posted at the
+			 * current gen); bumping afterward would corrupt that
+			 * live packet's generation and trip the wr_id gen check
+			 * when its completion arrives. This matches the
+			 * bump-before-release order used by the closing-ep path.
+			 */
 			efa_rdm_cq_increment_pkt_entry_gen(pkt_entry);
+			efa_rdm_pke_handle_send_completion(pkt_entry);
 			break;
 		case IBV_WC_RECV:
 			/* efa_rdm_cq_handle_recv_completion does additional work to determine the source
@@ -823,8 +839,14 @@ enum ibv_wc_status efa_rdm_cq_process_wc(struct efa_ibv_cq *cq, struct efa_rdm_e
 		case IBV_WC_RDMA_READ:
 		case IBV_WC_RDMA_WRITE:
 			efa_rdm_ep_record_tx_op_completed(pkt_entry->ep, pkt_entry);
-			efa_rdm_pke_handle_rma_completion(pkt_entry);
+			/*
+			 * Bump before the handler for the same reason as
+			 * IBV_WC_SEND: the receiver-side RDMA READ peer-abort
+			 * path can recycle this buffer into a PEER_ERROR_PKT WR
+			 * from within efa_rdm_pke_handle_rma_completion().
+			 */
 			efa_rdm_cq_increment_pkt_entry_gen(pkt_entry);
+			efa_rdm_pke_handle_rma_completion(pkt_entry);
 			break;
 		case IBV_WC_RECV_RDMA_WITH_IMM:
 			efa_rdm_cq_proc_ibv_recv_rdma_with_imm_completion(
