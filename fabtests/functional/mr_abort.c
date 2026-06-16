@@ -1207,11 +1207,6 @@ static int run_send_abort_server(int iter)
 			if (eagain)
 				break;
 		}
-
-		fprintf(stderr,
-			"[MRABORT-SRVPOST] iter=%d posted_recvs=%d mrs_used=%d hit_eagain_at_mr=%d\n",
-			iter, total_posted, mrs_used,
-			(mr_idx < num_mrs) ? mr_idx : -1);
 	}
 
 	/* Sync to let initiator start sending */
