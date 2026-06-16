@@ -49,6 +49,7 @@
 #include <rdma/fi_cm.h>
 
 #include "shared.h"
+#include "hmem.h"
 
 enum close_order_mode {
 	CLOSE_ORDER_REVERSE,
@@ -126,7 +127,7 @@ static int max_ops(void)
 
 static int alloc_test_res(void)
 {
-	int i;
+	int i, ret;
 
 	slots = calloc(num_mrs, sizeof(*slots));
 	if (!slots)
@@ -145,9 +146,14 @@ static int alloc_test_res(void)
 		return -FI_ENOMEM;
 
 	for (i = 0; i < num_mrs; i++) {
-		slots[i].buf = calloc(1, opts.transfer_size);
-		if (!slots[i].buf)
-			return -FI_ENOMEM;
+		ret = ft_hmem_alloc(opts.iface, opts.device,
+				    (void **) &slots[i].buf, opts.transfer_size);
+		if (ret)
+			return ret;
+		ret = ft_hmem_memset(opts.iface, opts.device, slots[i].buf,
+				     0, opts.transfer_size);
+		if (ret)
+			return ret;
 		slots[i].key = MR_ABORT_KEY_BASE + i;
 	}
 
@@ -170,7 +176,10 @@ static int free_test_res(void)
 				}
 				slots[i].mr = NULL;
 			}
-			free(slots[i].buf);
+			if (slots[i].buf) {
+				ft_hmem_free(opts.iface, slots[i].buf);
+				slots[i].buf = NULL;
+			}
 		}
 		free(slots);
 		slots = NULL;
@@ -868,9 +877,10 @@ static int run_partial_close_server(void)
 	int ret;
 
 	/* Register an extra MR for the second write target */
-	extra_slot.buf = calloc(1, opts.transfer_size);
-	if (!extra_slot.buf)
-		return -FI_ENOMEM;
+	ret = ft_hmem_alloc(opts.iface, opts.device, (void **) &extra_slot.buf,
+			    opts.transfer_size);
+	if (ret)
+		return ret;
 	extra_slot.key = MR_ABORT_KEY_BASE + num_mrs;
 
 	ret = ft_reg_mr(fi, extra_slot.buf, opts.transfer_size,
@@ -878,7 +888,7 @@ static int run_partial_close_server(void)
 			opts.device, &extra_slot.mr, &extra_slot.desc);
 	if (ret) {
 		FT_PRINTERR("ft_reg_mr (extra)", ret);
-		free(extra_slot.buf);
+		ft_hmem_free(opts.iface, extra_slot.buf);
 		return ret;
 	}
 
@@ -899,7 +909,7 @@ static int run_partial_close_server(void)
 
 cleanup:
 	FT_CLOSE_FID(extra_slot.mr);
-	free(extra_slot.buf);
+	ft_hmem_free(opts.iface, extra_slot.buf);
 	return ret;
 }
 
@@ -939,7 +949,10 @@ static int reuse_check_client(void)
 		return ret;
 
 	/* Write */
-	memset(slots[0].buf, 0xAB, opts.transfer_size);
+	ret = ft_hmem_memset(opts.iface, opts.device, slots[0].buf,
+			     0xAB, opts.transfer_size);
+	if (ret)
+		return ret;
 	ret = fi_write(ep, slots[0].buf, opts.transfer_size,
 		       slots[0].desc, remote_fi_addr,
 		       remote_arr[0].addr, remote_arr[0].key, &reuse_ctx);
@@ -968,7 +981,10 @@ static int reuse_check_client(void)
 		return ret;
 
 	/* Read */
-	memset(slots[0].buf, 0, opts.transfer_size);
+	ret = ft_hmem_memset(opts.iface, opts.device, slots[0].buf,
+			     0, opts.transfer_size);
+	if (ret)
+		return ret;
 	ret = fi_read(ep, slots[0].buf, opts.transfer_size,
 		      slots[0].desc, remote_fi_addr,
 		      remote_arr[0].addr, remote_arr[0].key, &reuse_ctx);
