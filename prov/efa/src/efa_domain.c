@@ -1024,12 +1024,36 @@ void efa_domain_progress_rdm_peers_and_queues(struct efa_domain *domain)
 	/*
 	 * Send data packets until window or data queue is exhausted.
 	 */
-	dlist_foreach_container(&domain->ope_longcts_send_list, struct efa_rdm_ope,
-				ope, entry) {
+	dlist_foreach_container_safe(&domain->ope_longcts_send_list, struct efa_rdm_ope,
+				ope, entry, tmp) {
 		peer = ope->peer;
 		assert(peer);
 		if (peer->flags & EFA_RDM_PEER_IN_BACKOFF)
 			continue;
+
+		/*
+		 * The MR generation check is the sender-side detection point
+		 * for a source MR closed mid-transfer. The device-error path
+		 * only fires once a CTSDATA WR reaches the device; a txe that
+		 * is window-blocked, or repeatedly hits -FI_EAGAIN posting
+		 * CTSDATA (tx pkt pool exhausted), never reaches the device,
+		 * so without this check it would loop here forever. Any ope
+		 * on this list has already received its first CTS, so its
+		 * peer-error rx_id/tx_id reference is valid.
+		 *
+		 * On mismatch, route through the type's error handler, exactly
+		 * as efa_rdm_ope_process_queued_ope() does for a queued op
+		 * whose MR was closed.
+		 */
+		if (!efa_rdm_mr_gen_check_ope(ope)) {
+			if (ope->type == EFA_RDM_TXE)
+				efa_rdm_txe_handle_error(ope, FI_ECANCELED,
+							 FI_EFA_ERR_PEER_ABORTED);
+			else
+				efa_rdm_rxe_handle_error(ope, FI_ECANCELED,
+							 FI_EFA_ERR_PEER_ABORTED);
+			continue;
+		}
 
 		/*
 		 * Do not send DATA packet until we received HANDSHAKE packet from the peer,

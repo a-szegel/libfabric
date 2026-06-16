@@ -736,6 +736,14 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 	case EFA_RDM_LONGCTS_MSGRTM_PKT:
 	case EFA_RDM_LONGCTS_TAGRTM_PKT:
 		efa_rdm_pke_handle_longcts_rtm_send_completion(pkt_entry);
+		/*
+		 * Peer-abort race: the source MR was canceled mid-transfer and
+		 * this txe was marked PEER_ABORT_PENDING while this RTM SEND was
+		 * still outstanding. The emit was deferred to WR drain; now that
+		 * this WR drained, re-drive it. No-op for a healthy transfer.
+		 */
+		if (pkt_entry->ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
+			efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
 		break;
 	case EFA_RDM_LONGREAD_MSGRTM_PKT:
 	case EFA_RDM_LONGREAD_TAGRTM_PKT:
