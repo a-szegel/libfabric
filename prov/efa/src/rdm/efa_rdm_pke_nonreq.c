@@ -1003,7 +1003,27 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 		 * rather than the raw internal device prov_errno. */
 		efa_rdm_txe_handle_error(ope, FI_ECANCELED,
 					 FI_EFA_ERR_PEER_ABORTED);
-		efa_rdm_txe_release(ope);
+		/*
+		 * Do NOT free the txe here: this txe's own data WRs (the
+		 * RUNTREAD/LONGREAD runt SENDs that referenced the now-closed
+		 * source MR) may still be outstanding on the device. Freeing
+		 * now bumps the txe gen and returns it to the pool, so when a
+		 * sibling WR's completion arrives later its pkt_entry->ope is
+		 * stale and trips efa_rdm_pke_assert_ope_valid()
+		 * (pke->ope->gen != pke->ope_gen).
+		 *
+		 * Defer the free to WR drain, exactly like the local
+		 * sender-side abort path. Mark the txe peer-aborted and set
+		 * EFA_RDM_TXE_PEER_ERROR_EMITTED so the drain helper only
+		 * frees it (it must not emit a PEER_ERROR_PKT back -- the
+		 * receiver already told us, that is this very packet). The
+		 * helper is a no-op until efa_outstanding_tx_ops reaches 0,
+		 * at which point the last sibling WR's completion handler
+		 * (or this call, if they already drained) reaps the txe.
+		 */
+		ope->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING |
+				       EFA_RDM_TXE_PEER_ERROR_EMITTED;
+		efa_rdm_txe_progress_peer_abort_if_drained(ope);
 		break;
 	case EFA_RDM_RXE:
 		/* LONGCTS direction: the peer told us their MR is gone.

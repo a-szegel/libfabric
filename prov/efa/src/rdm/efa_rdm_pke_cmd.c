@@ -746,6 +746,16 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		assert(pkt_entry->ope);
 		if (efa_rdm_txe_with_remote_ack_ready_for_release(pkt_entry->ope))
 			efa_rdm_txe_release(pkt_entry->ope);
+		/*
+		 * Peer-abort race: an inbound PEER_ERROR_PKT may have marked
+		 * this txe (source MR canceled, receiver's READ failed) while
+		 * this RTM SEND was still outstanding. The abort deferred the
+		 * free to WR drain; now that this WR has drained, reap it.
+		 * No-op for a healthy transfer (flag never set).
+		 */
+		else if (pkt_entry->ope->internal_flags &
+			 EFA_RDM_OPE_PEER_ABORT_PENDING)
+			efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
 		break;
 	case EFA_RDM_RUNTREAD_MSGRTM_PKT:
 	case EFA_RDM_RUNTREAD_TAGRTM_PKT:
@@ -772,6 +782,10 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		assert(pkt_entry->ope);
 		if (efa_rdm_txe_with_remote_ack_ready_for_release(pkt_entry->ope))
 			efa_rdm_txe_release(pkt_entry->ope);
+		/* Peer-abort race: see EFA_RDM_LONGREAD_*RTM_PKT above. */
+		else if (pkt_entry->ope->internal_flags &
+			 EFA_RDM_OPE_PEER_ABORT_PENDING)
+			efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
 		break;
 	case EFA_RDM_SHORT_RTR_PKT:
 	case EFA_RDM_LONGCTS_RTR_PKT:
