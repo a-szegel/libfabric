@@ -42,6 +42,7 @@
 #include <string.h>
 #include <getopt.h>
 #include <time.h>
+#include <limits.h>
 
 #include <rdma/fi_errno.h>
 #include <rdma/fi_rma.h>
@@ -109,6 +110,34 @@ static struct fi_rma_iov *remote_arr;
 
 #define MR_ABORT_KEY_BASE 0x1000
 #define CQ_TIMEOUT_MS 30000
+
+/*
+ * Non-blocking accumulate of `len` bytes from the OOB socket into `buf`.
+ * *got tracks bytes received so far across calls. Returns 1 once all
+ * `len` bytes have arrived, 0 if still waiting (would block), or a
+ * negative error. Lets the caller keep draining the RX CQ while the
+ * peer is still sending instead of blocking on the count.
+ */
+static int oob_recv_nonblock(int fd, void *buf, size_t len, size_t *got)
+{
+	ssize_t ret;
+
+	while (*got < len) {
+		ret = ofi_recv_socket(fd, (char *) buf + *got, len - *got,
+				      MSG_DONTWAIT);
+		if (ret > 0) {
+			*got += ret;
+		} else if (ret == 0) {
+			return -FI_ENOTCONN;
+		} else if (ofi_sockerr() == EAGAIN ||
+			   ofi_sockerr() == EWOULDBLOCK) {
+			return 0; /* nothing available right now */
+		} else {
+			return -ofi_sockerr();
+		}
+	}
+	return 1; /* full value received */
+}
 
 static int max_ops(void)
 {
@@ -1094,6 +1123,21 @@ static int run_send_abort_client(int iter)
 		return -FI_EINVAL;
 	}
 
+	/*
+	 * Tell the target exactly how many sends we issued this iteration.
+	 * Both sides post until EAGAIN (TX queue / RQ depth bound), so the
+	 * count is not necessarily num_mrs * ops_per_mr; the target drains
+	 * exactly this many completions rather than guessing. Only the
+	 * initiator-close path exchanges this count (the target-close server
+	 * drain does not read it), keeping the OOB stream symmetric.
+	 */
+	if (close_side == CLOSE_INITIATOR) {
+		ret = ft_sock_send(oob_sock, &total_posted,
+				   sizeof(total_posted));
+		if (ret)
+			return ret;
+	}
+
 	/* Close sender MRs (initiator mode) */
 	if (close_side == CLOSE_INITIATOR) {
 		int close_failures = 0;
@@ -1259,21 +1303,46 @@ static int run_send_abort_server(int iter)
 	struct op_ctx *o;
 	int repost_idx;
 	int recv_ok = 0, recv_canceled = 0;
-	int expected = num_mrs * ops_per_mr;
+	int wire_expected = 0;
+	size_t expected_got = 0;
+	int expected = INT_MAX;
+	int have_expected = 0;
 	int completed = 0;
 	uint64_t deadline = ft_gettime_ms() + CQ_TIMEOUT_MS;
 
 	/*
-	 * Each iteration owes exactly num_mrs * ops_per_mr recv completions
-	 * (success or the clean FI_ECANCELED peer-abort). Drain until all
-	 * have arrived, reposting every terminally-completed buffer so that
-	 * (a) the RQ stays full for the next iteration and (b) any message
-	 * sitting in the SRX unexpected queue gets a recv posted to match
-	 * it. Reposts that hit -FI_EAGAIN are retried (the buffer is owned
-	 * by the app and MUST go back), not dropped. Fail if the full set
-	 * of completions does not arrive within the deadline.
+	 * The initiator sends the exact count of operations it issued this
+	 * iteration (queue-depth bound, so not necessarily
+	 * num_mrs * ops_per_mr). We must NOT block waiting for that count:
+	 * the initiator only sends it after it has posted every operation,
+	 * and meanwhile those messages are arriving here and filling the RX
+	 * CQ. Block on the count and we would stop calling fi_cq_read(),
+	 * starving the RX CQ while the sender is still pushing.
+	 *
+	 * So default `expected` to "infinite" and keep draining the RX CQ,
+	 * polling the OOB socket non-blockingly each pass. Once the real
+	 * count arrives, pin `expected` to it; the loop then finishes when
+	 * that many completions have been reaped (or the deadline fires).
+	 * Every terminally-completed buffer is reposted (retrying -FI_EAGAIN,
+	 * since the buffer is app-owned and MUST go back) so the RQ stays at
+	 * its seeded depth and any SRX-queued unexpected message gets a recv
+	 * to match it.
 	 */
 	while (completed < expected && ft_gettime_ms() < deadline) {
+		if (!have_expected) {
+			ret = oob_recv_nonblock(oob_sock, &wire_expected,
+						sizeof(wire_expected),
+						&expected_got);
+			if (ret < 0) {
+				FT_PRINTERR("oob_recv_nonblock", ret);
+				return ret;
+			}
+			if (ret == 1) {
+				expected = wire_expected;
+				have_expected = 1;
+			}
+		}
+
 		ret = fi_cq_read(rxcq, &comp, 1);
 		if (ret > 0) {
 			recv_ok++;
@@ -1326,6 +1395,18 @@ static int run_send_abort_server(int iter)
 			FT_PRINTERR("fi_cq_read", ret);
 			return ret;
 		}
+	}
+
+	if (!have_expected) {
+		/*
+		 * Deadline fired before the initiator's count arrived. We
+		 * cannot say how many completions were owed, so report the
+		 * failure explicitly rather than print a bogus missing count.
+		 */
+		FT_ERR("Server iter %d: timed out waiting for initiator op "
+		       "count (drained %d completions) ... FAIL",
+		       iter, completed);
+		return -FI_EOTHER;
 	}
 
 	missing = expected - completed;
