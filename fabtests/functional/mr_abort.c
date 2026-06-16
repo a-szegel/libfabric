@@ -1264,20 +1264,34 @@ static int run_send_abort_server(int iter)
 	struct op_ctx *o;
 	int repost_idx;
 	int recv_ok = 0, recv_canceled = 0;
+	int expected = num_mrs * ops_per_mr;
+	int completed = 0;
+	uint64_t deadline = ft_gettime_ms() + CQ_TIMEOUT_MS;
 
-	for (;;) {
+	/*
+	 * Each iteration owes exactly num_mrs * ops_per_mr recv completions
+	 * (success or the clean FI_ECANCELED peer-abort). Drain until all
+	 * have arrived, reposting every terminally-completed buffer so that
+	 * (a) the RQ stays full for the next iteration and (b) any message
+	 * sitting in the SRX unexpected queue gets a recv posted to match
+	 * it. Reposts that hit -FI_EAGAIN are retried (the buffer is owned
+	 * by the app and MUST go back), not dropped. Fail if the full set
+	 * of completions does not arrive within the deadline.
+	 */
+	while (completed < expected && ft_gettime_ms() < deadline) {
 		ret = fi_cq_read(rxcq, &comp, 1);
 		if (ret > 0) {
 			recv_ok++;
-			/*
-			 * A recv completed successfully, so its buffer is
-			 * owned by the application again. Immediately re-post
-			 * that buffer to the device before continuing.
-			 */
+			completed++;
 			o = container_of(comp.op_context, struct op_ctx,
 					 context);
 			repost_idx = (int) (o - op_arr);
-			ret = post_recv_op(repost_idx, o->mr_idx);
+			do {
+				ret = post_recv_op(repost_idx, o->mr_idx);
+				if (ret == -FI_EAGAIN)
+					(void) fi_cq_read(rxcq, NULL, 0);
+			} while (ret == -FI_EAGAIN &&
+				 ft_gettime_ms() < deadline);
 			if (ret && ret != -FI_EAGAIN) {
 				FT_PRINTERR("post_recv_op (repost)", ret);
 				return ret;
@@ -1290,28 +1304,19 @@ static int run_send_abort_server(int iter)
 				FT_PRINTERR("fi_cq_readerr", ret);
 				return ret;
 			}
-			/*
-			 * FI_ECANCELED is the documented clean signal that the
-			 * peer aborted this transfer (here, by closing its
-			 * source MR mid-flight). It is the expected result of
-			 * the initiator-close test, so count it and keep
-			 * draining.
-			 *
-			 * The errored recv has reached a terminal completion,
-			 * so its buffer is owned by the application again and
-			 * must be re-posted: in this mode every recv aborts, so
-			 * if we dropped the buffer here the receive queue would
-			 * be empty for the next iteration and that iteration's
-			 * sends would have nothing to match (deadlocking the
-			 * read-back protocols). Re-post it just like a
-			 * successful recv.
-			 */
 			if (err.err == FI_ECANCELED) {
 				recv_canceled++;
+				completed++;
 				o = container_of(err.op_context,
 						 struct op_ctx, context);
 				repost_idx = (int) (o - op_arr);
-				ret = post_recv_op(repost_idx, o->mr_idx);
+				do {
+					ret = post_recv_op(repost_idx,
+							    o->mr_idx);
+					if (ret == -FI_EAGAIN)
+						(void) fi_cq_read(rxcq, NULL, 0);
+				} while (ret == -FI_EAGAIN &&
+					 ft_gettime_ms() < deadline);
 				if (ret && ret != -FI_EAGAIN) {
 					FT_PRINTERR("post_recv_op (repost)",
 						    ret);
@@ -1322,16 +1327,19 @@ static int run_send_abort_server(int iter)
 			FT_ERR("Unexpected target recv error:");
 			FT_CQ_ERR(rxcq, err, NULL, 0);
 			return -FI_EOTHER;
-		} else {
-			break;
+		} else if (ret < 0 && ret != -FI_EAGAIN) {
+			FT_PRINTERR("fi_cq_read", ret);
+			return ret;
 		}
 	}
 
+	missing = expected - completed;
 	fprintf(stderr,
-		"[MRABORT-SERVER] initiator-close RX drain: posted=%d recv_ok=%d peer_aborted=%d\n",
-		total_posted, recv_ok, recv_canceled);
+		"Server iter %d: recvs=%d recv_ok=%d peer_aborted=%d missing=%d ... %s\n",
+		iter, expected, recv_ok, recv_canceled, missing,
+		missing == 0 ? "PASS" : "FAIL");
 
-	return 0;
+	return missing == 0 ? 0 : -FI_EOTHER;
 }
 
 /*
