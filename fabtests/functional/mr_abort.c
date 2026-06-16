@@ -421,7 +421,6 @@ static int drain_cq(struct fid_cq *cq, int expected,
 			int count;
 		} buckets[16];
 		int i, j, nb = 0;
-
 		for (i = 0; i < expected; i++) {
 			if (!op_arr[i].completed || op_arr[i].status == 0)
 				continue;
@@ -1106,9 +1105,10 @@ static int run_send_abort_client(int iter)
 			{ .err = FI_ECANCELED, .prov_errno = 4100 },  /* RDM pkt post fail */
 			{ .err = FI_EINVAL, .prov_errno = 5 },        /* local MR invalid */
 			{ .err = FI_EINVAL, .prov_errno = 7 },        /* long-read source-MR cancel (peer abort), with REMOTE_ERROR_BAD_ADDRESS (7) */
+			{ .err = FI_ECANCELED, .prov_errno = 4127 },  /* peer abort: receiver detected the yanked source MR on its RDMA read and notified us via PEER_ERROR_PKT */
 		};
 		missing = drain_cq(txcq, total_posted,
-				   send_initiator_errs, 4);
+				   send_initiator_errs, 5);
 	} else {
 		/* Target-close: initiator didn't close any MRs, no errors expected */
 		missing = drain_cq(txcq, total_posted, NULL, 0);
@@ -1240,7 +1240,8 @@ static int run_send_abort_server(int iter)
 	 * clean FI_ECANCELED ("peer aborted the transfer") error. That is
 	 * the expected, correct outcome of the provider's peer-abort path,
 	 * not a test failure. Any other error is unexpected. Drain the CQ,
-	 * reposting successful recvs and tallying canceled ones.
+	 * reposting every terminally-completed recv (success or peer-abort)
+	 * so the receive queue stays populated for the next iteration.
 	 */
 	struct fi_cq_tagged_entry comp;
 	struct fi_cq_err_entry err;
@@ -1255,12 +1256,7 @@ static int run_send_abort_server(int iter)
 			/*
 			 * A recv completed successfully, so its buffer is
 			 * owned by the application again. Immediately re-post
-			 * that buffer to the device before continuing. Only a
-			 * buffer whose recv reached a terminal completion may
-			 * be re-posted: re-posting a buffer whose recv is still
-			 * live in the provider (e.g. one silently re-queued
-			 * into the SRX by the peer-abort recovery path) leaves
-			 * two SRX entries aliasing the same buffer/context.
+			 * that buffer to the device before continuing.
 			 */
 			o = container_of(comp.op_context, struct op_ctx,
 					 context);
@@ -1283,12 +1279,28 @@ static int run_send_abort_server(int iter)
 			 * peer aborted this transfer (here, by closing its
 			 * source MR mid-flight). It is the expected result of
 			 * the initiator-close test, so count it and keep
-			 * draining. The errored recv's buffer is returned to
-			 * the app; it is not reposted, since the transfer is
-			 * finished and we only need to empty the CQ.
+			 * draining.
+			 *
+			 * The errored recv has reached a terminal completion,
+			 * so its buffer is owned by the application again and
+			 * must be re-posted: in this mode every recv aborts, so
+			 * if we dropped the buffer here the receive queue would
+			 * be empty for the next iteration and that iteration's
+			 * sends would have nothing to match (deadlocking the
+			 * read-back protocols). Re-post it just like a
+			 * successful recv.
 			 */
 			if (err.err == FI_ECANCELED) {
 				recv_canceled++;
+				o = container_of(err.op_context,
+						 struct op_ctx, context);
+				repost_idx = (int) (o - op_arr);
+				ret = post_recv_op(repost_idx, o->mr_idx);
+				if (ret && ret != -FI_EAGAIN) {
+					FT_PRINTERR("post_recv_op (repost)",
+						    ret);
+					return ret;
+				}
 				continue;
 			}
 			FT_ERR("Unexpected target recv error:");
