@@ -859,31 +859,38 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 	}
 
 	/*
-	 * Zero-delivery suppression (medium / runt-only runtread). These
-	 * sender-detected protocols spray all payload in REQ SENDs with no
-	 * CTS; if every segment failed (bytes_acked == 0) the receiver
-	 * never built an rxe, so a PEER_ERROR_PKT would be un-actionable --
-	 * suppress it and release the drained txe. This must NOT apply to
-	 * LONGCTS, whose CTS handshake already built the receiver's rxe (it
-	 * must always be told, even at bytes_acked == 0);
-	 * efa_rdm_txe_peer_abort_uses_msg_id() is false for LONGCTS.
+	 * Decide which PEER_ERROR_PKT this drain emits.
+	 *
+	 * REF_MSG_ID_SKIP (owes the receiver nothing, only unblocks its
+	 * reorder window past msg_id):
+	 *   - EAGER two-sided RTM (tagged by the classifier with
+	 *     EFA_RDM_TXE_PEER_ERROR_SKIP): the single REQ never landed.
+	 *   - medium / runt-only runtread with bytes_acked == 0: every
+	 *     segment failed, so the receiver never matched an rxe and is
+	 *     owed no completion -- but its window still reserved the id.
+	 *
+	 * REF_MSG_ID (owes a FI_ECANCELED on the matched rxe):
+	 *   - medium / runt-only runtread with bytes_acked > 0: the
+	 *     receiver matched and took partial data.
+	 *
+	 * (LONGCTS uses REF_OPE_INDEX and is never uses_msg_id; it reaches
+	 * the final emit below.)
+	 *
+	 * Emitting only after every data WR has drained is what makes the
+	 * skip/notification safe to act on -- no segment can race it
+	 * (mr_abort design §5). The emitted packet is itself a WR on the
+	 * txe, so the txe stays alive until that packet's own completion
+	 * runs the EMITTED phase above.
 	 */
-	if (efa_rdm_txe_peer_abort_uses_msg_id(txe) &&
-	    txe->bytes_acked == 0) {
-		efa_rdm_txe_release(txe);
-		return;
-	}
+	if (efa_rdm_txe_peer_abort_uses_msg_id(txe) && txe->bytes_acked == 0)
+		txe->internal_flags |= EFA_RDM_TXE_PEER_ERROR_SKIP;
 
-	/* All data WRs have drained: notify the receiver so it can
-	 * abandon the doomed message. Keep the txe alive -- the emitted
-	 * PEER_ERROR_PKT's own completion runs this helper again to release
-	 * it (see EMITTED phase above). */
 	txe->internal_flags |= EFA_RDM_TXE_PEER_ERROR_EMITTED;
 	err = efa_rdm_ope_post_send_or_queue(txe, EFA_RDM_PEER_ERROR_PKT);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ,
-			 "Sender-side abort: failed to post "
-			 "PEER_ERROR_PKT err=%zd. Receiver's rxe will leak.\n",
+			 "Sender-side abort: failed to post PEER_ERROR_PKT "
+			 "err=%zd. Receiver's rxe/reorder window may stall.\n",
 			 err);
 		/* The post failed so no PEER_ERROR_PKT completion will
 		 * arrive to release the txe; release it now (still drained). */
