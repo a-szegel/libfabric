@@ -1228,12 +1228,32 @@ static int run_send_abort_client(int iter)
 	 *
 	 * Only the initiator-close path exchanges this; the target-close
 	 * server drain does not read it, keeping the OOB stream symmetric.
+	 *
+	 * Two counts are sent:
+	 *   required - terminal completions the receiver MUST produce
+	 *              (success or cancel): every fully-delivered send, plus,
+	 *              for owed-completion protocols (-X), every aborted send.
+	 *   slack    - indeterminate extra completions. For EAGER / MEDIUM an
+	 *              aborted send's RX outcome is indeterminate: the device
+	 *              may have delivered the payload before the local flush
+	 *              (receiver gets a success) or not (no completion), and a
+	 *              stray FI_ECANCELED is also possible. Each aborted send
+	 *              therefore contributes 0 or 1 completion the receiver is
+	 *              allowed -- but not required -- to see. For -X protocols
+	 *              the abort is already counted in `required`, so slack 0.
+	 *
+	 * The receiver passes when its terminal-completion total lands in
+	 * [required, required + slack]: all required completions arrived, and
+	 * no more than `slack` indeterminate extras.
 	 */
 	if (close_side == CLOSE_INITIATOR) {
-		int owed = completed_ok +
-			   (abort_owes_rx_completion ? completed_err : 0);
+		int counts[2];
 
-		ret = ft_sock_send(oob_sock, &owed, sizeof(owed));
+		counts[0] = completed_ok +	/* required */
+			    (abort_owes_rx_completion ? completed_err : 0);
+		counts[1] = abort_owes_rx_completion ? 0 : completed_err; /* slack */
+
+		ret = ft_sock_send(oob_sock, counts, sizeof(counts));
 		if (ret)
 			return ret;
 	}
@@ -1257,6 +1277,31 @@ static int run_send_abort_client(int iter)
  * errors caused
  * by sender's MR close on the RDM read-back path).
  */
+
+/*
+ * Repost a terminally-completed recv buffer back to the RQ so it stays
+ * at its seeded depth (the buffer is app-owned and MUST go back). Retries
+ * -FI_EAGAIN, draining the CQ to make room, until the deadline.
+ */
+static int mr_abort_repost_recv(struct fid_cq *rxcq, struct op_ctx *o,
+				uint64_t deadline)
+{
+	int repost_idx = (int) (o - op_arr);
+	int ret;
+
+	do {
+		ret = post_recv_op(repost_idx, o->mr_idx);
+		if (ret == -FI_EAGAIN)
+			(void) fi_cq_read(rxcq, NULL, 0);
+	} while (ret == -FI_EAGAIN && ft_gettime_ms() < deadline);
+
+	if (ret && ret != -FI_EAGAIN) {
+		FT_PRINTERR("post_recv_op (repost)", ret);
+		return ret;
+	}
+	return 0;
+}
+
 static int run_send_abort_server(int iter)
 {
 	int i, mr_idx, op_idx, ret;
@@ -1354,65 +1399,70 @@ static int run_send_abort_server(int iter)
 	struct fi_cq_tagged_entry comp;
 	struct fi_cq_err_entry err;
 	struct op_ctx *o;
-	int repost_idx;
 	int recv_ok = 0, recv_canceled = 0;
-	int wire_expected = 0;
-	size_t expected_got = 0;
-	int expected = INT_MAX;
-	int have_expected = 0;
-	int completed = 0;
+	int counts[2] = {0};
+	size_t counts_got = 0;
+	int required = -1;	/* terminal completions the receiver MUST see */
+	int slack = 0;		/* indeterminate extra completions allowed */
+	int have_counts = 0;
+	int reaped;		/* terminal completions counted so far */
 	uint64_t deadline = ft_gettime_ms() + CQ_TIMEOUT_MS;
+	uint64_t idle_deadline;
 
 	/*
-	 * The initiator sends the exact count of operations it issued this
-	 * iteration (queue-depth bound, so not necessarily
-	 * num_mrs * ops_per_mr). We must NOT block waiting for that count:
-	 * the initiator only sends it after it has posted every operation,
-	 * and meanwhile those messages are arriving here and filling the RX
-	 * CQ. Block on the count and we would stop calling fi_cq_read(),
-	 * starving the RX CQ while the sender is still pushing.
+	 * The initiator sends two counts (required, slack) AFTER it has
+	 * posted every send and fully drained its own TX CQ -- so we must
+	 * NOT block waiting for them: the messages are arriving here and
+	 * filling the RX CQ meanwhile, and blocking would starve it.
 	 *
-	 * So default `expected` to "infinite" and keep draining the RX CQ,
-	 * polling the OOB socket non-blockingly each pass. Once the real
-	 * count arrives, pin `expected` to it; the loop then finishes when
-	 * that many completions have been reaped (or the deadline fires).
-	 * Every terminally-completed buffer is reposted (retrying -FI_EAGAIN,
-	 * since the buffer is app-owned and MUST go back) so the RQ stays at
-	 * its seeded depth and any SRX-queued unexpected message gets a recv
-	 * to match it.
+	 * Instead, always drain the RX CQ to idle: keep reading until the
+	 * counts have arrived AND no completion has been seen for a 10ms
+	 * idle window (the window resets on every completion). This reaps
+	 * delivered-but-indeterminate stragglers in the same iteration they
+	 * belong to, instead of letting them bleed into the next iteration's
+	 * drain and corrupt its count.
+	 *
+	 * Every terminally-completed buffer (success or FI_ECANCELED) is
+	 * reposted (the buffer is app-owned and MUST go back) so the RQ
+	 * stays at its seeded depth and any SRX-queued unexpected message
+	 * gets a recv to match it.
+	 *
+	 * Reconciliation is a RANGE, not an exact match: the receiver passes
+	 * when its terminal-completion total lands in
+	 * [required, required + slack]. `required` are completions that must
+	 * appear (every delivered send, plus aborted sends for -X protocols).
+	 * `slack` covers EAGER / MEDIUM aborted sends, whose RX outcome is
+	 * indeterminate -- the device may have delivered the payload before
+	 * the local flush (a success), or not (no completion), or a stray
+	 * FI_ECANCELED may surface. Each such send contributes 0 or 1.
 	 */
-	while (completed < expected && ft_gettime_ms() < deadline) {
-		if (!have_expected) {
-			ret = oob_recv_nonblock(oob_sock, &wire_expected,
-						sizeof(wire_expected),
-						&expected_got);
+	idle_deadline = ft_gettime_ms() + 10;
+	reaped = 0;
+	while (ft_gettime_ms() < deadline) {
+		if (!have_counts) {
+			ret = oob_recv_nonblock(oob_sock, counts,
+						sizeof(counts), &counts_got);
 			if (ret < 0) {
 				FT_PRINTERR("oob_recv_nonblock", ret);
 				return ret;
 			}
 			if (ret == 1) {
-				expected = wire_expected;
-				have_expected = 1;
+				required = counts[0];
+				slack = counts[1];
+				have_counts = 1;
 			}
 		}
 
 		ret = fi_cq_read(rxcq, &comp, 1);
 		if (ret > 0) {
 			recv_ok++;
-			completed++;
+			reaped++;
 			o = container_of(comp.op_context, struct op_ctx,
 					 context);
-			repost_idx = (int) (o - op_arr);
-			do {
-				ret = post_recv_op(repost_idx, o->mr_idx);
-				if (ret == -FI_EAGAIN)
-					(void) fi_cq_read(rxcq, NULL, 0);
-			} while (ret == -FI_EAGAIN &&
-				 ft_gettime_ms() < deadline);
-			if (ret && ret != -FI_EAGAIN) {
-				FT_PRINTERR("post_recv_op (repost)", ret);
+			ret = mr_abort_repost_recv(rxcq, o, deadline);
+			if (ret)
 				return ret;
-			}
+			idle_deadline = ft_gettime_ms() + 10;
 			continue;
 		} else if (ret == -FI_EAVAIL) {
 			memset(&err, 0, sizeof(err));
@@ -1421,137 +1471,67 @@ static int run_send_abort_server(int iter)
 				FT_PRINTERR("fi_cq_readerr", ret);
 				return ret;
 			}
-			if (err.err == FI_ECANCELED) {
-				recv_canceled++;
-				/*
-				 * A peer-abort completion counts toward the
-				 * owed total only for protocols where an
-				 * aborted message is owed one (-X: LONGCTS /
-				 * RUNTREAD-LONGREAD). For EAGER / MEDIUM a
-				 * stray FI_ECANCELED can still arrive; accept
-				 * and repost its buffer, but do not count it
-				 * toward `expected` (the initiator did not
-				 * include it in the owed count).
-				 */
-				if (abort_owes_rx_completion)
-					completed++;
-				o = container_of(err.op_context,
-						 struct op_ctx, context);
-				repost_idx = (int) (o - op_arr);
-				do {
-					ret = post_recv_op(repost_idx,
-							    o->mr_idx);
-					if (ret == -FI_EAGAIN)
-						(void) fi_cq_read(rxcq, NULL, 0);
-				} while (ret == -FI_EAGAIN &&
-					 ft_gettime_ms() < deadline);
-				if (ret && ret != -FI_EAGAIN) {
-					FT_PRINTERR("post_recv_op (repost)",
-						    ret);
-					return ret;
-				}
-				continue;
+			if (err.err != FI_ECANCELED) {
+				FT_ERR("Unexpected target recv error:");
+				FT_CQ_ERR(rxcq, err, NULL, 0);
+				return -FI_EOTHER;
 			}
-			FT_ERR("Unexpected target recv error:");
-			FT_CQ_ERR(rxcq, err, NULL, 0);
-			return -FI_EOTHER;
+			recv_canceled++;
+			reaped++;
+			o = container_of(err.op_context, struct op_ctx,
+					 context);
+			ret = mr_abort_repost_recv(rxcq, o, deadline);
+			if (ret)
+				return ret;
+			idle_deadline = ft_gettime_ms() + 10;
+			continue;
 		} else if (ret < 0 && ret != -FI_EAGAIN) {
 			FT_PRINTERR("fi_cq_read", ret);
 			return ret;
 		}
+
+		/*
+		 * RX CQ is momentarily empty (-FI_EAGAIN). We are done only
+		 * once the counts have arrived and the CQ has stayed idle for
+		 * the full 10ms window.
+		 */
+		if (have_counts && ft_gettime_ms() >= idle_deadline)
+			break;
 	}
 
-	if (!have_expected) {
+	if (!have_counts) {
 		/*
-		 * Deadline fired before the initiator's count arrived. We
+		 * Deadline fired before the initiator's counts arrived. We
 		 * cannot say how many completions were owed, so report the
-		 * failure explicitly rather than print a bogus missing count.
+		 * failure explicitly rather than print a bogus count.
 		 */
 		FT_ERR("Server iter %d: timed out waiting for initiator op "
-		       "count (drained %d completions) ... FAIL",
-		       iter, completed);
-		return -FI_EOTHER;
-	}
-
-	missing = expected - completed;
-	if (missing != 0) {
-		fprintf(stderr,
-			"Server iter %d: recvs=%d recv_ok=%d peer_aborted=%d "
-			"missing=%d ... FAIL\n",
-			iter, expected, recv_ok, recv_canceled, missing);
+		       "counts (drained %d completions) ... FAIL",
+		       iter, reaped);
 		return -FI_EOTHER;
 	}
 
 	/*
-	 * Required completions are in. For EAGER / MEDIUM an aborted message
-	 * is not owed a completion, but a stray FI_ECANCELED can still arrive
-	 * (e.g. a medium partial-abort the provider notified). Sweep those up
-	 * and repost their buffers so the RQ stays full -- but don't block on
-	 * a count we don't have. Use a short idle timer: stop once 10ms pass
-	 * with no completion, resetting the timer whenever one arrives.
+	 * Pass when the reaped terminal-completion total lands in
+	 * [required, required + slack]: all required completions arrived
+	 * (reaped >= required) and no more than slack indeterminate extras
+	 * (reaped <= required + slack).
 	 */
-	{
-		uint64_t idle_deadline = ft_gettime_ms() + 10;
+	if (reaped < required || reaped > required + slack) {
+		int missing = required - reaped; /* >0 short, <0 over */
 
-		while (ft_gettime_ms() < idle_deadline) {
-			ret = fi_cq_read(rxcq, &comp, 1);
-			if (ret > 0) {
-				recv_ok++;
-				o = container_of(comp.op_context,
-						 struct op_ctx, context);
-				repost_idx = (int) (o - op_arr);
-				do {
-					ret = post_recv_op(repost_idx,
-							    o->mr_idx);
-					if (ret == -FI_EAGAIN)
-						(void) fi_cq_read(rxcq, NULL, 0);
-				} while (ret == -FI_EAGAIN &&
-					 ft_gettime_ms() < deadline);
-				if (ret && ret != -FI_EAGAIN) {
-					FT_PRINTERR("post_recv_op (repost)",
-						    ret);
-					return ret;
-				}
-				idle_deadline = ft_gettime_ms() + 10;
-			} else if (ret == -FI_EAVAIL) {
-				memset(&err, 0, sizeof(err));
-				ret = fi_cq_readerr(rxcq, &err, 0);
-				if (ret < 0) {
-					FT_PRINTERR("fi_cq_readerr", ret);
-					return ret;
-				}
-				if (err.err != FI_ECANCELED) {
-					FT_ERR("Unexpected target recv error:");
-					FT_CQ_ERR(rxcq, err, NULL, 0);
-					return -FI_EOTHER;
-				}
-				recv_canceled++;
-				o = container_of(err.op_context,
-						 struct op_ctx, context);
-				repost_idx = (int) (o - op_arr);
-				do {
-					ret = post_recv_op(repost_idx,
-							    o->mr_idx);
-					if (ret == -FI_EAGAIN)
-						(void) fi_cq_read(rxcq, NULL, 0);
-				} while (ret == -FI_EAGAIN &&
-					 ft_gettime_ms() < deadline);
-				if (ret && ret != -FI_EAGAIN) {
-					FT_PRINTERR("post_recv_op (repost)",
-						    ret);
-					return ret;
-				}
-				idle_deadline = ft_gettime_ms() + 10;
-			} else if (ret < 0 && ret != -FI_EAGAIN) {
-				FT_PRINTERR("fi_cq_read", ret);
-				return ret;
-			}
-		}
+		fprintf(stderr,
+			"Server iter %d: required=%d slack=%d reaped=%d "
+			"recv_ok=%d peer_aborted=%d missing=%d ... FAIL\n",
+			iter, required, slack, reaped, recv_ok,
+			recv_canceled, missing);
+		return -FI_EOTHER;
 	}
 
 	fprintf(stderr,
-		"Server iter %d: recvs=%d recv_ok=%d peer_aborted=%d missing=0 ... PASS\n",
-		iter, expected, recv_ok, recv_canceled);
+		"Server iter %d: required=%d slack=%d reaped=%d recv_ok=%d "
+		"peer_aborted=%d ... PASS\n",
+		iter, required, slack, reaped, recv_ok, recv_canceled);
 
 	return 0;
 }
