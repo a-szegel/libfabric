@@ -515,7 +515,8 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			 */
 			if (prev_state != EFA_RDM_OPE_ERR &&
 			    efa_rdm_txe_peer_abort_uses_msg_id(txe) &&
-			    prov_errno == EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY &&
+			    (err == FI_ECANCELED ||
+			     prov_errno == EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY) &&
 			    txe->peer != NULL &&
 			    (ep->homogeneous_peers || txe->peer->is_self ||
 			     efa_rdm_peer_support_peer_error(txe->peer))) {
