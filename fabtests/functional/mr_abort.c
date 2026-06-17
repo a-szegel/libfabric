@@ -187,12 +187,21 @@ static int alloc_test_res(void)
 		return -FI_ENOMEM;
 
 	for (i = 0; i < num_mrs; i++) {
+		/*
+		 * One MR per slot, but each of the ops_per_mr operations on
+		 * that slot must land in its own buffer range -- N recvs may
+		 * share one memory region, but must NOT share one buffer (that
+		 * would alias N concurrent recvs onto the same memory). So size
+		 * the slot buffer to hold ops_per_mr * transfer_size and give
+		 * each op a distinct transfer_size slice (see slot_op_buf()).
+		 */
 		ret = ft_hmem_alloc(opts.iface, opts.device,
-				    (void **) &slots[i].buf, opts.transfer_size);
+				    (void **) &slots[i].buf,
+				    (size_t) ops_per_mr * opts.transfer_size);
 		if (ret)
 			return ret;
 		ret = ft_hmem_memset(opts.iface, opts.device, slots[i].buf,
-				     0, opts.transfer_size);
+				     0, (size_t) ops_per_mr * opts.transfer_size);
 		if (ret)
 			return ret;
 		slots[i].key = MR_ABORT_KEY_BASE + i;
@@ -242,7 +251,8 @@ static int register_mrs(uint64_t access)
 		if (slots[i].mr)
 			continue;
 
-		ret = ft_reg_mr(fi, slots[i].buf, opts.transfer_size,
+		ret = ft_reg_mr(fi, slots[i].buf,
+				(size_t) ops_per_mr * opts.transfer_size,
 				access, slots[i].key, opts.iface,
 				opts.device, &slots[i].mr, &slots[i].desc);
 		if (ret) {
@@ -312,6 +322,22 @@ static void reset_test_state(void)
  * global mr_desc/tx_buf/rx_buf. Each operation needs its own MR so we
  * can close them individually.
  */
+
+/*
+ * Return the distinct transfer_size buffer slice for one operation within
+ * its MR. ops_per_mr operations share a single MR (one registration), but
+ * each must use its own buffer range: the within-MR op index is
+ * (op_idx - mr_idx * ops_per_mr) because the fill loops post op_idx in
+ * lockstep as mr_idx * ops_per_mr + i.
+ */
+static char *slot_op_buf(int op_idx, int mr_idx)
+{
+	int op_in_mr = op_idx - mr_idx * ops_per_mr;
+
+	assert(op_in_mr >= 0 && op_in_mr < ops_per_mr);
+	return slots[mr_idx].buf + (size_t) op_in_mr * opts.transfer_size;
+}
+
 static ssize_t post_rma_op(int op_idx, int mr_idx)
 {
 	struct mr_slot *s = &slots[mr_idx];
@@ -342,14 +368,15 @@ static ssize_t post_send_op(int op_idx, int mr_idx)
 {
 	struct mr_slot *s = &slots[mr_idx];
 	struct op_ctx *o = &op_arr[op_idx];
+	char *buf = slot_op_buf(op_idx, mr_idx);
 
 	o->mr_idx = mr_idx;
 
 	if (test_mode == TEST_TAGGED)
-		return fi_tsend(ep, s->buf, opts.transfer_size, s->desc,
+		return fi_tsend(ep, buf, opts.transfer_size, s->desc,
 				remote_fi_addr, 0xCAFE, &o->context);
 	else
-		return fi_send(ep, s->buf, opts.transfer_size, s->desc,
+		return fi_send(ep, buf, opts.transfer_size, s->desc,
 			       remote_fi_addr, &o->context);
 }
 
@@ -357,14 +384,15 @@ static ssize_t post_recv_op(int op_idx, int mr_idx)
 {
 	struct mr_slot *s = &slots[mr_idx];
 	struct op_ctx *o = &op_arr[op_idx];
+	char *buf = slot_op_buf(op_idx, mr_idx);
 
 	o->mr_idx = mr_idx;
 
 	if (test_mode == TEST_TAGGED)
-		return fi_trecv(ep, s->buf, opts.transfer_size, s->desc,
+		return fi_trecv(ep, buf, opts.transfer_size, s->desc,
 				remote_fi_addr, 0xCAFE, 0, &o->context);
 	else
-		return fi_recv(ep, s->buf, opts.transfer_size, s->desc,
+		return fi_recv(ep, buf, opts.transfer_size, s->desc,
 			       remote_fi_addr, &o->context);
 }
 
