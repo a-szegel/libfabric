@@ -354,6 +354,112 @@ bool efa_rdm_peer_abort_ooo_msg(struct efa_rdm_peer *peer, uint32_t msg_id)
 }
 
 /**
+ * @brief Queue an inbound PEER_ERROR (skip) packet into the reorder
+ *        window as a tombstone, so the window can advance past a
+ *        source-aborted msg_id that will never arrive.
+ *
+ * Called from the inbound PEER_ERROR_PKT handler for ref_kind
+ * EFA_RDM_PEER_ERROR_REF_MSG_ID_SKIP. The named message (EAGER, or a
+ * medium / runt-only runtread that delivered zero bytes) was aborted at
+ * the source; the receiver owes no completion, but its reorder window
+ * is (or will be) parked on msg_id.
+ *
+ * Rather than maintain a side data structure, this reuses the existing
+ * out-of-order machinery: it places a tombstone at slot msg_id (marked
+ * EFA_RDM_PKE_ABORTED) exactly where an OOO RTM would go, so the
+ * unchanged drain loop (efa_rdm_peer_proc_pending_items_in_robuf) and
+ * overflow-promotion path slide past it with no new critical-path code.
+ *
+ * Three cases:
+ *  1. Already processed (window slid past it): nothing to do.
+ *  2. A segment was already buffered for this msg_id: tombstone it in
+ *     place (efa_rdm_peer_abort_ooo_msg); this control packet is not
+ *     needed.
+ *  3. Never arrived (the common EAGER/MEDIUM case): hold THIS packet,
+ *     stamp it as the tombstone, and queue it in the recvwin (or the
+ *     overflow list if out of window).
+ *
+ * In all cases this function consumes @p pkt_entry (queues, holds, or
+ * releases it); the caller must not touch it afterward.
+ *
+ * Safety: per the mr_abort design (§5), the sender emits this packet only
+ * after every data WR for the message has drained, so no segment for
+ * msg_id can still arrive once we process it -- queueing the tombstone
+ * cannot race a late segment.
+ *
+ * @param[in,out] peer       peer whose reorder window to unblock
+ * @param[in]     ep         endpoint
+ * @param[in,out] pkt_entry  inbound PEER_ERROR (skip) packet (consumed)
+ * @param[in]     msg_id     source-aborted msg_id (the wire op_id)
+ * @return 1 if the packet was queued as a tombstone, 0 if it was not
+ *         needed (released), or a negative errno on allocation failure.
+ */
+int efa_rdm_peer_queue_aborted_msg_tombstone(struct efa_rdm_peer *peer,
+					     struct efa_rdm_ep *ep,
+					     struct efa_rdm_pke *pkt_entry,
+					     uint32_t msg_id)
+{
+	struct efa_rdm_robuf *robuf = &peer->robuf;
+	struct efa_rdm_pke *ooo_entry;
+	struct efa_rdm_rtm_base_hdr *rtm_hdr;
+
+	/* Case 1: window already advanced past this id -- clean drop. */
+	if (ofi_recvwin_id_processed(robuf, msg_id)) {
+		efa_rdm_pke_release_rx(pkt_entry);
+		return 0;
+	}
+
+	/* Case 2: a segment was already buffered; tombstone it in place and
+	 * drop this control packet. */
+	if (efa_rdm_peer_abort_ooo_msg(peer, msg_id)) {
+		efa_rdm_pke_release_rx(pkt_entry);
+		efa_rdm_peer_proc_pending_items_in_robuf(peer, ep);
+		return 1;
+	}
+
+	/* Case 3: never arrived. Hold this packet for the reorder window
+	 * (efa_rdm_pke_get_ooo_pke does the rx-pool accounting / clone, and
+	 * consumes pkt_entry), then stamp it as the tombstone. */
+	ooo_entry = efa_rdm_pke_get_ooo_pke(pkt_entry);
+	if (OFI_UNLIKELY(!ooo_entry))
+		return -FI_ENOMEM;
+
+	/* Make the queued tombstone resolve to slot msg_id via the shared
+	 * efa_rdm_pke_get_rtm_msg_id() path (used by the drain loop and
+	 * overflow promotion). The PEER_ERROR header's op_id already sits at
+	 * the RTM msg_id offset, but set it explicitly and flag REQ_MSG so
+	 * get_rtm_msg_id()'s assert holds. EFA_RDM_PKE_ABORTED must be set
+	 * AFTER get_ooo_pke: the clone path resets pke->flags. */
+	rtm_hdr = efa_rdm_pke_get_rtm_base_hdr(ooo_entry);
+	rtm_hdr->msg_id = msg_id;
+	rtm_hdr->flags |= EFA_RDM_REQ_MSG;
+	ooo_entry->flags |= EFA_RDM_PKE_ABORTED;
+
+	if (ofi_recvwin_id_valid(robuf, msg_id)) {
+		efa_rdm_peer_recvwin_queue_or_append_pke(ooo_entry, msg_id, robuf);
+	} else {
+		/* Out of window: stash in the overflow list, promoted into the
+		 * recvwin later by efa_rdm_peer_move_overflow_pke_to_recvwin. */
+		struct efa_rdm_peer_overflow_pke_list_entry *overflow_entry;
+
+		overflow_entry = ofi_buf_alloc(ep->overflow_pke_pool);
+		if (OFI_UNLIKELY(!overflow_entry)) {
+			EFA_WARN(FI_LOG_EP_CTRL,
+				 "Unable to allocate overflow entry for "
+				 "aborted msg_id %u tombstone\n", msg_id);
+			efa_rdm_pke_release_rx(ooo_entry);
+			return -FI_ENOMEM;
+		}
+		overflow_entry->pkt_entry = ooo_entry;
+		dlist_insert_head(&overflow_entry->entry, &peer->overflow_pke_list);
+	}
+
+	/* Advance the window now in case msg_id was the head slot. */
+	efa_rdm_peer_proc_pending_items_in_robuf(peer, ep);
+	return 1;
+}
+
+/**
  * @brief process packet entries in reorder buffer
  * This function is called after processing the expected packet entry
  *
@@ -371,10 +477,13 @@ void efa_rdm_peer_proc_pending_items_in_robuf(struct efa_rdm_peer *peer, struct 
 		if (!pending_pkt)
 			return;
 
-		msg_id = efa_rdm_pke_get_rtm_msg_id(pending_pkt);
-
-		/* If this slot is a tombstoned abort, free the
-		 * pke chain and slide the window without building an rxe. */
+		/*
+		 * If this slot is a tombstoned abort, free the pke chain and
+		 * slide the window without building an rxe. Checked before
+		 * reading the msg_id because a tombstone may be an inbound
+		 * PEER_ERROR packet (queued by the peer-abort handler), which
+		 * does not carry an RTM msg_id header.
+		 */
 		if (pending_pkt->flags & EFA_RDM_PKE_ABORTED) {
 			*ofi_recvwin_get_next_msg((&peer->robuf)) = NULL;
 			efa_rdm_pke_release_rx_list(pending_pkt);
@@ -384,6 +493,8 @@ void efa_rdm_peer_proc_pending_items_in_robuf(struct efa_rdm_peer *peer, struct 
 				efa_rdm_peer_move_overflow_pke_to_recvwin(peer);
 			continue;
 		}
+
+		msg_id = efa_rdm_pke_get_rtm_msg_id(pending_pkt);
 
 		EFA_DBG(FI_LOG_EP_CTRL,
 		       "Processing msg_id %d from robuf\n", msg_id);

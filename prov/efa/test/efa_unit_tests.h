@@ -341,12 +341,14 @@ void test_efa_rdm_pke_handle_peer_error_recv_medium_reaps_rxe();
 void test_efa_rdm_pke_handle_peer_error_recv_medium_tagged();
 void test_efa_rdm_pke_handle_peer_error_recv_medium_msg_id_not_found_dropped();
 void test_efa_rdm_pke_handle_peer_error_recv_medium_unexpected_tears_down();
-void test_efa_rdm_pke_handle_tx_error_medium_suppresses_peer_error_on_zero_delivery();
+void test_efa_rdm_pke_handle_tx_error_medium_emits_skip_on_zero_delivery();
 void test_efa_rdm_pke_handle_tx_error_medium_emits_peer_error_once();
-void test_efa_rdm_pke_handle_tx_error_dc_medium_suppresses_peer_error_on_zero_delivery();
+void test_efa_rdm_pke_handle_tx_error_dc_medium_emits_skip_on_zero_delivery();
 void test_efa_rdm_pke_handle_tx_error_medium_no_emit_when_peer_unsupported();
-void test_efa_rdm_pke_handle_tx_error_medium_suppresses_with_homogeneous_peers();
-void test_efa_rdm_pke_handle_tx_error_not_medium_no_emit();
+void test_efa_rdm_pke_handle_tx_error_medium_emits_skip_with_homogeneous_peers();
+void test_efa_rdm_pke_handle_tx_error_eager_emits_skip();
+void test_efa_rdm_pke_handle_tx_error_eager_no_emit_when_peer_unsupported();
+void test_efa_rdm_pke_handle_tx_error_eager_rtw_no_emit();
 void test_efa_rdm_pke_handle_tx_error_medium_no_emit_on_non_lkey_errno();
 void test_efa_rdm_pke_handle_tx_error_runtread_only_emits_peer_error();
 void test_efa_rdm_pke_handle_tx_error_runtread_with_read_no_emit();
@@ -466,6 +468,11 @@ void test_efa_rdm_peer_abort_ooo_in_overflow();
 void test_efa_rdm_peer_abort_ooo_in_recvwin();
 void test_efa_rdm_peer_abort_ooo_miss();
 void test_efa_rdm_peer_abort_ooo_recvwin_drain_progresses();
+void test_efa_rdm_peer_skip_aborted_msg_id_never_arrived_unblocks_window();
+void test_efa_rdm_peer_skip_aborted_msg_id_head_advances();
+void test_efa_rdm_peer_skip_aborted_msg_id_already_processed_noop();
+void test_efa_rdm_peer_skip_aborted_msg_id_buffered_tombstones();
+void test_efa_rdm_peer_skip_aborted_msg_id_tombstone_behind_head();
 /* end of efa_unit_test_rdm_peer.c */
 
 /* begin of efa_unit_test_pke.c */

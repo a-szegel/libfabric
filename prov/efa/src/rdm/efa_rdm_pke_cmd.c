@@ -512,9 +512,21 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			 * runting-read (bytes_runt == total_len). (LONGCTS
 			 * has a CTS and is handled inside
 			 * efa_rdm_txe_handle_error, which reaches OPE_SEND.)
+			 *
+			 * EAGER two-sided RTM is included too: it owes the
+			 * receiver no completion, but its single REQ consumed
+			 * a msg_id the receiver's reorder window reserved, so
+			 * a flush-at-source would head-of-line block every
+			 * later message. Tag it EFA_RDM_TXE_PEER_ERROR_SKIP so
+			 * the drain helper emits a REF_MSG_ID_SKIP that only
+			 * unblocks the window (no completion). For medium /
+			 * runt-only runtread the drain helper decides SKIP vs
+			 * completion-owing by bytes_acked, so we do not set the
+			 * SKIP flag here for them.
 			 */
 			if (prev_state != EFA_RDM_OPE_ERR &&
-			    efa_rdm_txe_peer_abort_uses_msg_id(txe) &&
+			    (efa_rdm_txe_peer_abort_uses_msg_id(txe) ||
+			     efa_rdm_pkt_type_is_eager_rtm(txe->protocol)) &&
 			    (err == FI_ECANCELED ||
 			     prov_errno == EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY) &&
 			    txe->peer != NULL &&
@@ -522,6 +534,9 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			     efa_rdm_peer_support_peer_error(txe->peer))) {
 				txe->peer_error_prov_errno = prov_errno;
 				txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING;
+				if (efa_rdm_pkt_type_is_eager_rtm(txe->protocol))
+					txe->internal_flags |=
+						EFA_RDM_TXE_PEER_ERROR_SKIP;
 			}
 			efa_rdm_pke_release_tx(pkt_entry);
 			/*
