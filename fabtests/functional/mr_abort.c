@@ -105,6 +105,18 @@ static enum close_side close_side = CLOSE_INITIATOR;
 static enum test_mode test_mode = TEST_ABORT;
 static int close_ep_first;
 
+/*
+ * Whether an aborted send/tagged operation is owed a terminal recv
+ * completion on the target (-X). True for protocols where the receiver
+ * matches and takes partial data before the abort (LONGCTS, RUNTREAD
+ * with a tail READ / LONGREAD): the matched rxe must complete with a
+ * clean FI_ECANCELED. False for EAGER and MEDIUM: an aborted message
+ * delivered nothing the receiver must complete (a stray FI_ECANCELED
+ * may still arrive and is accepted, but is never required). Only
+ * meaningful for -T send|tagged.
+ */
+static int abort_owes_rx_completion;
+
 /* Remote side MR info */
 static struct fi_rma_iov *remote_arr;
 
@@ -1123,21 +1135,6 @@ static int run_send_abort_client(int iter)
 		return -FI_EINVAL;
 	}
 
-	/*
-	 * Tell the target exactly how many sends we issued this iteration.
-	 * Both sides post until EAGAIN (TX queue / RQ depth bound), so the
-	 * count is not necessarily num_mrs * ops_per_mr; the target drains
-	 * exactly this many completions rather than guessing. Only the
-	 * initiator-close path exchanges this count (the target-close server
-	 * drain does not read it), keeping the OOB stream symmetric.
-	 */
-	if (close_side == CLOSE_INITIATOR) {
-		ret = ft_sock_send(oob_sock, &total_posted,
-				   sizeof(total_posted));
-		if (ret)
-			return ret;
-	}
-
 	/* Close sender MRs (initiator mode) */
 	if (close_side == CLOSE_INITIATOR) {
 		int close_failures = 0;
@@ -1183,6 +1180,34 @@ static int run_send_abort_client(int iter)
 			else
 				completed_err++;
 		}
+	}
+
+	/*
+	 * Tell the target how many terminal recv completions it is owed this
+	 * iteration. The target cannot derive this: an aborted message may
+	 * or may not have delivered enough to build a matched rxe, and the
+	 * count of in-flight sends is queue-depth bound (not num_mrs *
+	 * ops_per_mr). We compute it here, after our own TX CQ has drained:
+	 *
+	 *   - Every send that completed OK was delivered -> owed a success
+	 *     completion.
+	 *   - An aborted send is owed a (FI_ECANCELED) completion only for
+	 *     protocols where the receiver matched and took partial data
+	 *     before the abort (-X): LONGCTS, RUNTREAD-with-tail-READ /
+	 *     LONGREAD. For EAGER and MEDIUM an aborted message is not owed
+	 *     a completion (a stray FI_ECANCELED may still arrive and the
+	 *     target accepts it, but it is never required).
+	 *
+	 * Only the initiator-close path exchanges this; the target-close
+	 * server drain does not read it, keeping the OOB stream symmetric.
+	 */
+	if (close_side == CLOSE_INITIATOR) {
+		int owed = completed_ok +
+			   (abort_owes_rx_completion ? completed_err : 0);
+
+		ret = ft_sock_send(oob_sock, &owed, sizeof(owed));
+		if (ret)
+			return ret;
 	}
 
 	fprintf(stderr, "Iteration %d: mode=%s size=%zu posted=%d mrs=%d "
@@ -1370,7 +1395,18 @@ static int run_send_abort_server(int iter)
 			}
 			if (err.err == FI_ECANCELED) {
 				recv_canceled++;
-				completed++;
+				/*
+				 * A peer-abort completion counts toward the
+				 * owed total only for protocols where an
+				 * aborted message is owed one (-X: LONGCTS /
+				 * RUNTREAD-LONGREAD). For EAGER / MEDIUM a
+				 * stray FI_ECANCELED can still arrive; accept
+				 * and repost its buffer, but do not count it
+				 * toward `expected` (the initiator did not
+				 * include it in the owed count).
+				 */
+				if (abort_owes_rx_completion)
+					completed++;
 				o = container_of(err.op_context,
 						 struct op_ctx, context);
 				repost_idx = (int) (o - op_arr);
@@ -1410,12 +1446,86 @@ static int run_send_abort_server(int iter)
 	}
 
 	missing = expected - completed;
-	fprintf(stderr,
-		"Server iter %d: recvs=%d recv_ok=%d peer_aborted=%d missing=%d ... %s\n",
-		iter, expected, recv_ok, recv_canceled, missing,
-		missing == 0 ? "PASS" : "FAIL");
+	if (missing != 0) {
+		fprintf(stderr,
+			"Server iter %d: recvs=%d recv_ok=%d peer_aborted=%d "
+			"missing=%d ... FAIL\n",
+			iter, expected, recv_ok, recv_canceled, missing);
+		return -FI_EOTHER;
+	}
 
-	return missing == 0 ? 0 : -FI_EOTHER;
+	/*
+	 * Required completions are in. For EAGER / MEDIUM an aborted message
+	 * is not owed a completion, but a stray FI_ECANCELED can still arrive
+	 * (e.g. a medium partial-abort the provider notified). Sweep those up
+	 * and repost their buffers so the RQ stays full -- but don't block on
+	 * a count we don't have. Use a short idle timer: stop once 10ms pass
+	 * with no completion, resetting the timer whenever one arrives.
+	 */
+	{
+		uint64_t idle_deadline = ft_gettime_ms() + 10;
+
+		while (ft_gettime_ms() < idle_deadline) {
+			ret = fi_cq_read(rxcq, &comp, 1);
+			if (ret > 0) {
+				recv_ok++;
+				o = container_of(comp.op_context,
+						 struct op_ctx, context);
+				repost_idx = (int) (o - op_arr);
+				do {
+					ret = post_recv_op(repost_idx,
+							    o->mr_idx);
+					if (ret == -FI_EAGAIN)
+						(void) fi_cq_read(rxcq, NULL, 0);
+				} while (ret == -FI_EAGAIN &&
+					 ft_gettime_ms() < deadline);
+				if (ret && ret != -FI_EAGAIN) {
+					FT_PRINTERR("post_recv_op (repost)",
+						    ret);
+					return ret;
+				}
+				idle_deadline = ft_gettime_ms() + 10;
+			} else if (ret == -FI_EAVAIL) {
+				memset(&err, 0, sizeof(err));
+				ret = fi_cq_readerr(rxcq, &err, 0);
+				if (ret < 0) {
+					FT_PRINTERR("fi_cq_readerr", ret);
+					return ret;
+				}
+				if (err.err != FI_ECANCELED) {
+					FT_ERR("Unexpected target recv error:");
+					FT_CQ_ERR(rxcq, err, NULL, 0);
+					return -FI_EOTHER;
+				}
+				recv_canceled++;
+				o = container_of(err.op_context,
+						 struct op_ctx, context);
+				repost_idx = (int) (o - op_arr);
+				do {
+					ret = post_recv_op(repost_idx,
+							    o->mr_idx);
+					if (ret == -FI_EAGAIN)
+						(void) fi_cq_read(rxcq, NULL, 0);
+				} while (ret == -FI_EAGAIN &&
+					 ft_gettime_ms() < deadline);
+				if (ret && ret != -FI_EAGAIN) {
+					FT_PRINTERR("post_recv_op (repost)",
+						    ret);
+					return ret;
+				}
+				idle_deadline = ft_gettime_ms() + 10;
+			} else if (ret < 0 && ret != -FI_EAGAIN) {
+				FT_PRINTERR("fi_cq_read", ret);
+				return ret;
+			}
+		}
+	}
+
+	fprintf(stderr,
+		"Server iter %d: recvs=%d recv_ok=%d peer_aborted=%d missing=0 ... PASS\n",
+		iter, expected, recv_ok, recv_canceled);
+
+	return 0;
 }
 
 /*
@@ -1545,7 +1655,7 @@ int main(int argc, char **argv)
 	srand(time(NULL));
 
 	while ((op = getopt(argc, argv,
-			    "W:N:C:R:T:A:h" CS_OPTS INFO_OPTS API_OPTS)) != -1) {
+			    "W:N:C:R:T:A:Xh" CS_OPTS INFO_OPTS API_OPTS)) != -1) {
 		switch (op) {
 		case 'W':
 			num_mrs = atoi(optarg);
@@ -1597,6 +1707,9 @@ int main(int argc, char **argv)
 				return EXIT_FAILURE;
 			}
 			break;
+		case 'X':
+			abort_owes_rx_completion = 1;
+			break;
 		default:
 			ft_parseinfo(op, optarg, hints, &opts);
 			ft_parsecsopts(op, optarg, &opts);
@@ -1630,6 +1743,10 @@ int main(int argc, char **argv)
 			FT_PRINT_OPTS_USAGE("-A <order>",
 				"Server teardown order: ep_first|mr_first "
 				"(default: mr_first)");
+			FT_PRINT_OPTS_USAGE("-X",
+				"Aborted send/tagged ops are owed a target "
+				"recv completion (LONGCTS/LONGREAD); only "
+				"valid with -T send|tagged");
 			return EXIT_FAILURE;
 		}
 	}
@@ -1654,6 +1771,17 @@ int main(int argc, char **argv)
 		FT_ERR("Target-close (-R target) is not supported for "
 		       "send/tagged (-T send|tagged): canceling posted "
 		       "receive buffers is unsupported");
+		return EXIT_FAILURE;
+	}
+
+	/*
+	 * -X (aborted ops owe a target recv completion) only applies to the
+	 * two-sided send/tagged protocols. RMA/atomic and partial modes have
+	 * no posted recv to complete, so reject it there.
+	 */
+	if (abort_owes_rx_completion &&
+	    test_mode != TEST_SEND && test_mode != TEST_TAGGED) {
+		FT_ERR("-X is only valid with -T send|tagged");
 		return EXIT_FAILURE;
 	}
 
