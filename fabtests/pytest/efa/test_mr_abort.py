@@ -156,6 +156,25 @@ def determine_settings_for_proto(protocol, memory_type_symm, fabric):
     return proto_env.strip(), proto_size[protocol]
 
 
+def abort_owes_rx_completion(protocol):
+    """
+    Whether an aborted send/tagged message is owed a terminal recv
+    completion on the target for this protocol (the -X flag of
+    fi_mr_abort).
+
+    Owed: LONGCTS and RUNTREAD-LONGREAD. The receiver matches the recv
+    and takes partial data (a CTS handshake, or a runt + tail RDMA READ)
+    before the abort, so the provider must complete that matched rxe with
+    a clean FI_ECANCELED.
+
+    Not owed: EAGER, MEDIUM, RUNTREAD-NOREAD (runt-only). An aborted
+    message either delivered nothing or rides REQ packets with no CTS /
+    no READ; the receiver is not required to produce a completion (a stray
+    FI_ECANCELED may still arrive and is tolerated, but is not required).
+    """
+    return protocol in ("LONGCTS", "RUNTREAD-LONGREAD")
+
+
 # --- Test: send ---
 @pytest.mark.functional
 @pytest.mark.fabric(params=["efa", "efa-direct"])
@@ -178,9 +197,10 @@ def test_mr_abort_send(cmdline_args, fabric, cancel_order, close_side,
     if fabric == "efa-direct" and message_size > 8192:
         pytest.skip("efa-direct max send size is 8KB")
 
+    owe_flag = " -X" if abort_owes_rx_completion(protocol) else ""
     command = (f"fi_mr_abort -T send -C {cancel_order}"
                f" -R {close_side} -N {ops_per_mr} -W {MR_ABORT_NUM_MRS}"
-               f" -S {message_size}  -A ep_first")
+               f" -S {message_size}{owe_flag}  -A ep_first")
     test = ClientServerTest(cmdline_args, command, timeout=360, fabric=fabric,
                             memory_type=memory_type_symm, additional_env=env)
     test.run()
@@ -206,9 +226,10 @@ def test_mr_abort_tagged(cmdline_args, fabric, cancel_order, close_side,
 
     env, message_size = determine_settings_for_proto(protocol, memory_type_symm, fabric)
 
+    owe_flag = " -X" if abort_owes_rx_completion(protocol) else ""
     command = (f"fi_mr_abort -T tagged -C {cancel_order}"
                f" -R {close_side} -N {ops_per_mr} -W {MR_ABORT_NUM_MRS}"
-               f" -S {message_size} -A ep_first")
+               f" -S {message_size}{owe_flag} -A ep_first")
     test = ClientServerTest(cmdline_args, command, timeout=300, fabric=fabric,
                             memory_type=memory_type_symm, additional_env=env)
     test.run()
