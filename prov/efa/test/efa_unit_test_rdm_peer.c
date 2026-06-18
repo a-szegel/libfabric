@@ -1038,3 +1038,98 @@ void test_efa_rdm_peer_skip_aborted_msg_id_tombstone_behind_head(
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->rxe_list), 0);
 	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
 }
+
+/**
+ * @brief Regression test for the MEDIUM overflow-list abort leak.
+ *
+ * A multi-segment MEDIUM message that arrives out-of-order while the
+ * reorder window is full lands in the peer's overflow_pke_list. Unlike
+ * the recvwin (which chains same-msg_id segments into a single slot via
+ * recvwin_queue_or_append_pke), the overflow path stores EACH segment as
+ * a SEPARATE overflow_pke_list_entry. So one msg_id can have multiple
+ * overflow entries.
+ *
+ * efa_rdm_peer_abort_ooo_msg() must remove ALL overflow entries for the
+ * aborted msg_id. The bug: it removes only the FIRST match and returns,
+ * leaking the remaining segments (never released until ep close) and
+ * potentially wedging overflow promotion for a msg_id the window has
+ * already slid past.
+ *
+ * This test stages two segments of the same OOO medium msg_id in the
+ * overflow list, aborts it, and asserts the overflow list is fully
+ * drained. It FAILS against the buggy single-match implementation.
+ */
+void test_efa_rdm_peer_abort_ooo_msg_overflow_multi_segment(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct efa_rdm_peer *peer;
+	struct efa_rdm_pke *seg0, *seg1, *other;
+	struct efa_ep_addr raw_addr;
+	size_t raw_addr_len = sizeof(raw_addr);
+	fi_addr_t addr;
+	const uint32_t aborted_msg_id =
+		EFA_RDM_PEER_DEFAULT_REORDER_BUFFER_SIZE + 5;
+	const uint32_t other_msg_id =
+		EFA_RDM_PEER_DEFAULT_REORDER_BUFFER_SIZE + 6;
+	bool ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr,
+				    &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &addr, 0,
+				      NULL), 1);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, addr);
+	assert_non_null(peer);
+
+	/* Window expects msg_id 0; these ids are out of window -> overflow. */
+
+	/* Two segments of the SAME medium msg_id -> two overflow entries. */
+	alloc_pke_in_overflow_list(efa_rdm_ep, &seg0, peer, raw_addr,
+				   aborted_msg_id);
+	alloc_pke_in_overflow_list(efa_rdm_ep, &seg1, peer, raw_addr,
+				   aborted_msg_id);
+	/* A segment of a DIFFERENT msg_id, to confirm the abort only
+	 * removes the targeted id and leaves others intact. */
+	alloc_pke_in_overflow_list(efa_rdm_ep, &other, peer, raw_addr,
+				   other_msg_id);
+
+	assert_int_equal(efa_unit_test_get_dlist_length(&peer->overflow_pke_list),
+			 3);
+
+	/* Abort the multi-segment msg_id. */
+	ret = efa_rdm_peer_abort_ooo_msg(peer, aborted_msg_id);
+	assert_true(ret);
+
+	/*
+	 * BUG ASSERTION: every overflow entry for aborted_msg_id must be
+	 * gone. Only the unrelated other_msg_id entry should remain.
+	 * The buggy single-match implementation leaves 2 entries (one
+	 * leaked aborted segment + the other msg_id).
+	 */
+	assert_int_equal(efa_unit_test_get_dlist_length(&peer->overflow_pke_list),
+			 1);
+
+	/* The surviving entry is the unrelated msg_id. */
+	{
+		struct efa_rdm_peer_overflow_pke_list_entry *e;
+		struct dlist_entry *tmp;
+		uint32_t found = 0;
+
+		dlist_foreach_container_safe(&peer->overflow_pke_list,
+			struct efa_rdm_peer_overflow_pke_list_entry,
+			e, entry, tmp) {
+			found = efa_rdm_pke_get_rtm_msg_id(e->pkt_entry);
+			assert_int_equal(found, other_msg_id);
+			/* clean up the survivor */
+			dlist_remove(&e->entry);
+			efa_rdm_pke_release_rx_list(e->pkt_entry);
+			ofi_buf_free(e);
+		}
+	}
+}

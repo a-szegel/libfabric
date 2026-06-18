@@ -316,8 +316,17 @@ bool efa_rdm_peer_abort_ooo_msg(struct efa_rdm_peer *peer, uint32_t msg_id)
 	struct dlist_entry *tmp;
 	struct efa_rdm_pke *pke;
 	uint32_t entry_msg_id;
+	bool aborted = false;
 
-	/* 1. Check overflow list (safe to physically remove). */
+	/*
+	 * 1. Check overflow list (safe to physically remove).
+	 *
+	 * The overflow list stores ONE entry per segment (it does not chain
+	 * same-msg_id segments the way the recvwin does), so a multi-segment
+	 * medium message has multiple overflow entries for the same msg_id.
+	 * Remove ALL of them -- returning after the first match would leak
+	 * the remaining segments.
+	 */
 	dlist_foreach_container_safe(&peer->overflow_pke_list,
 				     struct efa_rdm_peer_overflow_pke_list_entry,
 				     overflow_entry, entry, tmp) {
@@ -326,9 +335,11 @@ bool efa_rdm_peer_abort_ooo_msg(struct efa_rdm_peer *peer, uint32_t msg_id)
 			dlist_remove(&overflow_entry->entry);
 			efa_rdm_pke_release_rx_list(overflow_entry->pkt_entry);
 			ofi_buf_free(overflow_entry);
-			return true;
+			aborted = true;
 		}
 	}
+	if (aborted)
+		return true;
 
 	/* 2. Check recvwin (tombstone, do not NULL the slot). */
 	if (ofi_recvwin_id_valid(&peer->robuf, msg_id)) {
