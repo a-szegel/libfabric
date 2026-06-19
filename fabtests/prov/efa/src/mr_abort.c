@@ -132,12 +132,17 @@ static struct fi_rma_iov *remote_arr;
 #define MR_ABORT_KEY_BASE 0x1000
 
 /*
- * Unified CQ-drain timeout. Allow up to CQ_FIRST_TIMEOUT_MS for the first
- * completion to appear (covers device-flush latency after an MR close, or
- * the peer starting to send/signal), then only CQ_IDLE_TIMEOUT_MS between
- * consecutive completions: the deadline is seeded to "first" and reset to
- * "idle" on every reaped completion. A drain is declared finished once the
- * CQ has stayed idle for one CQ_IDLE_TIMEOUT_MS window.
+ * Timeout-based CQ drain budget, used by drain_cq() (the send-initiator TX
+ * drain) and the send/tagged target RX drain in run_send_abort_target().
+ * Allow up to CQ_FIRST_TIMEOUT_MS for the first completion to appear
+ * (covers device-flush latency after an MR close, or the peer starting to
+ * send/signal), then only CQ_IDLE_TIMEOUT_MS between consecutive
+ * completions: the deadline is seeded to "first" and reset to "idle" on
+ * every reaped completion. A drain is declared finished once the CQ has
+ * stayed idle for one CQ_IDLE_TIMEOUT_MS window.
+ *
+ * The TX-side abort/partial drains do NOT use this timeout -- they know the
+ * exact required completion count and block via drain_cq_counted() instead.
  */
 #define CQ_FIRST_TIMEOUT_MS 5000
 #define CQ_IDLE_TIMEOUT_MS  50
@@ -681,6 +686,73 @@ static int drain_cq(struct fid_cq *cq, int expected,
 	return remaining;
 }
 
+/*
+ * Counted CQ drain for the TX-side abort/partial tests.
+ *
+ * Unlike drain_cq(), this uses NO idle/first-completion timeout. The
+ * initiator-side abort and partial tests post a known, exact number of
+ * operations and every one of them is required to produce a terminal
+ * completion (success or an expected abort-class error) -- there is no
+ * straggler/slack ambiguity. Rather than guessing "the CQ has gone idle, so
+ * the rest must be missing" with a short window -- which can falsely fail
+ * when a fast local completion (e.g. a just-closed MR's device-flush error)
+ * races ahead of a slower but still-valid completion arriving over the wire
+ * -- we simply block until all `expected` completions have been reaped.
+ *
+ * Returns 0 once every expected completion has arrived, or a negative error
+ * on an unexpected CQ error / hard fi_cq_read failure (still a clean,
+ * immediate return, not a hang). The only way a genuine silent drop
+ * manifests is as a hang, which is bounded by the caller's overall test
+ * timeout (the pytest ClientServerTest timeout).
+ */
+static int drain_cq_counted(struct fid_cq *cq, int expected,
+			    struct expected_err *err_list, int err_count)
+{
+	struct fi_cq_tagged_entry comp;
+	struct fi_cq_err_entry err;
+	struct op_ctx *o;
+	int remaining, ret;
+
+	remaining = expected;
+
+	while (remaining > 0) {
+		ret = fi_cq_read(cq, &comp, 1);
+		if (ret > 0) {
+			o = container_of(comp.op_context,
+					 struct op_ctx, context);
+			o->completed = 1;
+			o->status = 0;
+			remaining--;
+		} else if (ret == -FI_EAVAIL) {
+			memset(&err, 0, sizeof(err));
+			ret = fi_cq_readerr(cq, &err, 0);
+			if (ret < 0 && ret != -FI_EAGAIN) {
+				FT_PRINTERR("fi_cq_readerr", ret);
+				return ret;
+			}
+			if (ret == 1) {
+				o = container_of(err.op_context,
+						 struct op_ctx, context);
+				o->completed = 1;
+				o->status = -err.err;
+				o->prov_errno = err.prov_errno;
+				if (!is_expected_err(&err, err_list,
+						     err_count)) {
+					FT_ERR("Unexpected CQ error:");
+					FT_CQ_ERR(cq, err, NULL, 0);
+					return -FI_EOTHER;
+				}
+				remaining--;
+			}
+		} else if (ret < 0 && ret != -FI_EAGAIN) {
+			FT_PRINTERR("fi_cq_read", ret);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
 static const char *op_str(void)
 {
 	switch (opts.rma_op) {
@@ -875,18 +947,18 @@ static int run_fill_abort_initiator(int iter)
 		struct expected_err target_errs[] = {
 			{ .err = FI_EINVAL, .prov_errno = 7 },  /* remote MR invalid */
 		};
-		missing = drain_cq(txcq, total_posted, target_errs, 1);
+		missing = drain_cq_counted(txcq, total_posted, target_errs, 1);
 	} else {
 		struct expected_err initiator_errs[] = {
 			{ .err = FI_ECANCELED, .prov_errno = 1 },    /* device flush */
 			{ .err = FI_ECANCELED, .prov_errno = 4100 },  /* RDM pkt post fail */
 			{ .err = FI_EINVAL, .prov_errno = 5 },        /* local MR invalid */
 		};
-		missing = drain_cq(txcq, total_posted, initiator_errs, 3);
+		missing = drain_cq_counted(txcq, total_posted, initiator_errs, 3);
 	}
 
 	if (missing < 0)
-		return missing; /* drain_cq hit unexpected error */
+		return missing; /* drain_cq_counted hit unexpected error */
 
 	/* Report */
 	completed_ok = 0;
@@ -1068,7 +1140,7 @@ static int run_partial_close_initiator(void)
 	extra_slot.mr = NULL;
 
 	/* Drain both completions */
-	missing = drain_cq(txcq, 2, partial_errs, 4);
+	missing = drain_cq_counted(txcq, 2, partial_errs, 4);
 	if (missing < 0) {
 		ret = missing;
 		goto close_extra;
