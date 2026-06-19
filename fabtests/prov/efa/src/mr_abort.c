@@ -43,6 +43,7 @@
 #include <getopt.h>
 #include <time.h>
 #include <limits.h>
+#include <errno.h>
 
 #include <rdma/fi_errno.h>
 #include <rdma/fi_rma.h>
@@ -105,6 +106,13 @@ static enum close_order_mode close_order_mode = CLOSE_ORDER_REVERSE;
 static enum close_side close_side = CLOSE_INITIATOR;
 static enum test_mode test_mode = TEST_ABORT;
 static int close_ep_first;
+
+/*
+ * -r <file>: replay a previously dumped close order instead of generating
+ * one. Overrides -C reverse|random. Set on the close side to reproduce a
+ * specific failing close sequence (see dump_close_order).
+ */
+static const char *close_order_replay_path;
 
 /*
  * Whether an aborted send/tagged operation is owed a terminal recv
@@ -422,27 +430,125 @@ static void shuffle(int *arr, int n)
 static const char *close_order_str(void);
 
 /*
- * Dump the most recently built close order: the exact sequence of MR slot
- * indices that were closed. Only called when a test fails, so a failing
- * run -- especially -C random -- can be reproduced from the log.
+ * On failure, persist the close order that triggered it so it can be
+ * replayed with -r. Writes a unique /tmp file (one MR slot index per line,
+ * '#' header comment) and logs the path. When the run is itself a replay
+ * (-r) the order is already on disk, so we just point back at that file.
+ *
+ * Only called when a test fails -- especially useful for -C random, whose
+ * order differs every run.
  */
 static void dump_close_order(void)
 {
-	int i;
+	char path[] = "/tmp/fi_mr_abort_close_order-XXXXXX";
+	FILE *f;
+	int fd, i;
 
 	if (close_order_len <= 0)
 		return;
 
-	fprintf(stderr, "close order (%s, %d MRs):", close_order_str(),
-		close_order_len);
+	if (close_order_replay_path) {
+		fprintf(stderr,
+			"close order (%s, %d MRs) reproduced from %s\n",
+			close_order_str(), close_order_len,
+			close_order_replay_path);
+		return;
+	}
+
+	fd = mkstemp(path);
+	if (fd < 0) {
+		FT_ERR("could not create close-order file (replay disabled): %s",
+		       strerror(errno));
+		return;
+	}
+	f = fdopen(fd, "w");
+	if (!f) {
+		FT_ERR("could not open close-order file '%s': %s", path,
+		       strerror(errno));
+		close(fd);
+		return;
+	}
+
+	fprintf(f, "# fi_mr_abort close order: %s, %d MRs\n",
+		close_order_str(), close_order_len);
 	for (i = 0; i < close_order_len; i++)
-		fprintf(stderr, " %d", close_order[i]);
-	fprintf(stderr, "\n");
+		fprintf(f, "%d\n", close_order[i]);
+	fclose(f);
+
+	fprintf(stderr,
+		"close order (%s, %d MRs) written to %s -- reproduce with -r %s\n",
+		close_order_str(), close_order_len, path, path);
 }
 
-static void build_close_order(int n)
+/*
+ * Load a close order previously dumped by dump_close_order. Reads exactly n
+ * slot indices, skipping blank lines and '#' comments; every index must be
+ * unique and in [0, n) so the result is a valid permutation. A length
+ * mismatch usually means the replay file was produced with different
+ * -W/-N/-S settings than the current run.
+ */
+static int read_close_order(int n)
+{
+	FILE *f;
+	char line[64];
+	char *seen;
+	int count = 0, idx;
+
+	f = fopen(close_order_replay_path, "r");
+	if (!f) {
+		FT_ERR("could not open replay file '%s': %s",
+		       close_order_replay_path, strerror(errno));
+		return -FI_EINVAL;
+	}
+
+	seen = calloc(n, 1);
+	if (!seen) {
+		fclose(f);
+		return -FI_ENOMEM;
+	}
+
+	while (count < n && fgets(line, sizeof(line), f)) {
+		if (line[0] == '#' || line[0] == '\n' || line[0] == '\r' ||
+		    line[0] == '\0')
+			continue;
+		idx = atoi(line);
+		if (idx < 0 || idx >= n || seen[idx]) {
+			FT_ERR("replay file '%s': invalid or duplicate index "
+			       "%d (need unique values in [0,%d))",
+			       close_order_replay_path, idx, n);
+			free(seen);
+			fclose(f);
+			return -FI_EINVAL;
+		}
+		seen[idx] = 1;
+		close_order[count++] = idx;
+	}
+	fclose(f);
+	free(seen);
+
+	if (count != n) {
+		FT_ERR("replay file '%s': got %d indices, expected %d "
+		       "(do -W/-N/-S match the run that produced it?)",
+		       close_order_replay_path, count, n);
+		return -FI_EINVAL;
+	}
+
+	return 0;
+}
+
+static int build_close_order(int n)
 {
 	int i, tmp;
+
+	if (close_order_replay_path) {
+		/* Replay overrides the reverse/random generator. */
+		int ret = read_close_order(n);
+
+		if (ret)
+			return ret;
+		close_order_len = n;
+		return 0;
+	}
 
 	for (i = 0; i < n; i++)
 		close_order[i] = i;
@@ -461,6 +567,7 @@ static void build_close_order(int n)
 	}
 
 	close_order_len = n;
+	return 0;
 }
 
 static int is_expected_err(struct fi_cq_err_entry *err,
@@ -742,7 +849,9 @@ static int run_fill_abort_initiator(int iter)
 	if (close_side == CLOSE_INITIATOR) {
 		int close_failures = 0;
 
-		build_close_order(mrs_used);
+		ret = build_close_order(mrs_used);
+		if (ret)
+			return ret;
 		for (i = 0; i < mrs_used; i++) {
 			int idx = close_order[i];
 
@@ -861,7 +970,9 @@ static int run_fill_abort_target(void)
 	}
 
 	/* Close all MRs as fast as possible */
-	build_close_order(num_mrs);
+	ret = build_close_order(num_mrs);
+	if (ret)
+		return ret;
 	for (i = 0; i < num_mrs; i++) {
 		int idx = close_order[i];
 
@@ -1240,7 +1351,9 @@ static int run_send_abort_initiator(int iter)
 	/* Close sender MRs (initiator mode) */
 	int close_failures = 0;
 
-	build_close_order(mrs_used);
+	ret = build_close_order(mrs_used);
+	if (ret)
+		return ret;
 	for (i = 0; i < mrs_used; i++) {
 		int idx = close_order[i];
 
@@ -1751,13 +1864,16 @@ int main(int argc, char **argv)
 	srand(time(NULL));
 
 	while ((op = getopt(argc, argv,
-			    "W:N:C:R:T:A:Xh" CS_OPTS INFO_OPTS API_OPTS)) != -1) {
+			    "W:N:C:R:T:A:r:Xh" CS_OPTS INFO_OPTS API_OPTS)) != -1) {
 		switch (op) {
 		case 'W':
 			num_mrs = atoi(optarg);
 			break;
 		case 'N':
 			ops_per_mr = atoi(optarg);
+			break;
+		case 'r':
+			close_order_replay_path = optarg;
 			break;
 		case 'C':
 			if (!strcmp(optarg, "reverse"))
@@ -1833,6 +1949,9 @@ int main(int argc, char **argv)
 			FT_PRINT_OPTS_USAGE("-C <mode>",
 				"MR close order: reverse|random "
 				"(default: reverse)");
+			FT_PRINT_OPTS_USAGE("-r <file>",
+				"Replay MR close order from <file> "
+				"(overrides -C; written to /tmp on failure)");
 			FT_PRINT_OPTS_USAGE("-R <side>",
 				"Which side closes MRs: "
 				"initiator|target (default: initiator)");
