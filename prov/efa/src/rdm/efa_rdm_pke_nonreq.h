@@ -304,6 +304,31 @@ int efa_rdm_pke_init_peer_error(struct efa_rdm_pke *pkt_entry,
 				uint32_t op_id, uint32_t ref_kind,
 				int prov_errno, uint32_t connid);
 
+/**
+ * @brief Whether a sender-side peer-abort for this txe is signalled by
+ *        msg_id (REF_MSG_ID / REF_MSG_ID_SKIP) rather than a shared ope
+ *        index.
+ *
+ * True for the sender-detected protocols that exchange no CTS (so the
+ * sender never learns the receiver's rxe index, leaving msg_id as the
+ * only shared id): EAGER two-sided RTM, medium RTM, and runt-only
+ * runtread (bytes_runt == total_len, all data in REQ packets, no RDMA
+ * READ).
+ *
+ * EAGER always routes to REF_MSG_ID_SKIP: it carries all data in a
+ * single REQ and never increments bytes_acked, so an aborted eager txe
+ * has bytes_acked == 0 and the SKIP-vs-completion test in
+ * efa_rdm_pke_init_peer_error_for_ope() selects SKIP for it.
+ */
+static inline
+bool efa_rdm_txe_peer_abort_uses_msg_id(struct efa_rdm_ope *txe)
+{
+	return efa_rdm_pkt_type_is_eager_rtm(txe->protocol) ||
+	       efa_rdm_pkt_type_is_medium(txe->protocol) ||
+	       (efa_rdm_pkt_type_is_runtread(txe->protocol) &&
+		txe->total_len == txe->bytes_runt);
+}
+
 int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,
 					struct efa_rdm_ope *ope);
 
