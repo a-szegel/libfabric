@@ -10,6 +10,7 @@ MR_ABORT_NUM_MRS = 2046
 
 
 # --- Test: abort (RMA) ---
+@pytest.mark.pr_ci  # TODO decide to keep/remove
 @pytest.mark.functional
 @pytest.mark.fabric(params=["efa-direct", "efa"])
 @pytest.mark.parametrize("rma_op", ["write", "read", "writedata"])
@@ -40,6 +41,7 @@ def test_mr_abort(cmdline_args, rma_fabric, rma_op, cancel_order, close_side, op
 
 
 # --- Test: partial (2 MRs on same buffer) ---
+@pytest.mark.pr_ci  # TODO decide to keep/remove
 @pytest.mark.functional
 @pytest.mark.fabric(params=["efa-direct", "efa"])
 @pytest.mark.parametrize("rma_op", ["write", "read", "writedata"])
@@ -199,6 +201,7 @@ def abort_owes_rx_completion(protocol):
 
 
 # --- Test: send ---
+@pytest.mark.pr_ci  # TODO decide to keep/remove
 @pytest.mark.functional
 @pytest.mark.fabric(params=["efa-direct", "efa"])
 @pytest.mark.parametrize("cancel_order", ["reverse", "random"])
@@ -238,6 +241,7 @@ def test_mr_abort_send(cmdline_args, fabric, cancel_order, close_side,
 
 
 # --- Test: tagged ---
+@pytest.mark.pr_ci  # TODO decide to keep/remove
 @pytest.mark.functional
 @pytest.mark.fabric(params=["efa-direct", "efa"])
 @pytest.mark.parametrize("cancel_order", ["reverse", "random"])
