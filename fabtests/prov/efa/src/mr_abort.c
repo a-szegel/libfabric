@@ -157,8 +157,10 @@ static struct fi_rma_iov *remote_arr;
 #define MR_ABORT_KEY_BASE 0x1000
 
 /*
- * Timeout-based CQ drain budget, used by drain_cq() (the send-initiator TX
- * drain) and the send/tagged target RX drain in run_send_abort_target().
+ * Timeout-based CQ drain budget, used ONLY by the send/tagged target RX
+ * drain in run_send_abort_target() for the INDETERMINATE case (EAGER /
+ * MEDIUM / runt-only without -X, where an aborted send may or may not yield
+ * a recv completion, so the exact reaped count cannot be known in advance).
  * Allow up to CQ_FIRST_TIMEOUT_MS for the first completion to appear
  * (covers device-flush latency after an MR close, or the peer starting to
  * send/signal), then only CQ_IDLE_TIMEOUT_MS between consecutive
@@ -166,8 +168,9 @@ static struct fi_rma_iov *remote_arr;
  * every reaped completion. A drain is declared finished once the CQ has
  * stayed idle for one CQ_IDLE_TIMEOUT_MS window.
  *
- * The TX-side abort/partial drains do NOT use this timeout -- they know the
- * exact required completion count and block via drain_cq_counted() instead.
+ * Every other drain knows the exact required completion count and blocks on
+ * it instead: the TX side via drain_cq_counted(), and the target RX drain's
+ * slack == 0 branch (the -X owed protocols, where required is guaranteed).
  */
 #define CQ_FIRST_TIMEOUT_MS 5000
 #define CQ_IDLE_TIMEOUT_MS  50
@@ -623,99 +626,11 @@ static int is_expected_err(struct fi_cq_err_entry *err,
 	return 0;
 }
 
-static int drain_cq(struct fid_cq *cq, int expected,
-		    struct expected_err *err_list, int err_count)
-{
-	struct fi_cq_tagged_entry comp;
-	struct fi_cq_err_entry err;
-	struct op_ctx *o;
-	uint64_t deadline;
-	int remaining, ret;
-
-	remaining = expected;
-	deadline = ft_gettime_ms() + CQ_FIRST_TIMEOUT_MS;
-
-	while (remaining > 0 && ft_gettime_ms() < deadline) {
-		ret = fi_cq_read(cq, &comp, 1);
-		if (ret > 0) {
-			o = container_of(comp.op_context,
-					 struct op_ctx, context);
-			o->completed = 1;
-			o->status = 0;
-			remaining--;
-			deadline = ft_gettime_ms() + CQ_IDLE_TIMEOUT_MS;
-		} else if (ret == -FI_EAVAIL) {
-			memset(&err, 0, sizeof(err));
-			ret = fi_cq_readerr(cq, &err, 0);
-			if (ret < 0 && ret != -FI_EAGAIN) {
-				FT_PRINTERR("fi_cq_readerr", ret);
-				return ret;
-			}
-			if (ret == 1) {
-				o = container_of(err.op_context,
-						 struct op_ctx, context);
-				o->completed = 1;
-				o->status = -err.err;
-				o->prov_errno = err.prov_errno;
-				if (!is_expected_err(&err, err_list,
-						     err_count)) {
-					FT_ERR("Unexpected CQ error:");
-					FT_CQ_ERR(cq, err, NULL, 0);
-					return -FI_EOTHER;
-				}
-				remaining--;
-				deadline = ft_gettime_ms() + CQ_IDLE_TIMEOUT_MS;
-			}
-		} else if (ret < 0 && ret != -FI_EAGAIN) {
-			FT_PRINTERR("fi_cq_read", ret);
-			return ret;
-		}
-	}
-
-	if (expected > remaining) {
-		struct {
-			int err;
-			int prov_errno;
-			int count;
-		} buckets[16];
-		int i, j, nb = 0;
-		for (i = 0; i < expected; i++) {
-			if (!op_arr[i].completed || op_arr[i].status == 0)
-				continue;
-			for (j = 0; j < nb; j++) {
-				if (buckets[j].err == -op_arr[i].status &&
-				    buckets[j].prov_errno == op_arr[i].prov_errno) {
-					buckets[j].count++;
-					break;
-				}
-			}
-			if (j == nb && nb < 16) {
-				buckets[nb].err = -op_arr[i].status;
-				buckets[nb].prov_errno = op_arr[i].prov_errno;
-				buckets[nb].count = 1;
-				nb++;
-			}
-		}
-		if (nb > 0) {
-			fprintf(stderr, "  CQ error breakdown:");
-			for (j = 0; j < nb; j++)
-				fprintf(stderr, " [err=%d(%s) prov_errno=%d x%d]",
-				       buckets[j].err,
-				       fi_strerror(buckets[j].err),
-				       buckets[j].prov_errno,
-				       buckets[j].count);
-			fprintf(stderr, "\n");
-		}
-	}
-
-	return remaining;
-}
-
 /*
  * Counted CQ drain for the TX-side abort/partial tests.
  *
- * Unlike drain_cq(), this uses NO idle/first-completion timeout. The
- * initiator-side abort and partial tests post a known, exact number of
+ * Unlike the timeout-based target RX drain, this uses NO idle/first-
+ * completion timeout. The initiator-side abort and partial tests post a known, exact number of
  * operations and every one of them is required to produce a terminal
  * completion (success or an expected abort-class error) -- there is no
  * straggler/slack ambiguity. Rather than guessing "the CQ has gone idle, so
@@ -905,7 +820,7 @@ static int run_fill_abort_initiator(int iter)
 		 * writes. The target starts closing all MRs as soon as
 		 * it gets the signal, racing the large writes.
 		 *
-		 * Use op_arr[0] as context so drain_cq's container_of
+		 * Use op_arr[0] as context so drain_cq_counted's container_of
 		 * resolves to a valid op_ctx.
 		 */
 		op_arr[0].mr_idx = 0;
@@ -1456,14 +1371,26 @@ static int run_send_abort_initiator(int iter)
 		return -FI_EOTHER;
 	}
 
-	/* Drain TX CQ */
+	/*
+	 * Drain TX CQ.
+	 *
+	 * Every posted send is guaranteed exactly one terminal TX completion
+	 * (a success, or an abort-class error) regardless of wire protocol --
+	 * the TX side is never indeterminate. So use the counted drain with
+	 * the known posted count rather than a timeout: a genuinely missing
+	 * completion manifests as a hang bounded by the pytest timeout, never
+	 * a flaky short-window failure.
+	 */
 	struct expected_err send_initiator_errs[] = {
 		{ .err = FI_ECANCELED, .prov_errno = 1 },     /* device flush */
 		{ .err = FI_ECANCELED, .prov_errno = 4100 },  /* RDM pkt post fail */
 		{ .err = FI_EINVAL, .prov_errno = 5 },        /* local MR invalid */
 		{ .err = FI_ECANCELED, .prov_errno = 4127 },  /* peer abort: receiver detected the yanked source MR on its RDMA read and notified us via PEER_ERROR_PKT */
 	};
-	missing = drain_cq(txcq, total_posted, send_initiator_errs, 4);
+	missing = drain_cq_counted(txcq, total_posted, send_initiator_errs,
+				   ARRAY_SIZE(send_initiator_errs));
+	if (missing < 0)
+		return missing; /* drain_cq_counted hit unexpected error */
 
 	completed_ok = 0;
 	completed_err = 0;
@@ -1525,6 +1452,62 @@ static int mr_abort_repost_recv(struct fid_cq *rxcq, struct op_ctx *o,
 		return ret;
 	}
 	return 0;
+}
+
+/*
+ * Read and process a single RX CQ entry for the send/tagged target drain.
+ *
+ * Returns 1 if a terminal completion was reaped (counted, and its app-owned
+ * buffer reposted to keep the RQ at depth), 0 if the CQ was momentarily
+ * empty (-FI_EAGAIN), or a negative error on a hard fi_cq_read failure or an
+ * unexpected (non-abort) error completion. A success increments *recv_ok; an
+ * accepted abort-class error (matching @p errs) increments *recv_canceled.
+ *
+ * The repost is given a fresh CQ_FIRST_TIMEOUT_MS budget so it succeeds even
+ * in the counted (slack == 0) branch, which has no rolling idle deadline.
+ */
+static int target_recv_drain_one(struct expected_err *errs, int nerr,
+				 int *recv_ok, int *recv_canceled)
+{
+	struct fi_cq_tagged_entry comp;
+	struct fi_cq_err_entry err;
+	struct op_ctx *o;
+	int ret;
+
+	ret = fi_cq_read(rxcq, &comp, 1);
+	if (ret > 0) {
+		(*recv_ok)++;
+		o = container_of(comp.op_context, struct op_ctx, context);
+		ret = mr_abort_repost_recv(rxcq, o,
+					   ft_gettime_ms() + CQ_FIRST_TIMEOUT_MS);
+		if (ret)
+			return ret;
+		return 1;
+	} else if (ret == -FI_EAVAIL) {
+		memset(&err, 0, sizeof(err));
+		ret = fi_cq_readerr(rxcq, &err, 0);
+		if (ret < 0) {
+			FT_PRINTERR("fi_cq_readerr", ret);
+			return ret;
+		}
+		if (!is_expected_err(&err, errs, nerr)) {
+			FT_ERR("Unexpected target recv error:");
+			FT_CQ_ERR(rxcq, err, NULL, 0);
+			return -FI_EOTHER;
+		}
+		(*recv_canceled)++;
+		o = container_of(err.op_context, struct op_ctx, context);
+		ret = mr_abort_repost_recv(rxcq, o,
+					   ft_gettime_ms() + CQ_FIRST_TIMEOUT_MS);
+		if (ret)
+			return ret;
+		return 1;
+	} else if (ret < 0 && ret != -FI_EAGAIN) {
+		FT_PRINTERR("fi_cq_read", ret);
+		return ret;
+	}
+
+	return 0; /* -FI_EAGAIN: CQ momentarily empty */
 }
 
 /*
@@ -1640,9 +1623,6 @@ static int run_send_abort_target(int iter)
 	 * peer-abort) so the receive queue stays populated for the next
 	 * iteration.
 	 */
-	struct fi_cq_tagged_entry comp;
-	struct fi_cq_err_entry err;
-	struct op_ctx *o;
 	/*
 	 * Error completions that legitimately terminate a recv when the
 	 * initiator aborts mid-transfer by closing its source MR. prov_errno
@@ -1699,19 +1679,25 @@ static int run_send_abort_target(int iter)
 	 *   - On EAGAIN, just loop; the top-of-pass window check (below) is
 	 *     the only exit.
 	 *
-	 * The loop continues while EITHER window is open: the CQ idle window
-	 * (now < deadline), OR -- while counts have not yet arrived -- the
-	 * one-time hard budget (now < hard_deadline). Keeping the CQ-idle
-	 * reset (CQ_IDLE_TIMEOUT_MS) reaps delivered-but-indeterminate
-	 * stragglers in the iteration they belong to instead of letting them
-	 * bleed into the next iteration's drain and corrupt its count; the
-	 * buffer is app-owned and MUST go back, so every terminal completion
-	 * is reposted to keep the RQ at its seeded depth and give any
-	 * SRX-queued unexpected message a recv to match it.
+	 * Exit is slack-aware (see the detailed top-of-pass comment):
+	 *   - slack == 0: a COUNTED drain. Every `required` completion is
+	 *     guaranteed, so loop (no idle timeout) until reaped == required.
+	 *   - slack > 0: the INDETERMINATE case. The loop continues while
+	 *     EITHER window is open: the CQ idle window (now < deadline), OR
+	 *     -- while counts have not yet arrived -- the one-time hard budget
+	 *     (now < hard_deadline).
+	 *
+	 * Keeping the CQ-idle reset (CQ_IDLE_TIMEOUT_MS) reaps
+	 * delivered-but-indeterminate stragglers in the iteration they belong
+	 * to instead of letting them bleed into the next iteration's drain and
+	 * corrupt its count; the buffer is app-owned and MUST go back, so every
+	 * terminal completion is reposted to keep the RQ at its seeded depth and
+	 * give any SRX-queued unexpected message a recv to match it.
 	 *
 	 * After the loop: fail if counts never arrived; otherwise pass when
-	 * required <= reaped <= required + slack (a RANGE, not an exact match
-	 * -- see the required/slack contract in the section banner above).
+	 * required <= reaped <= required + slack (a RANGE for slack > 0, an
+	 * exact match for slack == 0 -- see the required/slack contract in the
+	 * section banner above).
 	 */
 	reaped = 0;
 	while (1) {
@@ -1719,8 +1705,34 @@ static int run_send_abort_target(int iter)
 		int cq_window_open = now < deadline;
 		int counts_window_open = !have_counts && now < hard_deadline;
 
-		if (!cq_window_open && !counts_window_open)
+		/*
+		 * Exit conditions:
+		 *
+		 *  - slack == 0 (counts known): every `required` completion is
+		 *    GUARANTEED to arrive -- the -X owed protocols (LONGCTS,
+		 *    RUNTREAD-with-tail-READ / LONGREAD, where the receiver
+		 *    matched and took partial data before the abort) plus every
+		 *    fully delivered send. This is a counted drain: exit only
+		 *    once all `required` have been reaped, with NO idle timeout
+		 *    -- the same contract as the TX-side drain_cq_counted(). A
+		 *    genuinely missing completion becomes a hang bounded by the
+		 *    pytest timeout, never a flaky short-window failure.
+		 *
+		 *  - otherwise (slack > 0, or counts not yet known): the
+		 *    INDETERMINATE case (EAGER / MEDIUM / runt-only without -X),
+		 *    where an aborted send may have delivered its payload before
+		 *    the local flush (a success), delivered nothing (no
+		 *    completion), or surface a stray FI_ECANCELED. Only this
+		 *    case needs the timeout windows: exit once the CQ idle
+		 *    window has closed AND -- while counts are still outstanding
+		 *    -- the one-time hard budget has closed.
+		 */
+		if (have_counts && slack == 0) {
+			if (reaped >= required)
+				break;
+		} else if (!cq_window_open && !counts_window_open) {
 			break;
+		}
 
 		if (!have_counts) {
 			ret = oob_recv_nonblock(oob_sock, counts,
@@ -1736,52 +1748,23 @@ static int run_send_abort_target(int iter)
 			}
 		}
 
-		ret = fi_cq_read(rxcq, &comp, 1);
-		if (ret > 0) {
-			recv_ok++;
-			reaped++;
-			o = container_of(comp.op_context, struct op_ctx,
-					 context);
-			ret = mr_abort_repost_recv(rxcq, o, deadline);
-			if (ret)
-				return ret;
-			deadline = ft_gettime_ms() + CQ_IDLE_TIMEOUT_MS;
-			continue;
-		} else if (ret == -FI_EAVAIL) {
-			memset(&err, 0, sizeof(err));
-			ret = fi_cq_readerr(rxcq, &err, 0);
-			if (ret < 0) {
-				FT_PRINTERR("fi_cq_readerr", ret);
-				return ret;
-			}
-			if (!is_expected_err(&err, recv_abort_errs,
-					     ARRAY_SIZE(recv_abort_errs))) {
-				FT_ERR("Unexpected target recv error:");
-				FT_CQ_ERR(rxcq, err, NULL, 0);
-				return -FI_EOTHER;
-			}
-			recv_canceled++;
-			reaped++;
-			o = container_of(err.op_context, struct op_ctx,
-					 context);
-			ret = mr_abort_repost_recv(rxcq, o, deadline);
-			if (ret)
-				return ret;
-			deadline = ft_gettime_ms() + CQ_IDLE_TIMEOUT_MS;
-			continue;
-		} else if (ret < 0 && ret != -FI_EAGAIN) {
-			FT_PRINTERR("fi_cq_read", ret);
+		ret = target_recv_drain_one(recv_abort_errs,
+					    ARRAY_SIZE(recv_abort_errs),
+					    &recv_ok, &recv_canceled);
+		if (ret < 0)
 			return ret;
+		if (ret == 1) {
+			reaped++;
+			deadline = ft_gettime_ms() + CQ_IDLE_TIMEOUT_MS;
 		}
-
 		/*
-		 * RX CQ is momentarily empty (-FI_EAGAIN). The loop's
-		 * top-of-pass window check is the sole exit: the CQ idle window
-		 * starts at the CQ_FIRST_TIMEOUT_MS budget and is reset to a
-		 * CQ_IDLE_TIMEOUT_MS window on each reaped completion, while the
-		 * one-time hard_deadline keeps the loop alive until the counts
-		 * arrive. The non-blocking OOB read above keeps polling for the
-		 * counts meanwhile.
+		 * ret == 0 means the RX CQ was momentarily empty (-FI_EAGAIN);
+		 * just loop. The top-of-pass exit check is the sole way out:
+		 * the counted (slack == 0) branch stops once `required` have
+		 * been reaped, while the indeterminate branch relies on the CQ
+		 * idle window (reset above on each reaped completion) and the
+		 * one-time hard_deadline that keeps the loop polling OOB for the
+		 * counts.
 		 */
 	}
 
