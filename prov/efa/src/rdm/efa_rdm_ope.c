@@ -743,19 +743,10 @@ void efa_rdm_rxe_release_peer_abort_if_drained(struct efa_rdm_ope *rxe)
 {
 	if (!(rxe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING))
 		return;
-	if (rxe->efa_outstanding_tx_ops != 0) {
-		EFA_WARN(FI_LOG_CQ,
-			 "MR_ABORT_DBG: rxe %p peer-abort still DEFERRED: "
-			 "outstanding_tx_ops=%zu (waiting for WR drain)\n",
-			 rxe, rxe->efa_outstanding_tx_ops);
+	if (rxe->efa_outstanding_tx_ops != 0)
 		return;
-	}
-	if (rxe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS) {
-		EFA_WARN(FI_LOG_CQ,
-			 "MR_ABORT_DBG: rxe %p peer-abort still DEFERRED: "
-			 "queued flags=0x%x\n", rxe, rxe->internal_flags);
+	if (rxe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS)
 		return;
-	}
 
 	EFA_WARN(FI_LOG_CQ,
 		 "MR_ABORT_DBG: rxe %p DRAINED: writing FI_ECANCELED/"
@@ -845,20 +836,10 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 
 	if (!(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING))
 		return;
-	if (txe->efa_outstanding_tx_ops != 0) {
-		EFA_WARN(FI_LOG_CQ,
-			 "MR_ABORT_DBG: txe %p peer-abort still DEFERRED: "
-			 "outstanding_tx_ops=%zu emitted=%d\n", txe,
-			 txe->efa_outstanding_tx_ops,
-			 !!(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED));
+	if (txe->efa_outstanding_tx_ops != 0)
 		return;
-	}
-	if (txe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS) {
-		EFA_WARN(FI_LOG_CQ,
-			 "MR_ABORT_DBG: txe %p peer-abort still DEFERRED: "
-			 "queued flags=0x%x\n", txe, txe->internal_flags);
+	if (txe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS)
 		return;
-	}
 
 	if (txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED) {
 		/* The emitted PEER_ERROR_PKT has drained; free the txe. */
