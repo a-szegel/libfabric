@@ -194,6 +194,12 @@ ssize_t efa_rdm_pke_proc_matched_rtm(struct efa_rdm_pke *pkt_entry)
 	rxe = pkt_entry->ope;
 	assert(rxe && rxe->state == EFA_RDM_RXE_MATCHED);
 
+	EFA_WARN(FI_LOG_CQ,
+		 "MR_ABORT_DBG: HS rxe %p RTM matched (receiver got REQ) "
+		 "msg_id=%u pkt_type=%d total_len=%llu\n",
+		 rxe, rxe->msg_id, efa_rdm_pke_get_base_hdr(pkt_entry)->type,
+		 (unsigned long long) rxe->total_len);
+
 	efa_rdm_tracepoint(rx_pke_proc_matched_msg_begin, (size_t) pkt_entry, pkt_entry->payload_size, rxe->msg_id, (size_t) rxe->cq_entry.op_context, rxe->total_len);
 	if (!rxe->peer) {
 		rxe->peer = pkt_entry->peer;
@@ -1074,6 +1080,11 @@ void efa_rdm_pke_handle_longcts_rtm_sent(struct efa_rdm_pke *pkt_entry)
 	txe = pkt_entry->ope;
 	txe->bytes_sent += pkt_entry->payload_size;
 	assert(txe->bytes_sent < txe->total_len);
+
+	EFA_WARN(FI_LOG_CQ,
+		 "MR_ABORT_DBG: HS txe %p LONGCTS RTM sent (REQ on wire) "
+		 "msg_id=%u bytes_sent=%llu\n",
+		 txe, txe->msg_id, (unsigned long long) txe->bytes_sent);
 
 	if (efa_is_cache_available(efa_rdm_ep_rdm_domain(pkt_entry->ep)))
 		efa_rdm_ope_try_fill_desc(txe, 0, FI_SEND);

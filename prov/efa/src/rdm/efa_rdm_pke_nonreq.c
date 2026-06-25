@@ -243,6 +243,11 @@ void efa_rdm_pke_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 	ope->window = cts_pkt->recv_length;
 	assert(ope->window > 0);
 
+	EFA_WARN(FI_LOG_CQ,
+		 "MR_ABORT_DBG: HS txe %p CTS received (sender) msg_id=%u "
+		 "rx_id=%u prev_state=%d -> OPE_SEND\n",
+		 ope, ope->msg_id, ope->rx_id, ope->state);
+
 	efa_rdm_pke_release_rx(pkt_entry);
 
 	if (ope->state != EFA_RDM_OPE_SEND) {
@@ -383,6 +388,10 @@ void efa_rdm_pke_proc_ctsdata(struct efa_rdm_pke *pkt_entry,
 		return;
 
 	if (!ope->window) {
+		EFA_WARN(FI_LOG_CQ,
+			 "MR_ABORT_DBG: HS rxe %p posting CTS back to sender "
+			 "msg_id=%u tx_id(peer txe)=%u\n",
+			 ope, ope->msg_id, ope->tx_id);
 		err = efa_rdm_ope_post_send_or_queue(ope, EFA_RDM_CTS_PKT);
 		if (err) {
 			EFA_WARN(FI_LOG_CQ, "post CTS packet failed!\n");

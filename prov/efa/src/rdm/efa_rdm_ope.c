@@ -1114,12 +1114,13 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 			 "MR_ABORT_DBG: txe %p abort-decision gate=%d: prev_state=%d "
 			 "op=%d err=%d prov_errno=%d is_longcts=%d uses_msg_id=%d "
 			 "peer=%p handshake_recvd=%d supports_peer_error=%d "
-			 "homogeneous=%d is_self=%d outstanding_tx_ops=%zu\n",
+			 "homogeneous=%d is_self=%d outstanding_tx_ops=%zu "
+			 "msg_id=%u\n",
 			 txe, gate, prev_state, txe->op, err, prov_errno,
 			 is_longcts, uses_msg_id, txe->peer, handshake_recvd,
 			 peer_supports, ep->homogeneous_peers,
 			 txe->peer ? txe->peer->is_self : -1,
-			 txe->efa_outstanding_tx_ops);
+			 txe->efa_outstanding_tx_ops, txe->msg_id);
 
 		if (gate) {
 			txe->peer_error_prov_errno = prov_errno;
