@@ -164,17 +164,20 @@ def abort_owes_rx_completion(protocol):
     completion on the target for this protocol (the -X flag of
     fi_mr_abort).
 
-    Owed: LONGCTS and RUNTREAD-LONGREAD. The receiver matches the recv
-    and takes partial data (a CTS handshake, or a runt + tail RDMA READ)
-    before the abort, so the provider must complete that matched rxe with
-    a clean FI_ECANCELED.
+    Owed: EAGER, LONGCTS and RUNTREAD-LONGREAD. For LONGCTS and
+    RUNTREAD-LONGREAD the receiver matches the recv and takes partial data
+    (a CTS handshake, or a runt + tail RDMA READ) before the abort, so the
+    provider must complete that matched rxe with a clean FI_ECANCELED. For
+    EAGER the aborted send is reconciled by a PEER_ERROR packet that drives
+    the matched rxe to a terminal FI_ECANCELED completion, so the receiver
+    is likewise owed exactly one completion.
 
-    Not owed: EAGER, MEDIUM, RUNTREAD-NOREAD (runt-only). An aborted
-    message either delivered nothing or rides REQ packets with no CTS /
-    no READ; the receiver is not required to produce a completion (a stray
-    FI_ECANCELED may still arrive and is tolerated, but is not required).
+    Not owed: MEDIUM, RUNTREAD-NOREAD (runt-only). An aborted message either
+    delivered nothing or rides REQ packets with no CTS / no READ; the
+    receiver is not required to produce a completion (a stray FI_ECANCELED
+    may still arrive and is tolerated, but is not required).
     """
-    return protocol in ("LONGCTS", "RUNTREAD-LONGREAD")
+    return protocol in ("EAGER", "LONGCTS", "RUNTREAD-LONGREAD")
 
 
 # --- Test: send ---
