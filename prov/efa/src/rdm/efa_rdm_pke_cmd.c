@@ -428,6 +428,21 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 	}
 
 	efa_rdm_pke_assert_ope_valid(pkt_entry);
+
+	if (efa_rdm_pkt_type_of(pkt_entry) == EFA_RDM_PEER_ERROR_PKT) {
+		struct efa_rdm_peer_error_hdr *eh =
+			efa_rdm_pke_get_peer_error_hdr(pkt_entry);
+
+		EFA_WARN(FI_LOG_CQ,
+			 "MR_ABORT_DBG: PEER_ERROR send FAILED/FLUSHED ope=%p "
+			 "type=%s msg_id=%u op_id=%u ref_kind=%u prov_errno=%d "
+			 "(%s) -- peer NOT notified, its recv may hang\n",
+			 pkt_entry->ope,
+			 pkt_entry->ope->type == EFA_RDM_RXE ? "RXE" : "TXE",
+			 pkt_entry->ope->msg_id, eh->op_id, eh->ref_kind,
+			 prov_errno, efa_strerror(prov_errno));
+	}
+
 	switch (pkt_entry->ope->type) {
 	case EFA_RDM_TXE:
 		txe = pkt_entry->ope;
@@ -831,6 +846,20 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 		 * to the drain helper.
 		 */
 		assert(pkt_entry->ope);
+		{
+			struct efa_rdm_peer_error_hdr *eh =
+				efa_rdm_pke_get_peer_error_hdr(pkt_entry);
+
+			EFA_WARN(FI_LOG_CQ,
+				 "MR_ABORT_DBG: PEER_ERROR send SUCCESS ope=%p "
+				 "type=%s msg_id=%u op_id=%u ref_kind=%u "
+				 "(delivered to peer)\n",
+				 pkt_entry->ope,
+				 pkt_entry->ope->type == EFA_RDM_RXE ? "RXE"
+								     : "TXE",
+				 pkt_entry->ope->msg_id, eh->op_id,
+				 eh->ref_kind);
+		}
 		if (pkt_entry->ope->type == EFA_RDM_RXE)
 			efa_rdm_rxe_release_peer_abort_if_drained(pkt_entry->ope);
 		else
