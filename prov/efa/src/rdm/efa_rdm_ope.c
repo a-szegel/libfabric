@@ -743,8 +743,24 @@ void efa_rdm_rxe_release_peer_abort_if_drained(struct efa_rdm_ope *rxe)
 {
 	if (!(rxe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING))
 		return;
-	if (rxe->efa_outstanding_tx_ops != 0)
+	if (rxe->efa_outstanding_tx_ops != 0) {
+		/*
+		 * DEBUG: throttle -- only log the last couple of WRs before
+		 * drain, so a stuck rxe (its final outstanding WR never
+		 * completes) prints its blocking value once or twice instead
+		 * of on every WR completion. If there is NO subsequent
+		 * "rxe ... DRAINED: writing" line for this rxe, the value
+		 * logged here is the stuck point (the RX completion the target
+		 * is short).
+		 */
+		if (rxe->efa_outstanding_tx_ops <= 2)
+			EFA_WARN(FI_LOG_CQ,
+				 "MR_ABORT_DBG: rxe %p near drain: "
+				 "outstanding_tx_ops=%zu flags=0x%x\n",
+				 rxe, rxe->efa_outstanding_tx_ops,
+				 rxe->internal_flags);
 		return;
+	}
 	if (rxe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS)
 		return;
 
@@ -836,8 +852,25 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 
 	if (!(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING))
 		return;
-	if (txe->efa_outstanding_tx_ops != 0)
+	if (txe->efa_outstanding_tx_ops != 0) {
+		/*
+		 * DEBUG: throttle -- only log the last couple of WRs before
+		 * drain, so a stuck txe (its final outstanding WR never
+		 * completes) prints its blocking value once or twice instead
+		 * of on every WR completion. If there is NO subsequent
+		 * "txe ... DRAINED: emitting" (gate=1, pre-emit) or
+		 * "DRAINED after PEER_ERROR_PKT emit" line for this txe, the
+		 * value logged here is the stuck point -- the emit (and thus
+		 * the peer notification) never fired.
+		 */
+		if (txe->efa_outstanding_tx_ops <= 2)
+			EFA_WARN(FI_LOG_CQ,
+				 "MR_ABORT_DBG: txe %p near drain: "
+				 "outstanding_tx_ops=%zu emitted=%d\n", txe,
+				 txe->efa_outstanding_tx_ops,
+				 !!(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED));
 		return;
+	}
 	if (txe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS)
 		return;
 
@@ -1074,8 +1107,8 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 		 *     emit SKIPPED, peer never told, its matched recv hangs.
 		 *   - emit-but-stuck: gate=1 -> txe marked PENDING; correlate
 		 *     with the drain-helper logs to see if it ever reaches
-		 *     "DRAINED: emitting" or stalls at "still DEFERRED
-		 *     emitted=0".
+		 *     "DRAINED: emitting" or stalls at "near drain
+		 *     outstanding_tx_ops=N emitted=0" with no later DRAINED.
 		 */
 		EFA_WARN(FI_LOG_CQ,
 			 "MR_ABORT_DBG: txe %p abort-decision gate=%d: prev_state=%d "
