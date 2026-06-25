@@ -982,9 +982,22 @@ void efa_rdm_ep_post_internal_rx_pkts(struct efa_rdm_ep *ep)
 
 	assert(ep->efa_rx_pkts_to_post + ep->efa_rx_pkts_posted + ep->efa_rx_pkts_held == efa_base_ep_get_rx_pool_size(&ep->base_ep));
 
-	err = efa_rdm_ep_bulk_post_internal_rx_pkts(ep);
-	if (err)
-		goto err_exit;
+	{
+		size_t to_post = ep->efa_rx_pkts_to_post;
+
+		err = efa_rdm_ep_bulk_post_internal_rx_pkts(ep);
+		if (err)
+			goto err_exit;
+
+		if (to_post > 0)
+			EFA_WARN(FI_LOG_EP_CTRL,
+				 "MR_ABORT_DBG: RXBUF posted %zu internal RX "
+				 "buffers; now posted=%zu to_post=%zu held=%zu "
+				 "rx_pool_size=%zu\n",
+				 to_post, ep->efa_rx_pkts_posted,
+				 ep->efa_rx_pkts_to_post, ep->efa_rx_pkts_held,
+				 efa_base_ep_get_rx_pool_size(&ep->base_ep));
+	}
 
 	return;
 
