@@ -1062,6 +1062,10 @@ int efa_cq_open_ibv_cq(struct fi_cq_attr *attr,
 #endif
 
 	ibv_cq->data_path_direct_enabled = false;
+	EFA_WARN(FI_LOG_CQ,
+		 "MR_ABORT_DBG: creating EFA CQ with cqe=%d (attr->size=%zu, "
+		 "EFA_DEF_CQ_SIZE=%d)\n",
+		 init_attr_ex.cqe, (size_t) attr->size, EFA_DEF_CQ_SIZE);
 	ibv_cq->ibv_cq_ex = efadv_create_cq(ibv_ctx, &init_attr_ex,
 				     &efadv_cq_init_attr,
 				     sizeof(efadv_cq_init_attr));
