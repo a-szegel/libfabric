@@ -107,6 +107,13 @@ void efa_rdm_pke_handle_handshake_recv(struct efa_rdm_pke *pkt_entry)
 		   (handshake_pkt->nextra_p3 - 3) * sizeof(uint64_t));
 	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
 
+	EFA_WARN(FI_LOG_CQ,
+		 "MR_ABORT_DBG: HANDSHAKE received from peer %p (fi_addr %" PRIu64
+		 "); PEER_ERROR supported=%d. Aborts BEFORE this point cannot "
+		 "emit PEER_ERROR_PKT (handshake-race window).\n",
+		 peer, pkt_entry->peer->conn->fi_addr,
+		 !!(peer->extra_info[0] & EFA_RDM_EXTRA_FEATURE_PEER_ERROR));
+
 	if (peer->extra_info[0] & EFA_RDM_EXTRA_FEATURE_REQUEST_USER_RECV_QP) {
 		EFA_WARN(FI_LOG_CQ,
 			 "Peer requested zero-copy receive via USER_RECV_QP "

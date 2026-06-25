@@ -1061,22 +1061,53 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	 * notification. The txe is freed on the PEER_ERROR_PKT's own completion.
 	 */
 	{
+		bool handshake_recvd, peer_supports, gate;
+
 		uses_msg_id = efa_rdm_txe_peer_abort_uses_msg_id(txe);
 		/* LONGCTS uses rx_id, valid only in OPE_SEND. The msg_id
 		 * protocols (EAGER / medium / runt-only) are excluded by
 		 * !uses_msg_id. */
 		is_longcts = (prev_state == EFA_RDM_OPE_SEND) && !uses_msg_id;
 
-		if (!(txe->internal_flags & EFA_RDM_OPE_INTERNAL) &&
-		    (txe->op == ofi_op_msg || txe->op == ofi_op_tagged) &&
-		    (is_longcts || uses_msg_id) &&
-		    (err == FI_ECANCELED ||
-		     prov_errno == EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY) &&
-		    txe->peer != NULL &&
-		    (ep->homogeneous_peers ||
-		     txe->peer->is_self ||
-		     efa_rdm_peer_support_peer_error(txe->peer))) {
+		handshake_recvd = txe->peer &&
+			(txe->peer->flags & EFA_RDM_PEER_HANDSHAKE_RECEIVED);
+		peer_supports = txe->peer &&
+			efa_rdm_peer_support_peer_error(txe->peer);
 
+		gate = !(txe->internal_flags & EFA_RDM_OPE_INTERNAL) &&
+		       (txe->op == ofi_op_msg || txe->op == ofi_op_tagged) &&
+		       (is_longcts || uses_msg_id) &&
+		       (err == FI_ECANCELED ||
+			prov_errno == EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY) &&
+		       txe->peer != NULL &&
+		       (ep->homogeneous_peers ||
+			txe->peer->is_self ||
+			peer_supports);
+
+		/*
+		 * DEBUG: dump every input to the PEER_ERROR_PKT emit gate so we
+		 * can tell WHY a sender-side abort does or does not notify the
+		 * peer. The two hang theories produce distinct signatures here:
+		 *   - handshake race: gate=0 with handshake_recvd=0 /
+		 *     supports_peer_error=0 (and homogeneous=0, is_self=0) ->
+		 *     emit SKIPPED, peer never told, its matched recv hangs.
+		 *   - emit-but-stuck: gate=1 -> txe marked PENDING; correlate
+		 *     with the drain-helper logs to see if it ever reaches
+		 *     "DRAINED: emitting" or stalls at "still DEFERRED
+		 *     emitted=0".
+		 */
+		EFA_WARN(FI_LOG_CQ,
+			 "MR_ABORT_DBG: txe %p abort-decision gate=%d: prev_state=%d "
+			 "op=%d err=%d prov_errno=%d is_longcts=%d uses_msg_id=%d "
+			 "peer=%p handshake_recvd=%d supports_peer_error=%d "
+			 "homogeneous=%d is_self=%d outstanding_tx_ops=%zu\n",
+			 txe, gate, prev_state, txe->op, err, prov_errno,
+			 is_longcts, uses_msg_id, txe->peer, handshake_recvd,
+			 peer_supports, ep->homogeneous_peers,
+			 txe->peer ? txe->peer->is_self : -1,
+			 txe->efa_outstanding_tx_ops);
+
+		if (gate) {
 			txe->peer_error_prov_errno = prov_errno;
 			txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING;
 			/* Try now in case this was the last reference; otherwise
@@ -1085,6 +1116,29 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 			 * completion ref_kind is derived at emit time in
 			 * efa_rdm_pke_init_peer_error_for_ope(). */
 			efa_rdm_txe_progress_peer_abort_if_drained(txe);
+		} else if (txe->op == ofi_op_msg || txe->op == ofi_op_tagged) {
+			/*
+			 * DEBUG: a msg/tagged txe failed but did NOT emit a
+			 * PEER_ERROR_PKT, so the peer is NOT notified and its
+			 * matched recv can hang. Dump every gate input AND the
+			 * error codes so we can attribute the skip to its real
+			 * cause -- not just the handshake race, but also:
+			 *   - prev_state != OPE_SEND (LONGCTS aborted pre-CTS),
+			 *   - read-base sender (neither is_longcts nor msg_id),
+			 *   - an error code other than FI_ECANCELED /
+			 *     INVALID_LKEY (e.g. FLUSHED) that the gate does not
+			 *     recognize as an abort.
+			 */
+			EFA_WARN(FI_LOG_CQ,
+				 "MR_ABORT_DBG: txe %p SKIP EMIT -- peer NOT "
+				 "notified (may hang): err=%d prov_errno=%d "
+				 "prev_state=%d is_longcts=%d uses_msg_id=%d "
+				 "handshake_recvd=%d supports_peer_error=%d "
+				 "homogeneous=%d is_self=%d\n",
+				 txe, err, prov_errno, prev_state, is_longcts,
+				 uses_msg_id, handshake_recvd, peer_supports,
+				 ep->homogeneous_peers,
+				 txe->peer ? txe->peer->is_self : -1);
 		}
 	}
 }
