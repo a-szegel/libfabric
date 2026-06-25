@@ -176,6 +176,17 @@ static struct fi_rma_iov *remote_arr;
 #define CQ_IDLE_TIMEOUT_MS  1000
 
 /*
+ * DEBUG: bound the otherwise-unbounded target drain loops (phase 1, and
+ * phase 2 when slack == 0) so a missing completion makes the target exit
+ * with a diagnostic instead of hanging until the external SIGKILL. Three
+ * minutes is comfortably longer than any healthy drain but well under the
+ * pytest/`timeout` budget, so it only trips on a genuine hang -- and
+ * because the target then returns an error through the normal path, the
+ * `-A ep_first` graceful teardown still runs (EP closed before recv MRs).
+ */
+#define DEBUG_PHASE_TIMEOUT_MS (3 * 60 * 1000)
+
+/*
  * Non-blocking accumulate of `len` bytes from the OOB socket into `buf`.
  * *got tracks bytes received so far across calls. Returns 1 once all
  * `len` bytes have arrived, 0 if still waiting (would block), or a
@@ -1620,8 +1631,27 @@ static int run_send_abort_target(int iter)
 	 * drain finish and ship the counts, so a deadline here would deadlock
 	 * the pair. Under FI_PROGRESS_AUTO the provider drives RX progress
 	 * itself, so we skip the manual poll and reap in phase 2.
+	 *
+	 * DEBUG: bounded by phase1_deadline (DEBUG_PHASE_TIMEOUT_MS) so a hang
+	 * here exits with a diagnostic blaming the initiator (TX) side instead
+	 * of relying on the external SIGKILL.
 	 */
+	uint64_t phase1_deadline = ft_gettime_ms() + DEBUG_PHASE_TIMEOUT_MS;
+
 	while (!have_counts) {
+		if (ft_gettime_ms() > phase1_deadline) {
+			FT_ERR("DEBUG: phase 1 (target iter %d) timed out after "
+			       "%d ms waiting for the initiator's (required, "
+			       "slack) counts: counts_got=%zu/%zu reaped=%d "
+			       "recv_ok=%d peer_aborted=%d. The initiator has "
+			       "NOT shipped its counts, so it is still stuck in "
+			       "its own TX drain -- the missing completion is on "
+			       "the INITIATOR (TX) side.",
+			       iter, DEBUG_PHASE_TIMEOUT_MS, counts_got,
+			       sizeof(counts), reaped, recv_ok, recv_canceled);
+			return -FI_ETIMEDOUT;
+		}
+
 		ret = oob_recv_nonblock(oob_sock, counts, sizeof(counts),
 					&counts_got);
 		if (ret < 0) {
@@ -1655,10 +1685,10 @@ static int run_send_abort_target(int iter)
 	 *
 	 *  - slack == 0 (the -X owed protocols plus fully delivered sends):
 	 *    every `required` completion is GUARANTEED, so block until
-	 *    reaped == required with NO internal timeout -- the same contract
-	 *    as the TX-side drain_cq_counted(). A genuinely missing completion
-	 *    becomes a hang bounded by the outer test timeout, not a flaky
-	 *    short-window failure.
+	 *    reaped == required. DEBUG: bounded by phase2_deadline
+	 *    (DEBUG_PHASE_TIMEOUT_MS) so a missing completion exits with a
+	 *    diagnostic blaming the target (RX) side instead of hanging until
+	 *    the external SIGKILL.
 	 *
 	 *  - slack > 0 (EAGER / MEDIUM / runt-only): INDETERMINATE -- an
 	 *    aborted send may have delivered before the local flush (success),
@@ -1668,7 +1698,24 @@ static int run_send_abort_target(int iter)
 	 *    CQ_IDLE_TIMEOUT_MS on each reap), then accept any total in range.
 	 */
 	if (slack == 0) {
+		uint64_t phase2_deadline =
+			ft_gettime_ms() + DEBUG_PHASE_TIMEOUT_MS;
+
 		while (reaped < required) {
+			if (ft_gettime_ms() > phase2_deadline) {
+				FT_ERR("DEBUG: phase 2 (target iter %d) timed "
+				       "out after %d ms: required=%d reaped=%d "
+				       "missing=%d recv_ok=%d peer_aborted=%d. "
+				       "The initiator shipped its counts but the "
+				       "target is short %d recv completions -- "
+				       "the missing completion is on the TARGET "
+				       "(RX) side.",
+				       iter, DEBUG_PHASE_TIMEOUT_MS, required,
+				       reaped, required - reaped, recv_ok,
+				       recv_canceled, required - reaped);
+				return -FI_ETIMEDOUT;
+			}
+
 			ret = target_recv_drain_one(recv_abort_errs,
 						    ARRAY_SIZE(recv_abort_errs),
 						    &recv_ok, &recv_canceled);
