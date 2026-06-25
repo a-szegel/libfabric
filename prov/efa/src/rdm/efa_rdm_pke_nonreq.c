@@ -879,6 +879,15 @@ int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,
 
 	connid = efa_rdm_ep_raw_addr(ope->ep)->qkey;
 
+	EFA_WARN(FI_LOG_CQ,
+		 "MR_ABORT_DBG: emit PEER_ERROR_PKT ope=%p type=%s op_id=%u "
+		 "ref_kind=%u prov_errno=%d bytes_acked=%llu msg_id=%u "
+		 "tx_id=%u rx_id=%u\n",
+		 ope, ope->type == EFA_RDM_RXE ? "RXE" : "TXE", op_id, ref_kind,
+		 ope->peer_error_prov_errno,
+		 (unsigned long long) ope->bytes_acked, ope->msg_id,
+		 ope->tx_id, ope->rx_id);
+
 	efa_rdm_pke_set_ope(pkt_entry, ope);
 	pkt_entry->peer = ope->peer;
 	return efa_rdm_pke_init_peer_error(pkt_entry, op_id, ref_kind,
@@ -913,9 +922,11 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 	err_hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
 	prov_errno = (int) err_hdr->prov_errno;
 
-	EFA_INFO(FI_LOG_CQ,
-		 "Received PEER_ERROR_PKT (op_id=%u prov_errno=%d %s)\n",
-		 err_hdr->op_id, prov_errno, efa_strerror(prov_errno));
+	EFA_WARN(FI_LOG_CQ,
+		 "MR_ABORT_DBG: recv PEER_ERROR_PKT op_id=%u ref_kind=%u "
+		 "prov_errno=%d %s\n",
+		 err_hdr->op_id, err_hdr->ref_kind, prov_errno,
+		 efa_strerror(prov_errno));
 
 	/*
 	 * MSG_ID_SKIP direction (EAGER / medium / runt-only runtread that
@@ -1017,6 +1028,10 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 
 	switch (ope->type) {
 	case EFA_RDM_TXE:
+		EFA_WARN(FI_LOG_CQ,
+			 "MR_ABORT_DBG: PEER_ERROR resolved op_id=%u -> TXE %p "
+			 "(LONGREAD dir): writing TX CQ error, deferring free\n",
+			 err_hdr->op_id, ope);
 		/* LONGREAD direction: the peer told us our send failed.
 		 * The PEER_ERROR packet gets sent instead of the EOR packet,
 		 * and the num_read_msg_in_flight would get decremented upon
@@ -1041,6 +1056,12 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 		efa_rdm_txe_progress_peer_abort_if_drained(ope);
 		break;
 	case EFA_RDM_RXE:
+		EFA_WARN(FI_LOG_CQ,
+			 "MR_ABORT_DBG: PEER_ERROR resolved op_id=%u -> RXE %p "
+			 "(LONGCTS dir): marking peer-aborted, "
+			 "outstanding_tx_ops=%zu flags=0x%x\n",
+			 err_hdr->op_id, ope, ope->efa_outstanding_tx_ops,
+			 ope->internal_flags);
 		/* LONGCTS direction: the peer told us their MR is gone.
 		 * Mark our matched rxe peer-aborted, and attempt to
 		 * release the rxe via the drain helper -- a no-op if

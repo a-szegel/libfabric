@@ -663,10 +663,18 @@ static int drain_cq_counted(struct fid_cq *cq, int expected,
 	struct fi_cq_err_entry err;
 	struct op_ctx *o;
 	int remaining, ret;
+	uint64_t hb_deadline;
 
 	remaining = expected;
+	hb_deadline = ft_gettime_ms() + 10000;
 
 	while (remaining > 0) {
+		if (ft_gettime_ms() > hb_deadline) {
+			FT_ERR("MR_ABORT_DBG: initiator TX drain heartbeat: "
+			       "remaining=%d/%d (still waiting for TX "
+			       "completions)", remaining, expected);
+			hb_deadline = ft_gettime_ms() + 10000;
+		}
 		ret = fi_cq_read(cq, &comp, 1);
 		if (ret > 0) {
 			o = container_of(comp.op_context,
@@ -1637,8 +1645,17 @@ static int run_send_abort_target(int iter)
 	 * of relying on the external SIGKILL.
 	 */
 	uint64_t phase1_deadline = ft_gettime_ms() + DEBUG_PHASE_TIMEOUT_MS;
+	uint64_t phase1_hb = ft_gettime_ms() + 10000;
 
 	while (!have_counts) {
+		if (ft_gettime_ms() > phase1_hb) {
+			FT_ERR("MR_ABORT_DBG: target phase 1 heartbeat (iter "
+			       "%d): counts_got=%zu/%zu reaped=%d recv_ok=%d "
+			       "peer_aborted=%d (still waiting for initiator "
+			       "counts)", iter, counts_got, sizeof(counts),
+			       reaped, recv_ok, recv_canceled);
+			phase1_hb = ft_gettime_ms() + 10000;
+		}
 		if (ft_gettime_ms() > phase1_deadline) {
 			FT_ERR("DEBUG: phase 1 (target iter %d) timed out after "
 			       "%d ms waiting for the initiator's (required, "
@@ -1700,8 +1717,19 @@ static int run_send_abort_target(int iter)
 	if (slack == 0) {
 		uint64_t phase2_deadline =
 			ft_gettime_ms() + DEBUG_PHASE_TIMEOUT_MS;
+		uint64_t phase2_hb = ft_gettime_ms() + 10000;
 
 		while (reaped < required) {
+			if (ft_gettime_ms() > phase2_hb) {
+				FT_ERR("MR_ABORT_DBG: target phase 2 heartbeat "
+				       "(iter %d): required=%d reaped=%d "
+				       "missing=%d recv_ok=%d peer_aborted=%d "
+				       "(still waiting for target RX "
+				       "completions)", iter, required, reaped,
+				       required - reaped, recv_ok,
+				       recv_canceled);
+				phase2_hb = ft_gettime_ms() + 10000;
+			}
 			if (ft_gettime_ms() > phase2_deadline) {
 				FT_ERR("DEBUG: phase 2 (target iter %d) timed "
 				       "out after %d ms: required=%d reaped=%d "
