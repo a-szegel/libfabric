@@ -414,6 +414,27 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 	EFA_DBG(FI_LOG_CQ, "Packet send error: %s (%d)\n",
 	        efa_strerror(prov_errno), prov_errno);
 
+	/* LONGCTS-DBG W3: prove a LONGCTS RTM packet received an error
+	 * completion from the device (post-post cancel path, e.g. the source
+	 * MR was closed and the in-flight RTM WR was flushed). */
+	{
+		int _dbg_pt = efa_rdm_pke_get_base_hdr(pkt_entry)->type;
+
+		if (_dbg_pt == EFA_RDM_LONGCTS_MSGRTM_PKT ||
+		    _dbg_pt == EFA_RDM_LONGCTS_TAGRTM_PKT ||
+		    _dbg_pt == EFA_RDM_DC_LONGCTS_MSGRTM_PKT ||
+		    _dbg_pt == EFA_RDM_DC_LONGCTS_TAGRTM_PKT) {
+			EFA_WARN(FI_LOG_CQ,
+				 "LONGCTS-DBG W3 RTM TX error completion: pkt_type=%d "
+				 "fi_errno=%d (%s) prov_errno=%d (%s) txe=%p txe_state=%d "
+				 "(TXE_REQ=%d OPE_SEND=%d)\n",
+				 _dbg_pt, err, fi_strerror(err), prov_errno,
+				 efa_strerror(prov_errno), (void *) pkt_entry->ope,
+				 pkt_entry->ope ? pkt_entry->ope->state : -1,
+				 EFA_RDM_TXE_REQ, EFA_RDM_OPE_SEND);
+		}
+	}
+
 	ep = pkt_entry->ep;
 	efa_rdm_ep_record_tx_op_completed(ep, pkt_entry);
 

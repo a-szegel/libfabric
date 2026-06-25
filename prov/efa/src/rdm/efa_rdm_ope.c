@@ -1029,6 +1029,28 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 		 * !uses_msg_id. */
 		is_longcts = (prev_state == EFA_RDM_OPE_SEND) && !uses_msg_id;
 
+		/* LONGCTS-DBG W4a: prove that a LONGCTS msg/tagged send aborted
+		 * before its first CTS (state TXE_REQ, so is_longcts is false and
+		 * there is no msg_id fallback) is having its PEER_ERROR emission
+		 * suppressed -- the receiver will never be notified. */
+		if (!(txe->internal_flags & EFA_RDM_OPE_INTERNAL) &&
+		    (txe->op == ofi_op_msg || txe->op == ofi_op_tagged) &&
+		    !is_longcts && !uses_msg_id &&
+		    (txe->protocol == EFA_RDM_LONGCTS_MSGRTM_PKT ||
+		     txe->protocol == EFA_RDM_LONGCTS_TAGRTM_PKT ||
+		     txe->protocol == EFA_RDM_DC_LONGCTS_MSGRTM_PKT ||
+		     txe->protocol == EFA_RDM_DC_LONGCTS_TAGRTM_PKT)) {
+			EFA_WARN(FI_LOG_CQ,
+				 "LONGCTS-DBG W4a PEER_ERROR SUPPRESSED: txe=%p protocol=%u "
+				 "prev_state=%d expected TXE_REQ=%d (OPE_SEND=%d) rx_id=%u "
+				 "msg_id=%u bytes_acked=%zu err=%d prov_errno=%d (%s). "
+				 "Receiver will NOT be notified; its reorder window will "
+				 "stall on msg_id=%u.\n",
+				 txe, txe->protocol, prev_state, EFA_RDM_TXE_REQ,
+				 EFA_RDM_OPE_SEND, txe->rx_id, txe->msg_id, txe->bytes_acked,
+				 err, prov_errno, efa_strerror(prov_errno), txe->msg_id);
+		}
+
 		if (!(txe->internal_flags & EFA_RDM_OPE_INTERNAL) &&
 		    (txe->op == ofi_op_msg || txe->op == ofi_op_tagged) &&
 		    (is_longcts || uses_msg_id) &&
@@ -2298,6 +2320,25 @@ int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope, uint32_t flag)
 		 */
 		ret = -FI_ECANCELED;
 		prov_errno = FI_EFA_ERR_PEER_ABORTED;
+
+		/* LONGCTS-DBG W2: prove the queued LONGCTS RTM failed the MR
+		 * generation check and is being canceled before it is ever
+		 * delivered (pre-post cancel path). */
+		if (ope->type == EFA_RDM_TXE &&
+		    (ope->protocol == EFA_RDM_LONGCTS_MSGRTM_PKT ||
+		     ope->protocol == EFA_RDM_LONGCTS_TAGRTM_PKT ||
+		     ope->protocol == EFA_RDM_DC_LONGCTS_MSGRTM_PKT ||
+		     ope->protocol == EFA_RDM_DC_LONGCTS_TAGRTM_PKT)) {
+			EFA_WARN(FI_LOG_CQ,
+				 "LONGCTS-DBG W2 gen-check FAILED, canceling queued op: "
+				 "txe=%p flag=0x%x queued_ctrl_type=%d protocol=%u "
+				 "state=%d (TXE_REQ=%d OPE_SEND=%d) msg_id=%u rx_id=%u "
+				 "-> FI_ECANCELED/FI_EFA_ERR_PEER_ABORTED. RTM will NOT "
+				 "be delivered to the receiver.\n",
+				 ope, flag, ope->queued_ctrl_type, ope->protocol,
+				 ope->state, EFA_RDM_TXE_REQ, EFA_RDM_OPE_SEND,
+				 ope->msg_id, ope->rx_id);
+		}
 	}
 
 	if (OFI_UNLIKELY(ret)) {

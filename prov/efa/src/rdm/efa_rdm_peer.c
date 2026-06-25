@@ -478,8 +478,22 @@ void efa_rdm_peer_proc_pending_items_in_robuf(struct efa_rdm_peer *peer, struct 
 
 	while (1) {
 		pending_pkt = *ofi_recvwin_peek((&peer->robuf));
-		if (!pending_pkt)
+		if (!pending_pkt) {
+			/* LONGCTS-DBG W4b: prove the RX reorder window is stalled
+			 * on a missing msg_id. The head slot is empty but the
+			 * window is non-empty -- later msg_ids have arrived and are
+			 * buffered out-of-order, yet the window cannot advance past
+			 * the expected id because its RTM was canceled/never
+			 * delivered and no PEER_ERROR tombstone arrived to skip it. */
+			if (!ofi_recvwin_is_empty((&peer->robuf)))
+				EFA_WARN(FI_LOG_EP_CTRL,
+					 "LONGCTS-DBG W4b RX reorder window STALLED: peer=%p "
+					 "missing exp_msg_id=%u, window non-empty (later "
+					 "msg_ids buffered OOO and cannot advance). Likely a "
+					 "canceled/undelivered RTM for this msg_id.\n",
+					 peer, ofi_recvwin_next_exp_id((&peer->robuf)));
 			return;
+		}
 
 		/*
 		 * If this slot is a tombstoned abort, free the pke chain and

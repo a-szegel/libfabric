@@ -360,6 +360,26 @@ void efa_rdm_domain_progress_peers_and_queues(struct efa_rdm_domain *rdm_domain)
 		 * whose MR was closed.
 		 */
 		if (!efa_rdm_mr_gen_check_ope(ope)) {
+			/* LONGCTS-DBG W2 (drip-loop variant): the txe already
+			 * received a CTS (state OPE_SEND, on the longcts_send_list)
+			 * and is being canceled here by the gen check while sending
+			 * CTSDATA. In this state rx_id is valid, so PEER_ERROR
+			 * emission is expected to fire. */
+			if (ope->type == EFA_RDM_TXE &&
+			    (ope->protocol == EFA_RDM_LONGCTS_MSGRTM_PKT ||
+			     ope->protocol == EFA_RDM_LONGCTS_TAGRTM_PKT ||
+			     ope->protocol == EFA_RDM_DC_LONGCTS_MSGRTM_PKT ||
+			     ope->protocol == EFA_RDM_DC_LONGCTS_TAGRTM_PKT)) {
+				EFA_WARN(FI_LOG_CQ,
+					 "LONGCTS-DBG W2 drip-loop gen-check FAILED: "
+					 "txe=%p protocol=%u state=%d (TXE_REQ=%d "
+					 "OPE_SEND=%d) msg_id=%u rx_id=%u window=%zu "
+					 "bytes_acked=%zu -> handle_error\n",
+					 ope, ope->protocol, ope->state,
+					 EFA_RDM_TXE_REQ, EFA_RDM_OPE_SEND,
+					 ope->msg_id, ope->rx_id, ope->window,
+					 ope->bytes_acked);
+			}
 			if (ope->type == EFA_RDM_TXE)
 				efa_rdm_txe_handle_error(ope, FI_ECANCELED,
 							 FI_EFA_ERR_PEER_ABORTED);

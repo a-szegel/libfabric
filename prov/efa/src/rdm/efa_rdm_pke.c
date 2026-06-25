@@ -536,6 +536,30 @@ ssize_t efa_rdm_pke_sendv(struct efa_rdm_pke **pkt_entry_vec,
 			}
 		}
 
+		/* LONGCTS-DBG W1: prove the LONGCTS RTM carries user data sent
+		 * zero-copy against the user's source MR (so an outstanding RTM
+		 * WR is exposed to a source-MR close). */
+		{
+			int _dbg_pt = efa_rdm_pke_get_base_hdr(pkt_entry)->type;
+
+			if (_dbg_pt == EFA_RDM_LONGCTS_MSGRTM_PKT ||
+			    _dbg_pt == EFA_RDM_LONGCTS_TAGRTM_PKT ||
+			    _dbg_pt == EFA_RDM_DC_LONGCTS_MSGRTM_PKT ||
+			    _dbg_pt == EFA_RDM_DC_LONGCTS_TAGRTM_PKT) {
+				EFA_WARN(FI_LOG_EP_DATA,
+					 "LONGCTS-DBG W1 send: pkt_type=%d use_inline=%d "
+					 "payload_size=%zu payload_mr=%p user_desc0=%p "
+					 "user_mr_match=%d payload_lkey=%u\n",
+					 _dbg_pt, use_inline, pkt_entry->payload_size,
+					 (void *) pkt_entry->payload_mr,
+					 pkt_entry->ope ? (void *) pkt_entry->ope->desc[0] : NULL,
+					 (pkt_entry->ope &&
+					  pkt_entry->payload_mr == pkt_entry->ope->desc[0]),
+					 (!use_inline && pkt_entry->payload_mr) ?
+						 ((struct efa_mr *) pkt_entry->payload_mr)->lkey : 0);
+			}
+		}
+
 		flags_in_loop = flags;
 		if (pkt_entry->flags & EFA_RDM_PKE_SEND_TO_USER_RECV_QP) {
 			/* Currently this is only expected for eager pkts */
