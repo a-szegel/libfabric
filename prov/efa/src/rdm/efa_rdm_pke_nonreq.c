@@ -923,9 +923,9 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 	err_hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
 	prov_errno = (int) err_hdr->prov_errno;
 
-	EFA_INFO(FI_LOG_CQ,
-		 "Received PEER_ERROR_PKT (op_id=%u prov_errno=%d %s)\n",
-		 err_hdr->op_id, prov_errno, efa_strerror(prov_errno));
+	EFA_WARN(FI_LOG_CQ,
+		 "Received PEER_ERROR_PKT (op_id=%u ref_kind=%u prov_errno=%d %s)\n",
+		 err_hdr->op_id, err_hdr->ref_kind, prov_errno, efa_strerror(prov_errno));
 
 	/*
 	 * MSG_ID_SKIP direction (EAGER / medium / runtread that
@@ -937,6 +937,9 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 	 * (the sender already knows).
 	 */
 	if (err_hdr->ref_kind == EFA_RDM_PEER_ERROR_REF_MSG_ID_SKIP) {
+		EFA_WARN(FI_LOG_CQ,
+			"PEER_ERROR REF_MSG_ID_SKIP: msg_id=%u -> tombstone reorder window (no completion owed)\n",
+			err_hdr->op_id);
 		/*
 		 * Queue this packet into the reorder window as a tombstone so
 		 * the unchanged drain loop slides past the aborted msg_id. The
@@ -958,11 +961,17 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 	if (err_hdr->ref_kind == EFA_RDM_PEER_ERROR_REF_MSG_ID) {
 		ope = efa_rdm_rxe_map_lookup(&pkt_entry->peer->rxe_map,
 					     err_hdr->op_id);
+		EFA_WARN(FI_LOG_CQ,
+			"PEER_ERROR REF_MSG_ID: msg_id=%u rxe_map lookup -> ope=%p\n",
+			err_hdr->op_id, (void *) ope);
 		/*
 		 * rxe_map only ever holds rxes, so the type check is
 		 * defensive; a NULL (miss) or non-rxe is a clean drop.
 		 */
 		if (OFI_UNLIKELY(!ope || ope->type != EFA_RDM_RXE)) {
+			EFA_WARN(FI_LOG_CQ,
+				"PEER_ERROR REF_MSG_ID: msg_id=%u no matched rxe (ope=%p) -> abort_ooo_msg + drop\n",
+				err_hdr->op_id, (void *) ope);
 			/*
 			 * No rxe yet, but the msg_id may be buffered OOO in
 			 * the reorder window or overflow list. Abort it so
@@ -974,6 +983,9 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 			return;
 		}
 		if (ope->state == EFA_RDM_RXE_UNEXP) {
+			EFA_WARN(FI_LOG_CQ,
+				"PEER_ERROR REF_MSG_ID: msg_id=%u rxe=%p in RXE_UNEXP (no user op bound) -> release rxe, no completion\n",
+				err_hdr->op_id, (void *) ope);
 			/*
 			 * No user op bound -> no CQ entry owed: release the
 			 * buffered segments, then the rxe (efa_rdm_rxe_release
@@ -987,6 +999,9 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 			efa_rdm_pke_release_rx(pkt_entry);
 			return;
 		}
+		EFA_WARN(FI_LOG_CQ,
+			"PEER_ERROR REF_MSG_ID: msg_id=%u rxe=%p matched (state=%d) -> mark_peer_aborted + complete\n",
+			err_hdr->op_id, (void *) ope, ope->state);
 		/*
 		 * Matched to a posted recv: a user op is bound, so this rxe is
 		 * owed a completion. A medium rxe has no outstanding WR, so
@@ -1025,8 +1040,18 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 		return;
 	}
 
+	/* REF_OPE_INDEX: op_id is an ope-pool index (reused across
+	 * iterations), so it cannot tie back to the sender by itself. Log the
+	 * resolved ope's msg_id (globally unique) so a received OPE_INDEX
+	 * PEER_ERROR can be joined to the sender's "Emitting PEER_ERROR ...
+	 * msg_id=M" line by msg_id. */
+	EFA_WARN(FI_LOG_CQ,
+		"PEER_ERROR REF_OPE_INDEX: op_id=%u -> ope=%p type=%d msg_id=%u\n",
+		err_hdr->op_id, (void *) ope, ope->type, ope->msg_id);
+
 	switch (ope->type) {
 	case EFA_RDM_TXE:
+		EFA_WARN(FI_LOG_CQ, "BAD BAD BAD, SHOULDN'T BE IN TXE case\n");
 		/* LONGREAD direction: the peer told us our send failed.
 		 * The PEER_ERROR packet gets sent instead of the EOR packet,
 		 * and the num_read_msg_in_flight would get decremented upon

@@ -741,6 +741,11 @@ void efa_rdm_rxe_release_peer_abort_if_drained(struct efa_rdm_ope *rxe)
 	if (rxe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS)
 		return;
 
+	EFA_WARN(FI_LOG_CQ,
+		"Generating RXE peer-abort completion (FI_ECANCELED/FI_EFA_ERR_PEER_ABORTED) "
+		"for rxe=%p msg_id=%u tx_id=%u\n",
+		(void *) rxe, rxe->msg_id, rxe->tx_id);
+
 	efa_rdm_rxe_handle_error(rxe, FI_ECANCELED, FI_EFA_ERR_PEER_ABORTED);
 	efa_rdm_rxe_release(rxe);
 }
@@ -848,6 +853,15 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 	 * runs this helper again to release it.
 	 */
 	txe->internal_flags |= EFA_RDM_PEER_ERROR_EMITTED;
+
+	EFA_WARN(FI_LOG_CQ,
+		"Emitting PEER_ERROR for txe=%p msg_id=%u rx_id=%u bytes_acked=%" PRIu64
+		" protocol=%u keyed_by=%s\n",
+		(void *) txe, txe->msg_id, txe->rx_id, txe->bytes_acked, txe->protocol,
+		(efa_rdm_txe_peer_abort_uses_msg_id(txe) ||
+		 (txe->internal_flags & EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID))
+			? "MSG_ID" : "OPE_INDEX");
+
 	err = efa_rdm_ope_post_send_or_queue(txe, EFA_RDM_PEER_ERROR_PKT);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ,
