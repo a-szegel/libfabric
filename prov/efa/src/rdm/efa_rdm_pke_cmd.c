@@ -950,23 +950,6 @@ void efa_rdm_pke_proc_received(struct efa_rdm_pke *pkt_entry)
 		pkt_entry->payload_size = pkt_entry->pkt_size - payload_offset;
 	}
 
-	/* RXRAW: every RTM the receiver actually reaps from its RX CQ, logged
-	 * at the dispatch entry BEFORE reorder/match. For a stranded msg_id
-	 * this is the decisive delivery probe:
-	 *   [RXRAW] present but no [RXMAP] -> RTM was DELIVERED to the receiver
-	 *       but never matched (buffered out-of-order / dropped pre-match):
-	 *       the bug is receiver-side.
-	 *   neither [RXRAW] nor [RXMAP]    -> the sender's success send NEVER
-	 *       delivered it: local send-completion does not reflect remote
-	 *       delivery once the source MR was closed.
-	 * Gated to RTM types (one line per incoming RTM) to bound log volume. */
-	if (efa_rdm_pkt_type_is_rtm(base_hdr->type))
-		EFA_WARN(FI_LOG_CQ,
-			"[RXRAW] RTM reaped: pkt_type=%d msg_id=%u pkt_size=%zu "
-			"pkt_entry=%p\n", base_hdr->type,
-			efa_rdm_pke_get_rtm_msg_id(pkt_entry),
-			pkt_entry->pkt_size, (void *) pkt_entry);
-
 	switch (base_hdr->type) {
 	case EFA_RDM_RETIRED_RTS_PKT:
 		EFA_WARN(FI_LOG_CQ,

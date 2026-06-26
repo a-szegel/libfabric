@@ -10,6 +10,7 @@
 #include "efa_rdm_pke_cmd.h"
 #include "efa_rdm_pke_utils.h"
 #include "efa_rdm_pke_nonreq.h"
+#include "efa_rdm_pke_rtm.h"
 #include "efa_rdm_tracepoint.h"
 #include "efa_rdm_pke_print.h"
 
@@ -539,6 +540,24 @@ static void efa_rdm_cq_handle_recv_completion(struct efa_ibv_cq *ibv_cq, struct 
 	ep->efa_rx_pkts_posted--;
 
 	pkt_entry->pkt_size = efa_ibv_cq_wc_read_byte_len(ibv_cq);
+
+	/* RXRAW: every packet reaped from the RX CQ, logged at the EARLIEST
+	 * point -- before peer resolution, reorder buffering, and dispatch --
+	 * so it captures EVERY pkt_type (including PEER_ERROR type 12) and even
+	 * RTMs that will be buffered out-of-order (which proc_received would
+	 * log late or not at all). msg_id is meaningful only for RTM types
+	 * (-1 otherwise). For a stranded RTM msg_id, absence of an [RXRAW]
+	 * line means the packet never reached the receiver software at all. */
+	{
+		struct efa_rdm_base_hdr *rxraw_hdr = efa_rdm_pke_get_base_hdr(pkt_entry);
+
+		EFA_WARN(FI_LOG_CQ,
+			"[RXRAW] reaped: pkt_type=%d pkt_size=%zu msg_id=%d pkt_entry=%p\n",
+			rxraw_hdr->type, pkt_entry->pkt_size,
+			(efa_rdm_pkt_type_is_rtm(rxraw_hdr->type)
+				? (int) efa_rdm_pke_get_rtm_msg_id(pkt_entry) : -1),
+			(void *) pkt_entry);
+	}
 
 	pkt_entry->peer = efa_rdm_cq_get_peer_for_pkt_entry(ep, ibv_cq, pkt_entry);
 
