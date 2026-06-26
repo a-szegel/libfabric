@@ -1003,6 +1003,16 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	efa_cntr_report_error(&ep->base_ep.util_ep, txe->cq_entry.flags);
 	efa_rdm_cq_write_error(&ep->base_ep, util_cq, &err_entry, "TXE");
 
+	/* TXCOMP_DBG: trace every user-visible TX error completion so a
+	 * double-completed op_context is provable from the logs. */
+	EFA_WARN(FI_LOG_CQ,
+		"[TXCOMP_DBG] ERROR completion: txe=%p op_context=%p msg_id=%u "
+		"protocol=%u prev_state=%d state=%d err=%d prov_errno=%d "
+		"bytes_acked=%" PRIu64 " total_len=%" PRIu64 "\n",
+		(void *) txe, txe->cq_entry.op_context, txe->msg_id,
+		txe->protocol, prev_state, txe->state, err_entry.err,
+		err_entry.prov_errno, txe->bytes_acked, txe->total_len);
+
 
 	/*
 	 * Sender-side abort: the source MR was canceled mid-transfer,
@@ -1271,6 +1281,16 @@ void efa_rdm_txe_report_completion(struct efa_rdm_ope *txe)
 			efa_rdm_txe_handle_error(txe, -ret, FI_EFA_ERR_WRITE_SEND_COMP);
 			return;
 		}
+
+		/* TXCOMP_DBG: trace every user-visible TX success completion so a
+		 * double-completed op_context is provable from the logs. */
+		EFA_WARN(FI_LOG_CQ,
+			"[TXCOMP_DBG] SUCCESS completion: txe=%p op_context=%p "
+			"msg_id=%u protocol=%u state=%d bytes_acked=%" PRIu64
+			" total_len=%" PRIu64 "\n",
+			(void *) txe, txe->cq_entry.op_context, txe->msg_id,
+			txe->protocol, txe->state, txe->bytes_acked,
+			txe->total_len);
 	}
 
 	efa_cntr_report_tx_completion(&txe->ep->base_ep.util_ep, txe->cq_entry.flags);
