@@ -4160,6 +4160,8 @@ void test_efa_rdm_txe_handle_error_eager_prepost_cancel_emits_skip(void **state)
 	/* Before-post gen-check cancellation call site: err = FI_ECANCELED,
 	 * prov_errno = FI_EFA_ERR_PKT_POST. */
 	efa_rdm_txe_handle_error(txe, FI_ECANCELED, FI_EFA_ERR_PKT_POST);
+	/* handle_error marks the txe and, with no WR in flight, drives the
+	 * single emit itself. */
 
 	/* The consolidated emit decision marked the txe PENDING and (single
 	 * WR, already drained) emitted the PEER_ERROR_PKT, keeping the txe
@@ -4224,6 +4226,8 @@ void test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip(void **stat
 	 * process_queued_ope): err = FI_ECANCELED,
 	 * prov_errno = FI_EFA_ERR_PKT_POST. */
 	efa_rdm_txe_handle_error(txe, FI_ECANCELED, FI_EFA_ERR_PKT_POST);
+	/* handle_error marks the txe and, with no WR in flight, drives the
+	 * single emit itself. */
 
 	/* The consolidated emit decision marked the txe PENDING, recorded
 	 * that it must be signalled by msg_id (no rx_id known pre-CTS), and
@@ -4231,6 +4235,80 @@ void test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip(void **stat
 	 * completion. */
 	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
 	assert_true(txe->internal_flags & EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID);
+	assert_true(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED);
+	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before + 1);
+}
+
+/**
+ * @brief Pre-match (TXE_REQ) cancellation of a RUNTREAD RTM that has a
+ *        tail READ remainder emits a REF_MSG_ID_SKIP PEER_ERROR_PKT keyed
+ *        by msg_id.
+ *
+ * Regression test for the read-base reorder-window-stall hang. A RUNTREAD
+ * RTM carries user data (the runt segments) backed by the user MR, so the
+ * source-MR close can flush/cancel it before the receiver matches the
+ * recv. A runtread WITH a tail READ (total_len > bytes_runt) used to be
+ * excluded from the msg_id notification path (only runt-only was covered)
+ * and is not LONGCTS, so the sender-abort gate did not fire at all,
+ * leaving the receiver's reorder window parked forever on the
+ * never-delivered msg_id. The fix makes all runtread msg_id-keyed, so
+ * efa_rdm_txe_handle_error() marks the txe PENDING and (single WR, already
+ * drained) emits the PEER_ERROR_PKT. With bytes_acked == 0 (no runt
+ * segment landed, no recv matched) the emit derives REF_MSG_ID_SKIP (see
+ * test_efa_rdm_pke_init_peer_error_for_ope_runtread).
+ *
+ * Mirrors test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip
+ * but for a RUNTREAD RTM with a READ remainder. Unlike the pre-CTS LONGCTS
+ * case, runtread is keyed by msg_id directly (it has no rx_id to fall back
+ * from), so EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID is NOT set.
+ */
+void test_efa_rdm_txe_handle_error_runtread_prepost_cancel_emits_skip(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe;
+	struct efa_rdm_peer *peer;
+	size_t outstanding_before;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	/* Runt-only RUNTREAD RTM (total_len == bytes_runt, no tail READ)
+	 * aborted before any runt segment was acked: still in TXE_REQ, no
+	 * rx_id (runtread exchanges no CTS), protocol records the RUNTREAD
+	 * type. Only runt-only runtread is sender-signalled; runtread WITH a
+	 * tail READ is detected receiver-side and is not emitted here. */
+	txe->state = EFA_RDM_TXE_REQ;
+	txe->protocol = EFA_RDM_RUNTREAD_MSGRTM_PKT;
+	efa_unit_test_txe_simulate_source_mr_canceled(txe);
+	txe->cq_entry.flags = FI_SEND | FI_MSG;
+	txe->cq_entry.op_context = (void *) 0xb4;
+	txe->msg_id = 0x55;
+	txe->total_len = 4096;
+	txe->bytes_runt = 4096;
+	txe->bytes_acked = 0;
+
+	peer = txe->peer;
+	assert_non_null(peer);
+	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
+	peer->extra_info[0] |= EFA_RDM_EXTRA_FEATURE_PEER_ERROR;
+
+	outstanding_before = ep->efa_outstanding_tx_ops;
+
+	/* Before-post / pre-match cancellation call site: err = FI_ECANCELED,
+	 * prov_errno = FI_EFA_ERR_PKT_POST. */
+	efa_rdm_txe_handle_error(txe, FI_ECANCELED, FI_EFA_ERR_PKT_POST);
+	/* handle_error marks the txe and, with no WR in flight, drives the
+	 * single emit itself. */
+
+	/* PENDING + emitted, but NOT BY_MSG_ID: runtread reaches the msg_id
+	 * path via efa_rdm_txe_peer_abort_uses_msg_id(), not the LONGCTS
+	 * pre-CTS rx_id-fallback flag. */
+	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
+	assert_false(txe->internal_flags & EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID);
 	assert_true(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED);
 	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before + 1);
 }
@@ -5539,9 +5617,13 @@ void test_efa_rdm_pke_handle_tx_error_runtread_with_read_no_emit(void **state)
 	run_rtm_tx_error_with_type(resource, txe, EFA_RDM_RUNTREAD_MSGRTM_PKT,
 				   EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
 
-	/* Not flagged for the msg_id emit path; no PEER_ERROR_PKT posted. */
+	/* Not flagged for the emit path; no PEER_ERROR_PKT posted. The runt
+	 * RTM was in flight (after-post INVALID_LKEY), so the receiver matched
+	 * the recv and its tail READ will fail and notify -- the sender must
+	 * not also emit. (efa_rdm_txe_peer_abort_uses_msg_id() still reports
+	 * runtread as msg_id-keyed in general; the gate suppresses the emit
+	 * for this with-READ device-WR case.) */
 	assert_false(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
-	assert_false(efa_rdm_txe_peer_abort_uses_msg_id(txe));
 	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before);
 }
 
@@ -5657,4 +5739,91 @@ void test_efa_rdm_pke_handle_tx_error_longcts_abort_drains_txe(
 	assert_int_equal(ep->efa_outstanding_tx_ops, 0);
 	assert_int_equal(efa_unit_test_get_dlist_length(&ep->base_ep.ope_list),
 			 txe_base - 1);
+}
+
+/*
+ * A peer that does not advertise PEER_ERROR has no notification path, so the
+ * abort completion must be written eagerly (with the raw errno) rather than
+ * withheld -- withholding it would hang the op forever.
+ */
+void test_efa_rdm_txe_handle_error_no_defer_when_peer_unsupported(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe;
+	struct efa_rdm_peer *peer;
+	struct fi_cq_data_entry cq_entry;
+	struct fi_cq_err_entry cq_err_entry = {0};
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	txe->state = EFA_RDM_OPE_SEND;
+	txe->cq_entry.flags = FI_SEND | FI_MSG;
+	txe->total_len = 4096;
+	txe->bytes_acked = 256;
+	peer = txe->peer;
+	/* Deny every route to feature support. */
+	peer->is_self = false;
+	ep->homogeneous_peers = false;
+
+	efa_rdm_txe_handle_error(txe, FI_EINVAL,
+		EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+
+	assert_false(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
+	/* Completion written now, carrying the raw errno (not deferred). */
+	assert_int_equal(fi_cq_read(resource->cq, &cq_entry, 1), -FI_EAVAIL);
+	assert_int_equal(fi_cq_readerr(resource->cq, &cq_err_entry, 0), 1);
+	assert_int_equal(cq_err_entry.err, FI_EINVAL);
+	assert_int_equal(cq_err_entry.prov_errno,
+			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+}
+
+/*
+ * A CTSDATA send completion that lands on an already-aborting txe must not
+ * write a (second) completion or release the txe; the completion + release
+ * belong to the drain helper (run by the caller, not exercised here).
+ */
+void test_efa_rdm_ctsdata_send_completion_aborting_txe_no_completion(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe;
+	struct efa_rdm_pke *pkt_entry;
+	struct fi_cq_data_entry cq_entry;
+	size_t txe_base;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	txe->state = EFA_RDM_OPE_ERR;
+	txe->cq_entry.flags = FI_SEND | FI_MSG;
+	txe->total_len = 4096;
+	txe->bytes_acked = 4096; /* would reach total_len if not guarded */
+	txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING;
+	/* Simulate a sibling WR still in flight so the drain helper is a no-op
+	 * here: the aborting txe must be left untouched (no completion, not
+	 * freed, nothing emitted) until its last WR drains. */
+	txe->efa_outstanding_tx_ops = 1;
+	txe_base = efa_unit_test_get_dlist_length(&ep->base_ep.ope_list);
+
+	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
+	assert_non_null(pkt_entry);
+	pkt_entry->ope = txe;
+
+	efa_rdm_pke_handle_ctsdata_send_completion(pkt_entry);
+
+	/* No completion written, txe untouched (drain owns it). */
+	assert_int_equal(fi_cq_read(resource->cq, &cq_entry, 1), -FI_EAGAIN);
+	assert_int_equal(efa_unit_test_get_dlist_length(&ep->base_ep.ope_list),
+			 txe_base);
+
+	efa_rdm_pke_release_tx(pkt_entry);
 }
