@@ -998,11 +998,20 @@ int efa_rdm_pke_init_longcts_rtm_common(struct efa_rdm_pke *pkt_entry,
 
 	/* TXSTAMP: record the send_id stamped into every LONGCTS RTM, so a
 	 * duplicate/colliding send_id across two RTMs is provable from the TX
-	 * side alone, independent of what the receiver echoes back. */
+	 * side alone, independent of what the receiver echoes back.
+	 *
+	 * src_lkey is the cached lkey of the first source-buffer MR backing
+	 * this RTM. It is the msg_id <-> lkey bridge: [MRCLOSE] logs the lkey
+	 * of every deregistered MR, so "grep MRCLOSE lkey=N" + "grep TXSTAMP
+	 * src_lkey=N" ties an MR close to the exact msg_ids it backed -- the
+	 * correlation needed to confirm the stranded op's source MR was the
+	 * one closed. */
 	EFA_WARN(FI_LOG_CQ,
 		"[TXSTAMP] LONGCTS RTM init: txe=%p send_id(tx_id)=%u msg_id=%u "
-		"total_len=%" PRIu64 "\n",
-		(void *) txe, txe->tx_id, txe->msg_id, txe->total_len);
+		"src_lkey=%u total_len=%" PRIu64 "\n",
+		(void *) txe, txe->tx_id, txe->msg_id,
+		(txe->desc[0] ? ((struct efa_mr *) txe->desc[0])->lkey : 0),
+		txe->total_len);
 	return 0;
 }
 
