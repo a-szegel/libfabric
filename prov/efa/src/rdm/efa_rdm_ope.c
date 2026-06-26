@@ -902,6 +902,19 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	err_entry.err = err;
 	err_entry.prov_errno = prov_errno;
 
+	/* TXERR_ENTRY: fires on EVERY entry to the TX error handler, BEFORE
+	 * the state switch -- unlike [TXCOMP_DBG] ERROR, which is after
+	 * efa_rdm_cq_write_error and is therefore skipped by the
+	 * "case OPE_ERR: return;" guard. Lets us distinguish "handle_error was
+	 * never called for this txe" (no TXERR_ENTRY at all) from "called but
+	 * bailed at the OPE_ERR guard" (TXERR_ENTRY with state=7, no TXCOMP).
+	 * efa_outstanding_tx_ops shows how many WRs still pin the txe. */
+	EFA_WARN(FI_LOG_CQ,
+		"[TXERR_ENTRY] txe=%p msg_id=%u protocol=%u state=%d err=%d "
+		"prov_errno=%d internal_flags=0x%x outstanding_tx_ops=%zu\n",
+		(void *) txe, txe->msg_id, txe->protocol, txe->state, err,
+		prov_errno, txe->internal_flags, txe->efa_outstanding_tx_ops);
+
 	switch (txe->state) {
 	case EFA_RDM_TXE_REQ:
 		break;
@@ -2171,13 +2184,40 @@ ssize_t efa_rdm_ope_post_send(struct efa_rdm_ope *ope, int pkt_type)
 	for (i = 0; i < ep->send_pkt_entry_vec_size; ++i)
 		efa_rdm_pke_handle_sent(ep->send_pkt_entry_vec[i], pkt_type, ope->peer);
 
+	/* RTM_DISPATCH: a LONGCTS RTM was successfully handed to rdma-core
+	 * (sendv returned 0). Pairs with the handle_err log below to show, per
+	 * msg_id, whether the RTM reached the device or fell into the
+	 * EAGAIN/fallback path. A stranded msg_id that shows result=SENT here
+	 * but never appears in [RXMAP] was flushed on the wire after the source
+	 * MR close; one that never shows SENT was never posted. */
+	if (efa_rdm_pkt_type_is_longcts_rtm(pkt_type))
+		EFA_WARN(FI_LOG_CQ,
+			"[RTM_DISPATCH] result=SENT ope=%p msg_id=%u pkt_type=%d "
+			"state=%d outstanding_tx_ops=%zu\n",
+			(void *) ope, ope->msg_id, pkt_type, ope->state,
+			ope->efa_outstanding_tx_ops);
+
 	return FI_SUCCESS;
 
 handle_err:
 	for (i = 0; i < pkt_entry_cnt_allocated; ++i)
 		efa_rdm_pke_release_tx(ep->send_pkt_entry_vec[i]);
 
-	return efa_rdm_ope_post_send_fallback(ope, pkt_type, err);
+	err = efa_rdm_ope_post_send_fallback(ope, pkt_type, err);
+
+	/* RTM_DISPATCH: a LONGCTS RTM hit the error path (pke-pool EAGAIN,
+	 * fill error, or sendv error). result is the post_send_fallback return:
+	 * -FI_EAGAIN (-11) means the caller queues it on ope_queued_list
+	 * (QUEUED_CTRL) -- see [QUEUE_PROC] for whether the sweep then reaches
+	 * it; any other negative is a hard error routed to handle_error. */
+	if (efa_rdm_pkt_type_is_longcts_rtm(pkt_type))
+		EFA_WARN(FI_LOG_CQ,
+			"[RTM_DISPATCH] result=%zd ope=%p msg_id=%u pkt_type=%d "
+			"state=%d outstanding_tx_ops=%zu\n",
+			err, (void *) ope, ope->msg_id, pkt_type, ope->state,
+			ope->efa_outstanding_tx_ops);
+
+	return err;
 }
 
 /**
@@ -2301,6 +2341,20 @@ int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope, uint32_t flag)
 
 	if (!(ope->internal_flags & flag))
 		return 0;
+
+	/* QUEUE_PROC: fires whenever the queued-ope sweep processes this ope.
+	 * If a stranded pre-CTS LONGCTS RTM (queued QUEUED_CTRL with
+	 * queued_ctrl_type = LONGCTS_*RTM) is sitting on ope_queued_list, this
+	 * proves whether the sweep ever reaches it and what the gen-check
+	 * decides. gen_ok=0 means the source MR was closed -> the else branch
+	 * below should error it (FI_ECANCELED/PEER_ABORTED). If we never see a
+	 * QUEUE_PROC for a stranded msg_id, it is NOT on this list. */
+	EFA_WARN(FI_LOG_CQ,
+		"[QUEUE_PROC] ope=%p type=%d msg_id=%u protocol=%u state=%d "
+		"flag=0x%x queued_ctrl_type=%d gen_ok=%d outstanding_tx_ops=%zu\n",
+		(void *) ope, ope->type, ope->msg_id, ope->protocol, ope->state,
+		flag, ope->queued_ctrl_type, (int) efa_rdm_mr_gen_check_ope(ope),
+		ope->efa_outstanding_tx_ops);
 
 	/*
 	 * The MR gen check guards against reposting a WR whose SGE points
