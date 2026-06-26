@@ -1126,6 +1126,23 @@ void efa_rdm_pke_handle_longcts_rtm_send_completion(struct efa_rdm_pke *pkt_entr
 	}
 
 	txe = pkt_entry->ope;
+
+	/* RTM_SENDCOMP: the LONGCTS RTM send WR completed SUCCESSFULLY. Fires
+	 * once per delivered RTM (success path only; errors go to CQE_DBG /
+	 * TXERR_ENTRY). This is the decisive discriminator for a stranded
+	 * msg_id: if it shows [RTM_DISPATCH] result=SENT but NEVER shows
+	 * [RTM_SENDCOMP] -- and no [CQE_DBG] error WC and no [TXERR_ENTRY] --
+	 * then its send WR was posted but never produced ANY completion: the
+	 * WR is stuck after the source MR was closed, leaving the txe orphaned
+	 * in TXE_REQ with no completion path (the theory). If a stranded msg_id
+	 * DOES show [RTM_SENDCOMP], the RTM completed success and the stranding
+	 * is downstream (delivery/receiver), not a stuck WR. */
+	EFA_WARN(FI_LOG_CQ,
+		"[RTM_SENDCOMP] LONGCTS RTM send done: txe=%p msg_id=%u state=%d "
+		"payload_size=%zu bytes_acked=%" PRIu64 " total_len=%" PRIu64 "\n",
+		(void *) txe, txe->msg_id, txe->state, pkt_entry->payload_size,
+		txe->bytes_acked, txe->total_len);
+
 	txe->bytes_acked += pkt_entry->payload_size;
 	if (txe->total_len == txe->bytes_acked)
 		efa_rdm_ope_handle_send_completed(txe);
