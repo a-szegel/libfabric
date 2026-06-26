@@ -310,17 +310,23 @@ int efa_rdm_pke_init_peer_error(struct efa_rdm_pke *pkt_entry,
  *
  * True for the sender-detected protocols that exchange no CTS, so msg_id is
  * the only id shared with the receiver: EAGER two-sided RTM, medium RTM, and
- * runt-only runtread (bytes_runt == total_len; all data in REQ packets, no
- * RDMA READ). The bytes_acked test in efa_rdm_pke_init_peer_error_for_ope()
- * then picks REF_MSG_ID_SKIP (nothing acked) or REF_MSG_ID (partial data).
+ * runtread (with or without a tail READ). The bytes_acked test in
+ * efa_rdm_pke_init_peer_error_for_ope() then picks REF_MSG_ID_SKIP (nothing
+ * acked) or REF_MSG_ID (partial data delivered).
+ *
+ * Runtread is keyed by msg_id regardless of a trailing READ: its runt RTM(s)
+ * carry user data from the user's MR, so a source-MR close can flush them
+ * before the receiver matches the recv, and msg_id is the only shared id.
+ * Pure LONGREAD is excluded -- its RTM carries no user data, so it is always
+ * matched and its abort is detected receiver-side via the inbound PEER_ERROR
+ * path.
  */
 static inline
 bool efa_rdm_txe_peer_abort_uses_msg_id(struct efa_rdm_ope *txe)
 {
 	return efa_rdm_pkt_type_is_eager_rtm(txe->protocol) ||
 	       efa_rdm_pkt_type_is_medium(txe->protocol) ||
-	       (efa_rdm_pkt_type_is_runtread(txe->protocol) &&
-		txe->total_len == txe->bytes_runt);
+	       efa_rdm_pkt_type_is_runtread(txe->protocol);
 }
 
 int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,

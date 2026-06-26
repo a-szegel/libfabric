@@ -338,11 +338,14 @@ void test_efa_rdm_txe_handle_error_emits_peer_error_on_invalid_lkey(void **state
 void test_efa_rdm_txe_handle_error_emits_peer_error_on_canceled(void **state);
 void test_efa_rdm_txe_handle_error_eager_prepost_cancel_emits_skip(void **state);
 void test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip(void **state);
+void test_efa_rdm_txe_handle_error_runtread_prepost_cancel_emits_skip(void **state);
 void test_efa_rdm_txe_handle_error_no_emit_when_peer_unsupported(void **state);
 void test_efa_rdm_txe_handle_error_emits_peer_error_with_homogeneous_peers(void **state);
 void test_efa_rdm_txe_handle_error_skips_peer_error_when_no_handshake(void **state);
 void test_efa_rdm_pke_handle_peer_error_recv_longcts_cts_outstanding(void **state);
 void test_efa_rdm_pke_handle_tx_error_longcts_abort_drains_txe(void **state);
+void test_efa_rdm_txe_handle_error_no_defer_when_peer_unsupported(void **state);
+void test_efa_rdm_ctsdata_send_completion_aborting_txe_no_completion(void **state);
 void test_efa_rdm_txe_handle_error_no_emit_when_not_longcts(void **state);
 void test_efa_rdm_pke_handle_peer_error_recv_medium_reaps_rxe(void **state);
 void test_efa_rdm_pke_handle_peer_error_recv_medium_tagged(void **state);
