@@ -337,6 +337,7 @@ void test_efa_rdm_pke_handle_peer_error_recv_invalid_op_id_dropped(void **state)
 void test_efa_rdm_txe_handle_error_emits_peer_error_on_invalid_lkey(void **state);
 void test_efa_rdm_txe_handle_error_emits_peer_error_on_canceled(void **state);
 void test_efa_rdm_txe_handle_error_eager_prepost_cancel_emits_skip(void **state);
+void test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip(void **state);
 void test_efa_rdm_txe_handle_error_no_emit_when_peer_unsupported(void **state);
 void test_efa_rdm_txe_handle_error_emits_peer_error_with_homogeneous_peers(void **state);
 void test_efa_rdm_txe_handle_error_skips_peer_error_when_no_handshake(void **state);
@@ -489,6 +490,7 @@ void test_efa_rdm_peer_skip_aborted_msg_id_head_advances(void **state);
 void test_efa_rdm_peer_skip_aborted_msg_id_already_processed_noop(void **state);
 void test_efa_rdm_peer_skip_aborted_msg_id_buffered_tombstones(void **state);
 void test_efa_rdm_peer_skip_aborted_msg_id_tombstone_behind_head(void **state);
+void test_efa_rdm_pke_handle_peer_error_recv_longcts_skip_unblocks_window(void **state);
 /* end of efa_unit_test_rdm_peer.c */
 
 /* begin of efa_unit_test_pke.c */
@@ -511,6 +513,7 @@ void test_efa_rdm_pke_init_peer_error_for_ope_ope_index(void **state);
 void test_efa_rdm_pke_init_peer_error_for_ope_medium_msg_id(void **state);
 void test_efa_rdm_pke_init_peer_error_for_ope_runtread(void **state);
 void test_efa_rdm_pke_init_peer_error_for_ope_eager_skip(void **state);
+void test_efa_rdm_pke_init_peer_error_for_ope_longcts_pre_cts_skip(void **state);
 /* end of efa_unit_test_pke.c */
 
 void test_efa_msg_fi_recv(void **state);
