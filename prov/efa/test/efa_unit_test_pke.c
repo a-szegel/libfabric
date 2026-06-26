@@ -949,10 +949,14 @@ void test_efa_rdm_pke_init_peer_error_for_ope_medium_msg_id(void **state)
 
 /**
  * @brief Verify efa_rdm_pke_init_peer_error_for_ope() routes a runtread
- *        txe by remainder: runt-only (total_len == bytes_runt) carries no
- *        RDMA READ and uses the MSG_ID direction (op_id = msg_id), while a
- *        runtread WITH a READ remainder is signalled through the READ
- *        failure path and uses OPE_INDEX (op_id = rx_id) here.
+ *        txe -- with or without a READ remainder -- through the MSG_ID
+ *        direction (op_id = msg_id). Runtread exchanges no CTS, so there
+ *        is no rx_id; its runt RTM(s) carry user data backed by the user
+ *        MR and can be flushed/cancelled before the receiver matches. The
+ *        ref_kind is then picked from bytes_acked: REF_MSG_ID when a
+ *        partial runt was acked (matched rxe owes one FI_ECANCELED), or
+ *        REF_MSG_ID_SKIP when nothing was acked (no recv matched; only
+ *        advance the reorder window).
  */
 void test_efa_rdm_pke_init_peer_error_for_ope_runtread(void **state)
 {
@@ -998,17 +1002,32 @@ void test_efa_rdm_pke_init_peer_error_for_ope_runtread(void **state)
 	assert_int_equal(hdr->op_id, txe.msg_id);
 	efa_rdm_pke_release_tx(pkt_entry);
 
-	/* With a READ remainder (bytes_runt < total_len): OPE_INDEX,
-	 * independent of bytes_acked (not a msg_id-keyed protocol). */
+	/* With a READ remainder (bytes_runt < total_len), partial runt
+	 * acked (bytes_acked > 0): still MSG_ID-keyed (runtread has no
+	 * rx_id), REF_MSG_ID, op_id = msg_id. */
 	txe.total_len = 1048576;
 	txe.bytes_runt = 4096;
+	txe.bytes_acked = 128;
 	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
 				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
 	assert_non_null(pkt_entry);
 	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe), 0);
 	hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
-	assert_int_equal(hdr->ref_kind, EFA_RDM_PEER_ERROR_REF_OPE_INDEX);
-	assert_int_equal(hdr->op_id, txe.rx_id);
+	assert_int_equal(hdr->ref_kind, EFA_RDM_PEER_ERROR_REF_MSG_ID);
+	assert_int_equal(hdr->op_id, txe.msg_id);
+	efa_rdm_pke_release_tx(pkt_entry);
+
+	/* With a READ remainder but nothing acked (bytes_acked == 0): the
+	 * runt RTM(s) were all flushed/cancelled before any was delivered,
+	 * so no recv was matched -- REF_MSG_ID_SKIP, op_id = msg_id. */
+	txe.bytes_acked = 0;
+	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
+	assert_non_null(pkt_entry);
+	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe), 0);
+	hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
+	assert_int_equal(hdr->ref_kind, EFA_RDM_PEER_ERROR_REF_MSG_ID_SKIP);
+	assert_int_equal(hdr->op_id, txe.msg_id);
 	efa_rdm_pke_release_tx(pkt_entry);
 }
 

@@ -303,9 +303,23 @@ int efa_rdm_pke_init_peer_error(struct efa_rdm_pke *pkt_entry,
  *
  * True for the sender-detected protocols that exchange no CTS (so the
  * sender never learns the receiver's rxe index, leaving msg_id as the
- * only shared id): EAGER two-sided RTM, medium RTM, and runt-only
- * runtread (bytes_runt == total_len, all data in REQ packets, no RDMA
- * READ).
+ * only shared id): EAGER two-sided RTM, medium RTM, and runtread
+ * (both runt-only and runt + tail RDMA READ).
+ *
+ * Runtread is keyed by msg_id regardless of whether it has a trailing
+ * READ. Its runt RTM(s) carry user data backed by the user's MR, so the
+ * source-MR close can flush/cancel them before the receiver matches the
+ * recv. When that happens the sender must still notify the receiver, and
+ * the only shared id is msg_id (runtread exchanges no CTS, so there is no
+ * rx_id). The bytes_acked test in efa_rdm_pke_init_peer_error_for_ope()
+ * then picks the kind: REF_MSG_ID_SKIP when no runt segment was acked (no
+ * recv was matched, only advance the reorder window), or REF_MSG_ID when
+ * a partial runt was delivered (the matched rxe owes one FI_ECANCELED).
+ *
+ * Note pure LONGREAD (no runt) is NOT included: its RTM carries no user
+ * data / user MR, so the source-MR close cannot flush it -- it is always
+ * delivered and matched, and its abort is detected receiver-side when the
+ * tail READ fails, handled via the inbound PEER_ERROR path.
  *
  * EAGER always routes to REF_MSG_ID_SKIP: it carries all data in a
  * single REQ and never increments bytes_acked, so an aborted eager txe
@@ -317,8 +331,7 @@ bool efa_rdm_txe_peer_abort_uses_msg_id(struct efa_rdm_ope *txe)
 {
 	return efa_rdm_pkt_type_is_eager_rtm(txe->protocol) ||
 	       efa_rdm_pkt_type_is_medium(txe->protocol) ||
-	       (efa_rdm_pkt_type_is_runtread(txe->protocol) &&
-		txe->total_len == txe->bytes_runt);
+	       efa_rdm_pkt_type_is_runtread(txe->protocol);
 }
 
 int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,

@@ -1009,7 +1009,7 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	 * detected pre-post by the MR gen check (-FI_ECANCELED) or post-post
 	 * by the NIC (LOCAL_ERROR_INVALID_LKEY/FLUSHED). Tell the receiver so its
 	 * matched recv errors out instead of hanging. Covers LONGCTS plus the
-	 * msg_id-based protocols (medium / runt-only, and EAGER which only
+	 * msg_id-based protocols (medium / runtread, and EAGER which only
 	 * unblocks the reorder window); the wire ref_kind is selected later in
 	 * efa_rdm_pke_init_peer_error_for_ope().
 	 *
@@ -1023,7 +1023,7 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	 *    no completion -- only its reorder window may be parked on this
 	 *    msg_id. Signal it by msg_id (EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID ->
 	 *    REF_MSG_ID_SKIP) so the window advances, exactly like the
-	 *    EAGER / medium / runt-only abort. The msg_id kinds use
+	 *    EAGER / medium / runtread abort. The msg_id kinds use
 	 *    txe->msg_id, always valid.
 	 *
 	 * Mark PENDING and let efa_rdm_txe_progress_peer_abort_if_drained()
@@ -1036,7 +1036,7 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 		 * been processed. The prev_state == OPE_SEND term preserves the
 		 * original (CTS-received, rx_id-valid) trigger; the protocol term
 		 * adds the pre-CTS (TXE_REQ) case, where the keying falls back to
-		 * msg_id below. The msg_id protocols (EAGER / medium / runt-only)
+		 * msg_id below. The msg_id protocols (EAGER / medium / runtread)
 		 * are excluded by !uses_msg_id and emit via that term of the
 		 * gate. */
 		is_longcts = (prev_state == EFA_RDM_OPE_SEND ||
