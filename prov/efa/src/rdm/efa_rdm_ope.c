@@ -1066,6 +1066,40 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 			      efa_rdm_pkt_type_is_longcts_rtm(txe->protocol)) &&
 			     !uses_msg_id;
 
+		/* TOMBSTONE_DECISION: the "do we want to send a PEER_ERROR
+		 * tombstone?" decision point. Fires for any txe whose protocol
+		 * could owe the receiver a PEER_ERROR (LONGCTS or a msg_id
+		 * protocol) that reaches the TX error handler, printing every
+		 * gate sub-condition so a non-emit is explainable (wrong errno,
+		 * peer unsupported, etc.).
+		 *
+		 * IMPORTANT: a stranded pre-CTS LONGCTS RTM whose send completed
+		 * SUCCESS never reaches efa_rdm_txe_handle_error at all, so this
+		 * line will NOT appear for it (nor will [TXERR_ENTRY]). Its
+		 * absence is itself the proof that the failure/tombstone path was
+		 * never triggered for that op -- the RTM did not "fail". The
+		 * conditions below mirror the gate; they are log-only. */
+		if (is_longcts || uses_msg_id) {
+			int not_internal = !(txe->internal_flags & EFA_RDM_OPE_INTERNAL);
+			int op_ok = (txe->op == ofi_op_msg || txe->op == ofi_op_tagged);
+			int errno_ok = (err == FI_ECANCELED ||
+				prov_errno == EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+			int peer_ok = (txe->peer != NULL) &&
+				(ep->homogeneous_peers || txe->peer->is_self ||
+				 efa_rdm_peer_support_peer_error(txe->peer));
+			int arm = not_internal && op_ok && errno_ok && peer_ok;
+
+			EFA_WARN(FI_LOG_CQ,
+				"[TOMBSTONE_DECISION] txe=%p msg_id=%u protocol=%u "
+				"prev_state=%d is_longcts=%d uses_msg_id=%d not_internal=%d "
+				"op_ok=%d errno_ok=%d(err=%d prov_errno=%d) peer_ok=%d "
+				"=> arm_tombstone=%d by_msg_id=%d\n",
+				(void *) txe, txe->msg_id, txe->protocol, prev_state,
+				is_longcts, uses_msg_id, not_internal, op_ok, errno_ok,
+				err, prov_errno, peer_ok, arm,
+				(arm && is_longcts && prev_state != EFA_RDM_OPE_SEND));
+		}
+
 		if (!(txe->internal_flags & EFA_RDM_OPE_INTERNAL) &&
 		    (txe->op == ofi_op_msg || txe->op == ofi_op_tagged) &&
 		    (is_longcts || uses_msg_id) &&
