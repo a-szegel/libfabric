@@ -437,7 +437,7 @@ void efa_rdm_pke_handle_rtm_rta_recv(struct efa_rdm_pke *pkt_entry)
 	struct efa_rdm_rtm_base_hdr *rtm_hdr;
 	bool slide_recvwin;
 	int ret;
-	uint32_t msg_id, exp_msg_id;
+	uint32_t msg_id, exp_msg_id, robuf_exp_before;
 
 	ep = pkt_entry->ep;
 
@@ -468,7 +468,22 @@ void efa_rdm_pke_handle_rtm_rta_recv(struct efa_rdm_pke *pkt_entry)
 	}
 
 	msg_id = efa_rdm_pke_get_rtm_msg_id(pkt_entry);
+	robuf_exp_before = peer->robuf.exp_msg_id;
 	ret = efa_rdm_peer_reorder_msg(peer, pkt_entry->ep, pkt_entry);
+
+	/* [ROBUF] reorder-buffer status for this RTM. exp_msg_id is the window
+	 * head (next msg_id the receiver will process in order); gap = how far
+	 * ahead this RTM is of the head; reorder_ret: 0=in-order (will process
+	 * + slide now), 1=buffered out-of-order, <0=error. A stall shows up as
+	 * exp_msg_id frozen while RTMs keep arriving with growing gap, and/or
+	 * overflow=NONEMPTY. */
+	EFA_WARN(FI_LOG_EP_CTRL,
+		"[ROBUF] rtm recv: msg_id=%u exp_msg_id=%u win_size=%u gap=%d "
+		"reorder_ret=%d overflow=%s\n",
+		msg_id, robuf_exp_before, peer->robuf.win_size,
+		(int) (msg_id - robuf_exp_before), ret,
+		dlist_empty(&peer->overflow_pke_list) ? "empty" : "NONEMPTY");
+
 	if (ret == 1) {
 		/* Packet was queued */
 		return;
@@ -532,6 +547,17 @@ void efa_rdm_pke_handle_rtm_rta_recv(struct efa_rdm_pke *pkt_entry)
 		efa_rdm_peer_move_overflow_pke_to_recvwin(peer);
 
 	efa_rdm_peer_proc_pending_items_in_robuf(peer, ep);
+
+	/* [ROBUF] post: window head after processing this in-order RTM and
+	 * draining any now-in-order buffered entries. advanced = how many
+	 * msg_ids the head moved. advanced==0 (head not moving while RTMs keep
+	 * arriving) is the reorder-buffer-stall signature. */
+	EFA_WARN(FI_LOG_EP_CTRL,
+		"[ROBUF] post: msg_id=%u exp_before=%u exp_after=%u advanced=%d "
+		"overflow=%s\n",
+		msg_id, robuf_exp_before, peer->robuf.exp_msg_id,
+		(int) (peer->robuf.exp_msg_id - robuf_exp_before),
+		dlist_empty(&peer->overflow_pke_list) ? "empty" : "NONEMPTY");
 }
 
 /**
