@@ -232,6 +232,17 @@ void efa_rdm_pke_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 	cts_pkt = (struct efa_rdm_cts_hdr *)pkt_entry->wiredata;
 	ope = ofi_bufpool_get_ibuf(pkt_entry->ep->ope_pool, cts_pkt->send_id);
 
+	/* CTS_RECV: every CTS the sender receives, logged before any state
+	 * mutation. A stranded msg_id should show NO [CTS_RECV]: its RTM was
+	 * never matched at the receiver, so no CTS was ever sent back -- which
+	 * is precisely why the txe is stuck in TXE_REQ with no way to advance
+	 * to OPE_SEND (and thus never lands on ope_longcts_send_list where the
+	 * source-MR gen-check sweep could error it). */
+	EFA_WARN(FI_LOG_CQ,
+		"[CTS_RECV] txe=%p send_id=%u recv_id=%u msg_id=%u state=%d\n",
+		(void *) ope, cts_pkt->send_id, cts_pkt->recv_id, ope->msg_id,
+		ope->state);
+
 	ope->rx_id = cts_pkt->recv_id;
 	ope->window = cts_pkt->recv_length;
 	assert(ope->window > 0);
