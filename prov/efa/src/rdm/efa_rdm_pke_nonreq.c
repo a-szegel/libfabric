@@ -238,6 +238,17 @@ void efa_rdm_pke_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 
 	efa_rdm_pke_release_rx(pkt_entry);
 
+	/* TXCOMP_DBG: a CTS for a txe already in OPE_ERR resurrects it to
+	 * OPE_SEND and re-queues it on ope_longcts_send_list, which leads to a
+	 * SECOND TX error completion (the gen-check path errors it again).
+	 * This log fires only on that rare path so it is the direct proof of
+	 * the double-completion mechanism. */
+	if (ope->state == EFA_RDM_OPE_ERR)
+		EFA_WARN(FI_LOG_CQ,
+			"[TXCOMP_DBG] CTS-RESURRECT: txe=%p msg_id=%u rx_id=%u "
+			"state_before=OPE_ERR -> OPE_SEND (will double-complete)\n",
+			(void *) ope, ope->msg_id, ope->rx_id);
+
 	if (ope->state != EFA_RDM_OPE_SEND) {
 		ope->state = EFA_RDM_OPE_SEND;
 		dlist_insert_tail(&ope->entry, &efa_rdm_ep_rdm_domain(ep)->ope_longcts_send_list);
