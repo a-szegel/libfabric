@@ -766,6 +766,28 @@ enum ibv_wc_status efa_rdm_cq_process_wc(struct efa_ibv_cq *cq, struct efa_rdm_e
 
 	if (OFI_UNLIKELY(status != IBV_WC_SUCCESS)) {
 		prov_errno = efa_rdm_cq_process_prov_errno(cq, pkt_entry ? pkt_entry->peer : NULL);
+
+		/* CQE_DBG: dump the raw device CQE for every error completion,
+		 * so the FLUSHED-vs-delivered question is answered from exactly
+		 * what the NIC reported (not inferred). */
+		EFA_WARN(FI_LOG_CQ,
+			"[CQE_DBG] error WC: wr_id=0x%" PRIx64 " status=%d opcode=%d "
+			"vendor_err=%u (prov_errno=%d) qp_num=%u src_qp=%u slid=%u "
+			"byte_len=%u wc_flags=0x%x pkt_entry=%p\n",
+			wr_id, status, opcode,
+			efa_ibv_cq_wc_read_vendor_err(cq), prov_errno,
+			efa_ibv_cq_wc_read_qp_num(cq), efa_ibv_cq_wc_read_src_qp(cq),
+			efa_ibv_cq_wc_read_slid(cq), efa_ibv_cq_wc_read_byte_len(cq),
+			efa_ibv_cq_wc_read_wc_flags(cq), (void *) pkt_entry);
+		if (pkt_entry && pkt_entry->ope)
+			EFA_WARN(FI_LOG_CQ,
+				"[CQE_DBG]   -> ope=%p type=%d msg_id=%u tx_id=%u "
+				"op_context=%p protocol=%u state=%d\n",
+				(void *) pkt_entry->ope, pkt_entry->ope->type,
+				pkt_entry->ope->msg_id, pkt_entry->ope->tx_id,
+				pkt_entry->ope->cq_entry.op_context,
+				pkt_entry->ope->protocol, pkt_entry->ope->state);
+
 		switch (opcode) {
 		case IBV_WC_SEND: /* fall through */
 		case IBV_WC_RDMA_WRITE: /* fall through */

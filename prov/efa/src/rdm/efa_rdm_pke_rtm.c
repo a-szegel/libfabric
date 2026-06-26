@@ -232,6 +232,21 @@ ssize_t efa_rdm_pke_proc_matched_rtm(struct efa_rdm_pke *pkt_entry)
 
 	rxe->msg_id = efa_rdm_pke_get_rtm_base_hdr(pkt_entry)->msg_id;
 
+	/* RXMAP: the receiver's view of every matched RTM. send_id (echoed
+	 * verbatim into the CTS this rxe will post) and msg_id are read
+	 * straight off the wire header, so this maps a sender's send_id back
+	 * to exactly what the RX actually received. Correlate against the
+	 * sender's [TXCOMP_DBG] CTS-RESURRECT line: if no RTM with that
+	 * send_id was ever received here, the resurrecting CTS carried a
+	 * wrong/corrupted send_id; if it was received, the RTM was delivered. */
+	EFA_WARN(FI_LOG_CQ,
+		"[RXMAP] RTM recv: pkt_type=%d send_id=%u msg_id=%u rxe=%p "
+		"total_len=%" PRIu64 " peer=%" PRIu64 "\n",
+		pkt_type, rxe->tx_id, rxe->msg_id, (void *) rxe,
+		rxe->total_len,
+		rxe->peer && rxe->peer->conn ? rxe->peer->conn->fi_addr
+					     : (uint64_t) FI_ADDR_NOTAVAIL);
+
 	if (pkt_type == EFA_RDM_LONGREAD_MSGRTM_PKT || pkt_type == EFA_RDM_LONGREAD_TAGRTM_PKT)
 		return efa_rdm_pke_proc_matched_longread_rtm(pkt_entry);
 
@@ -980,6 +995,14 @@ int efa_rdm_pke_init_longcts_rtm_common(struct efa_rdm_pke *pkt_entry,
 	rtm_hdr->msg_length = txe->total_len;
 	rtm_hdr->send_id = txe->tx_id;
 	rtm_hdr->credit_request = efa_env.tx_min_credits;
+
+	/* TXSTAMP: record the send_id stamped into every LONGCTS RTM, so a
+	 * duplicate/colliding send_id across two RTMs is provable from the TX
+	 * side alone, independent of what the receiver echoes back. */
+	EFA_WARN(FI_LOG_CQ,
+		"[TXSTAMP] LONGCTS RTM init: txe=%p send_id(tx_id)=%u msg_id=%u "
+		"total_len=%" PRIu64 "\n",
+		(void *) txe, txe->tx_id, txe->msg_id, txe->total_len);
 	return 0;
 }
 
