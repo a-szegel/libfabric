@@ -4198,6 +4198,75 @@ void test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip(void **stat
 }
 
 /**
+ * @brief Pre-match (TXE_REQ) cancellation of a RUNTREAD RTM that has a
+ *        tail READ remainder emits a REF_MSG_ID_SKIP PEER_ERROR_PKT keyed
+ *        by msg_id.
+ *
+ * Regression test for the read-base reorder-window-stall hang. A RUNTREAD
+ * RTM carries user data (the runt segments) backed by the user MR, so the
+ * source-MR close can flush/cancel it before the receiver matches the
+ * recv. A runtread WITH a tail READ (total_len > bytes_runt) used to be
+ * excluded from the msg_id notification path (only runt-only was covered)
+ * and is not LONGCTS, so the sender-abort gate did not fire at all,
+ * leaving the receiver's reorder window parked forever on the
+ * never-delivered msg_id. The fix makes all runtread msg_id-keyed, so
+ * efa_rdm_txe_handle_error() marks the txe PENDING and (single WR, already
+ * drained) emits the PEER_ERROR_PKT. With bytes_acked == 0 (no runt
+ * segment landed, no recv matched) the emit derives REF_MSG_ID_SKIP (see
+ * test_efa_rdm_pke_init_peer_error_for_ope_runtread).
+ *
+ * Mirrors test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip
+ * but for a RUNTREAD RTM with a READ remainder. Unlike the pre-CTS LONGCTS
+ * case, runtread is keyed by msg_id directly (it has no rx_id to fall back
+ * from), so EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID is NOT set.
+ */
+void test_efa_rdm_txe_handle_error_runtread_prepost_cancel_emits_skip(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe;
+	struct efa_rdm_peer *peer;
+	size_t outstanding_before;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	/* RUNTREAD RTM with a tail READ (total_len > bytes_runt) aborted
+	 * before any runt segment was acked: still in TXE_REQ, no rx_id
+	 * (runtread exchanges no CTS), protocol records the RUNTREAD type. */
+	txe->state = EFA_RDM_TXE_REQ;
+	txe->protocol = EFA_RDM_RUNTREAD_MSGRTM_PKT;
+	txe->cq_entry.flags = FI_SEND | FI_MSG;
+	txe->cq_entry.op_context = (void *) 0xb4;
+	txe->msg_id = 0x55;
+	txe->total_len = 1048576;
+	txe->bytes_runt = 4096;
+	txe->bytes_acked = 0;
+
+	peer = txe->peer;
+	assert_non_null(peer);
+	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
+	peer->extra_info[0] |= EFA_RDM_EXTRA_FEATURE_PEER_ERROR;
+
+	outstanding_before = ep->efa_outstanding_tx_ops;
+
+	/* Pre-post / pre-match cancellation call site: err = FI_ECANCELED,
+	 * prov_errno = FI_EFA_ERR_PKT_POST. */
+	efa_rdm_txe_handle_error(txe, FI_ECANCELED, FI_EFA_ERR_PKT_POST);
+
+	/* PENDING + emitted, but NOT BY_MSG_ID: runtread reaches the msg_id
+	 * path via efa_rdm_txe_peer_abort_uses_msg_id(), not the LONGCTS
+	 * pre-CTS rx_id-fallback flag. */
+	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
+	assert_false(txe->internal_flags & EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID);
+	assert_true(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED);
+	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before + 1);
+}
+
+/**
  * @brief LONGCTS sender-side fallback: peer doesn't advertise
  *        EFA_RDM_EXTRA_FEATURE_PEER_ERROR → no PEER_ERROR_PKT.
  *        Sender still sees TX CQ error.

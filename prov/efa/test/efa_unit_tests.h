@@ -338,6 +338,7 @@ void test_efa_rdm_txe_handle_error_emits_peer_error_on_invalid_lkey(void **state
 void test_efa_rdm_txe_handle_error_emits_peer_error_on_canceled(void **state);
 void test_efa_rdm_txe_handle_error_eager_prepost_cancel_emits_skip(void **state);
 void test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip(void **state);
+void test_efa_rdm_txe_handle_error_runtread_prepost_cancel_emits_skip(void **state);
 void test_efa_rdm_txe_handle_error_no_emit_when_peer_unsupported(void **state);
 void test_efa_rdm_txe_handle_error_emits_peer_error_with_homogeneous_peers(void **state);
 void test_efa_rdm_txe_handle_error_skips_peer_error_when_no_handshake(void **state);
