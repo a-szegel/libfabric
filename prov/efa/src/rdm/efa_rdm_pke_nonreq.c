@@ -845,7 +845,10 @@ int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,
      * op_id identifies the transfer we're abandoning; ref_kind says how
      * the receiver reads it:
      *   rxe  -> REF_OPE_INDEX, rxe->tx_id (peer's txe, from the RTM)
-     *   txe (LONGCTS) -> REF_OPE_INDEX, txe->rx_id (peer's rxe, from the CTS)
+     *   txe (LONGCTS, CTS processed) -> REF_OPE_INDEX, txe->rx_id (peer's
+     *                                   rxe, from the CTS)
+     *   txe (LONGCTS aborted pre-CTS) -> REF_MSG_ID_SKIP, msg_id (no rx_id
+     *                                    known; receiver owes no completion)
      *   txe (medium/runt-only/EAGER) -> REF_MSG_ID or REF_MSG_ID_SKIP, msg_id
      */
 	if (ope->type == EFA_RDM_RXE) {
@@ -854,19 +857,23 @@ int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,
 	} else {
 		assert(ope->type == EFA_RDM_TXE);
 		/*
-		 * msg_id-keyed protocols (EAGER / medium / runt-only runtread)
-		 * pick the ref_kind from bytes_acked:
+		 * msg_id-keyed aborts (EAGER / medium / runt-only runtread, and
+		 * a LONGCTS RTM aborted before its first CTS -- flagged with
+		 * EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID) pick the ref_kind from
+		 * bytes_acked:
 		 *   - bytes_acked == 0: nothing was delivered, so the receiver
 		 *     owes no completion -- REF_MSG_ID_SKIP only unblocks its
 		 *     reorder window past msg_id. EAGER always lands here (it
-		 *     never acks data).
+		 *     never acks data); a pre-CTS LONGCTS abort always lands here
+		 *     too (no CTSDATA was acked).
 		 *   - bytes_acked > 0: the receiver took partial data and owes
 		 *     a FI_ECANCELED on the matched rxe -- REF_MSG_ID.
-		 * Everything else (LONGCTS) carries the receiver's rxe index,
-		 * REF_OPE_INDEX. bytes_acked is final here: emission only
-		 * happens once every data WR has drained.
+		 * Everything else (a LONGCTS that reached OPE_SEND) carries the
+		 * receiver's rxe index, REF_OPE_INDEX. bytes_acked is final here:
+		 * emission only happens once every data WR has drained.
 		 */
-		if (efa_rdm_txe_peer_abort_uses_msg_id(ope)) {
+		if (efa_rdm_txe_peer_abort_uses_msg_id(ope) ||
+		    (ope->internal_flags & EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID)) {
 			ref_kind = (ope->bytes_acked == 0)
 				   ? EFA_RDM_PEER_ERROR_REF_MSG_ID_SKIP
 				   : EFA_RDM_PEER_ERROR_REF_MSG_ID;

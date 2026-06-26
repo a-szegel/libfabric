@@ -4084,6 +4084,69 @@ void test_efa_rdm_txe_handle_error_eager_prepost_cancel_emits_skip(void **state)
 	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
 	assert_true(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED);
 	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before + 1);
+
+/**
+ * @brief Pre-CTS (TXE_REQ) cancellation of a LONGCTS two-sided RTM emits
+ *        a REF_MSG_ID_SKIP PEER_ERROR_PKT keyed by msg_id.
+ *
+ * Regression test for the LONGCTS reorder-window-stall hang: a LONGCTS
+ * RTM canceled while still in EFA_RDM_TXE_REQ (its first CTS never
+ * processed, so txe->rx_id is unknown) used to be suppressed by the
+ * prev_state == OPE_SEND gate, leaving the receiver's reorder window
+ * parked forever on the never-delivered msg_id. The fix routes this
+ * abort through the msg_id path (EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID), so
+ * efa_rdm_txe_handle_error() now marks the txe PENDING, sets the
+ * BY_MSG_ID flag, and (single WR, already drained) emits the
+ * PEER_ERROR_PKT. The emit derives REF_MSG_ID_SKIP for this txe (see
+ * test_efa_rdm_pke_init_peer_error_for_ope_longcts_pre_cts_skip).
+ *
+ * Mirrors test_efa_rdm_txe_handle_error_eager_prepost_cancel_emits_skip
+ * but for the LONGCTS protocol in TXE_REQ.
+ */
+void test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe;
+	struct efa_rdm_peer *peer;
+	size_t outstanding_before;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	/* LONGCTS RTM aborted before its first CTS: still in TXE_REQ (no
+	 * OPE_SEND), no CTSDATA acked, protocol records the LONGCTS type. */
+	txe->state = EFA_RDM_TXE_REQ;
+	txe->protocol = EFA_RDM_LONGCTS_MSGRTM_PKT;
+	txe->cq_entry.flags = FI_SEND | FI_MSG;
+	txe->cq_entry.op_context = (void *) 0xc3;
+	txe->msg_id = 0x77;
+	txe->bytes_acked = 0;
+
+	peer = txe->peer;
+	assert_non_null(peer);
+	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
+	peer->extra_info[0] |= EFA_RDM_EXTRA_FEATURE_PEER_ERROR;
+
+	outstanding_before = ep->efa_outstanding_tx_ops;
+
+	/* Pre-post / pre-CTS cancellation call site (drip loop or
+	 * process_queued_ope): err = FI_ECANCELED,
+	 * prov_errno = FI_EFA_ERR_PKT_POST. */
+	efa_rdm_txe_handle_error(txe, FI_ECANCELED, FI_EFA_ERR_PKT_POST);
+
+	/* The consolidated emit decision marked the txe PENDING, recorded
+	 * that it must be signalled by msg_id (no rx_id known pre-CTS), and
+	 * emitted the PEER_ERROR_PKT, keeping the txe alive for that packet's
+	 * completion. */
+	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
+	assert_true(txe->internal_flags & EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID);
+	assert_true(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED);
+	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before + 1);
+}
 }
 
 /**

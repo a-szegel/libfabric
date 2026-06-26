@@ -1013,10 +1013,18 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	 * unblocks the reorder window); the wire ref_kind is selected later in
 	 * efa_rdm_pke_init_peer_error_for_ope().
 	 *
-	 * LONGCTS gates on prev_state == OPE_SEND (not bytes_sent): op_id =
-	 * txe->rx_id is only valid once efa_rdm_pke_handle_cts_recv() moves the
-	 * txe to OPE_SEND. The msg_id kinds use txe->msg_id, always valid, so
-	 * they need no gate.
+	 * LONGCTS is notified two ways depending on how far it progressed:
+	 *  - reached OPE_SEND (a CTS was processed): txe->rx_id is valid, so
+	 *    the receiver is referenced by ope index (REF_OPE_INDEX) and its
+	 *    matched rxe completes with FI_ECANCELED.
+	 *  - aborted before the first CTS (still TXE_REQ): no rx_id is known,
+	 *    but the RTM that was canceled also never reached the receiver
+	 *    (or its matched recv was never established), so the receiver owes
+	 *    no completion -- only its reorder window may be parked on this
+	 *    msg_id. Signal it by msg_id (EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID ->
+	 *    REF_MSG_ID_SKIP) so the window advances, exactly like the
+	 *    EAGER / medium / runt-only abort. The msg_id kinds use
+	 *    txe->msg_id, always valid.
 	 *
 	 * Mark PENDING and let efa_rdm_txe_progress_peer_abort_if_drained()
 	 * emit once they drain, so no data segment races the PEER_ERROR
@@ -1024,10 +1032,16 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	 */
 	{
 		uses_msg_id = efa_rdm_txe_peer_abort_uses_msg_id(txe);
-		/* LONGCTS uses rx_id, valid only in OPE_SEND. The msg_id
-		 * protocols (EAGER / medium / runt-only) are excluded by
-		 * !uses_msg_id. */
-		is_longcts = (prev_state == EFA_RDM_OPE_SEND) && !uses_msg_id;
+		/* True for a LONGCTS two-sided RTM, whether or not a CTS has
+		 * been processed. The prev_state == OPE_SEND term preserves the
+		 * original (CTS-received, rx_id-valid) trigger; the protocol term
+		 * adds the pre-CTS (TXE_REQ) case, where the keying falls back to
+		 * msg_id below. The msg_id protocols (EAGER / medium / runt-only)
+		 * are excluded by !uses_msg_id and emit via that term of the
+		 * gate. */
+		is_longcts = (prev_state == EFA_RDM_OPE_SEND ||
+			      efa_rdm_pkt_type_is_longcts_rtm(txe->protocol)) &&
+			     !uses_msg_id;
 
 		/* LONGCTS-DBG W4a: prove that a LONGCTS msg/tagged send aborted
 		 * before its first CTS (state TXE_REQ, so is_longcts is false and
@@ -1060,6 +1074,13 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 		    (ep->homogeneous_peers ||
 		     txe->peer->is_self ||
 		     efa_rdm_peer_support_peer_error(txe->peer))) {
+
+			/* LONGCTS aborted before its first CTS has no valid
+			 * rx_id, so signal the receiver by msg_id (SKIP) instead
+			 * of by ope index. A LONGCTS that reached OPE_SEND, and
+			 * the msg_id protocols, are unaffected. */
+			if (is_longcts && prev_state != EFA_RDM_OPE_SEND)
+				txe->internal_flags |= EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID;
 
 			txe->peer_error_prov_errno = prov_errno;
 			txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING;
