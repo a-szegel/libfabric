@@ -911,6 +911,19 @@ int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,
 
 	connid = efa_rdm_ep_raw_addr(ope->ep)->qkey;
 
+	/* PEER_ERROR_TX: every PEER_ERROR this endpoint emits, with the resolved
+	 * op_id and ref_kind (0=REF_OPE_INDEX, 1=REF_MSG_ID, 2=REF_MSG_ID_SKIP).
+	 * Direct evidence of the tombstone traffic: a stalled receiver msg_id
+	 * should be unblocked by a ref_kind=2 (MSG_ID_SKIP) packet with op_id ==
+	 * that msg_id. If no such line is ever emitted for the stalled msg_id,
+	 * the tombstone was never sent (proving the detection gap); if one is
+	 * emitted with the wrong op_id/ref_kind, it was sent incorrectly. */
+	EFA_WARN(FI_LOG_CQ,
+		"[PEER_ERROR_TX] ope=%p type=%d ope_msg_id=%u ope_state=%d "
+		"-> op_id=%u ref_kind=%u prov_errno=%d\n",
+		(void *) ope, ope->type, ope->msg_id, ope->state,
+		op_id, ref_kind, ope->peer_error_prov_errno);
+
 	efa_rdm_pke_set_ope(pkt_entry, ope);
 	pkt_entry->peer = ope->peer;
 	return efa_rdm_pke_init_peer_error(pkt_entry, op_id, ref_kind,
@@ -944,6 +957,16 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 	ep = pkt_entry->ep;
 	err_hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
 	prov_errno = (int) err_hdr->prov_errno;
+
+	/* PEER_ERROR_RX: every PEER_ERROR this endpoint receives, at warn level
+	 * (the EFA_INFO below is invisible under FI_LOG_LEVEL=warn). Direct
+	 * receiver-side evidence: shows whether a tombstone for the stalled
+	 * msg_id ever ARRIVES (ref_kind=2 REF_MSG_ID_SKIP, op_id == msg_id) and,
+	 * combined with the resolution logs further down, whether it is handled
+	 * correctly or dropped/mis-resolved (e.g. wrong ref_kind/op_id). */
+	EFA_WARN(FI_LOG_CQ,
+		"[PEER_ERROR_RX] op_id=%u ref_kind=%u prov_errno=%d pkt_entry=%p\n",
+		err_hdr->op_id, err_hdr->ref_kind, prov_errno, (void *) pkt_entry);
 
 	EFA_INFO(FI_LOG_CQ,
 		 "Received PEER_ERROR_PKT (op_id=%u prov_errno=%d %s)\n",

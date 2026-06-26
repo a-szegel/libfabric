@@ -487,6 +487,14 @@ static int efa_rdm_mr_dereg_impl(struct efa_rdm_mr *efa_rdm_mr)
 	 */
 	efa_rdm_mr_gen_bump(efa_rdm_mr);
 
+	/* MRCLOSE: every source-MR deregistration, with the cached lkey and the
+	 * post-bump gen. Anchors causation for the LONGCTS stranding: lets us
+	 * confirm the source MR backing a stranded txe's RTM was closed, and
+	 * correlate close time against [RTM_SENDCOMP]/[CTS_RECV] for that op. */
+	EFA_WARN(FI_LOG_MR,
+		"[MRCLOSE] efa_rdm_mr=%p lkey=%u new_gen=%u\n",
+		(void *) efa_rdm_mr, efa_rdm_mr->efa_mr.lkey, efa_rdm_mr->gen);
+
 	err = efa_mr_dereg_impl(&efa_rdm_mr->efa_mr);
 	if (err) {
 		EFA_WARN_FI_ERRNO(FI_LOG_MR, "Unable to de-register efa_mr", -err);
