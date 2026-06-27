@@ -4013,12 +4013,15 @@ void test_efa_rdm_txe_handle_error_emits_peer_error_on_invalid_lkey(void **state
 	efa_rdm_txe_handle_error(txe, FI_EINVAL,
 		EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
 
-	/* TX CQ error written. */
+	/* Mark-only: the completion is withheld and nothing is emitted yet. */
+	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
 	memset(&err_entry, 0, sizeof(err_entry));
 	ret = fi_cq_readerr(resource->cq, &err_entry, 0);
-	assert_int_equal(ret, 1);
-	assert_int_equal(err_entry.prov_errno,
-			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+	assert_int_equal(ret, -FI_EAGAIN);
+	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before);
+
+	/* The caller drives the single drain, which emits the PEER_ERROR_PKT. */
+	efa_rdm_txe_progress_peer_abort_if_drained(txe);
 
 	/* PEER_ERROR_PKT was posted (efa_outstanding_tx_ops bumped). */
 	assert_int_equal(ep->efa_outstanding_tx_ops,
