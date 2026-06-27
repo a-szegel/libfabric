@@ -852,7 +852,10 @@ void efa_rdm_pke_handle_medium_rtm_send_completion(struct efa_rdm_pke *pkt_entry
 
 	txe = pkt_entry->ope;
 	txe->bytes_acked += pkt_entry->payload_size;
-	if (txe->total_len == txe->bytes_acked)
+	/* An aborting txe's completion + release are owned by the drain helper
+	 * (run by the caller); never take the success path here. */
+	if (txe->total_len == txe->bytes_acked &&
+	    !(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING))
 		efa_rdm_ope_handle_send_completed(txe);
 }
 
@@ -1103,8 +1106,12 @@ void efa_rdm_pke_handle_longcts_rtm_send_completion(struct efa_rdm_pke *pkt_entr
 	}
 
 	txe = pkt_entry->ope;
+
 	txe->bytes_acked += pkt_entry->payload_size;
-	if (txe->total_len == txe->bytes_acked)
+	/* An aborting txe's completion + release are owned by the drain helper
+	 * (run by the caller); never take the success path here. */
+	if (txe->total_len == txe->bytes_acked &&
+	    !(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING))
 		efa_rdm_ope_handle_send_completed(txe);
 }
 
@@ -1371,6 +1378,9 @@ void efa_rdm_pke_handle_runtread_rtm_send_completion(struct efa_rdm_pke *pkt_ent
 	assert(peer);
 	assert(peer->num_runt_bytes_in_flight >= pkt_data_size);
 	peer->num_runt_bytes_in_flight -= pkt_data_size;
-	if (txe->total_len == txe->bytes_acked)
+	/* An aborting txe's completion + release are owned by the drain helper
+	 * (run by the caller); never take the success path here. */
+	if (txe->total_len == txe->bytes_acked &&
+	    !(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING))
 		efa_rdm_ope_handle_send_completed(txe);
 }

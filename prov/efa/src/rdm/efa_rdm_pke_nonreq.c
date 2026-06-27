@@ -318,7 +318,13 @@ void efa_rdm_pke_handle_ctsdata_sent(struct efa_rdm_pke *pkt_entry)
 
 void efa_rdm_pke_handle_ctsdata_send_completion(struct efa_rdm_pke *pkt_entry)
 {
-	struct efa_rdm_ope *ope;
+	struct efa_rdm_ope *ope = pkt_entry->ope;
+
+	/* An aborting txe's completion + release are owned by the drain helper
+	 * (run by the caller after this returns); skip both the success path
+	 * and the DC remote-ack release here. */
+	if (ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
+		return;
 
 	/* if this DATA packet is used by a DC protocol, the tx entry should
 	 * be only released when both all TX ops are done and the receipt
@@ -331,7 +337,6 @@ void efa_rdm_pke_handle_ctsdata_send_completion(struct efa_rdm_pke *pkt_entry)
 		return;
 	}
 
-	ope = pkt_entry->ope;
 	ope->bytes_acked += efa_rdm_pke_get_ctsdata_hdr(pkt_entry)->seg_length;
 
 	if (ope->total_len == ope->bytes_acked)

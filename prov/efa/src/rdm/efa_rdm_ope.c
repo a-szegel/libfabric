@@ -1310,6 +1310,10 @@ void efa_rdm_ope_handle_send_completed(struct efa_rdm_ope *ope)
 
 	ep = ope->ep;
 
+	/* Aborting opes are completed exactly once by the peer-abort drain
+	 * helper; callers must route them there, never into this success path. */
+	assert(!(ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING));
+
 	if (ope->cq_entry.flags & FI_READ) {
 		/*
 		 * This is on responder side of an emulated read operation.
@@ -1409,6 +1413,13 @@ void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope)
 	} else {
 		assert(ope->type == EFA_RDM_RXE);
 		rxe = ope; /* Intentionally assigned for easier understanding */
+
+		/* Aborting recv: the one error completion + release belong to
+		 * the drain helper; never write a success completion here. */
+		if (rxe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING) {
+			efa_rdm_rxe_release_peer_abort_if_drained(rxe);
+			return;
+		}
 
 		assert(rxe->op == ofi_op_msg || rxe->op == ofi_op_tagged);
 
