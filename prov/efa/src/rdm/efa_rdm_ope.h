@@ -379,6 +379,17 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
  */
 #define EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID	BIT_ULL(22)
 
+/**
+ * @brief A peer-abort txe must write its terminal completion at drain, not now.
+ *
+ * Set only on the local sender-side abort path that will emit a PEER_ERROR_PKT.
+ * It distinguishes that path -- where the user completion is withheld until the
+ * PEER_ERROR_PKT is sent -- from the inbound path (sender received a
+ * PEER_ERROR_PKT), which owes no notification and completes eagerly. The drain
+ * helper writes the single FI_ECANCELED completion only when this bit is set.
+ */
+#define EFA_RDM_TXE_PEER_ABORT_COMPLETION_DEFERRED	BIT_ULL(23)
+
 #define EFA_RDM_OPE_QUEUED_FLAGS (EFA_RDM_OPE_QUEUED_RNR | EFA_RDM_OPE_QUEUED_CTRL | EFA_RDM_OPE_QUEUED_READ | EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE)
 
 void efa_rdm_ope_try_fill_desc(struct efa_rdm_ope *ope, int mr_iov_start, uint64_t access);

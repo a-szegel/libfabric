@@ -1040,19 +1040,25 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 		if (OFI_LIKELY(efa_rdm_ep_rdm_domain(ep)->num_read_msg_in_flight > 0))
 			efa_rdm_ep_rdm_domain(ep)->num_read_msg_in_flight -= 1;
 
+		/*
+		 * We received the notification, so we owe the peer nothing and
+		 * complete now. Set EMITTED before handle_error so its defer
+		 * gate keeps the completion eager -- deferral is only for the
+		 * side that still has to transmit a PEER_ERROR_PKT.
+		 */
+		ope->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING |
+				       EFA_RDM_PEER_ERROR_EMITTED;
+
 		/* Surface the dedicated peer-abort code on the
 		 * sender's TX CQ that the receiver wrote on its RX CQ,
 		 * rather than the raw internal device prov_errno. */
 		efa_rdm_txe_handle_error(ope, FI_ECANCELED,
 					 FI_EFA_ERR_PEER_ABORTED);
 		/*
-		 * Defer the free to WR drain, exactly like the local
-		 * sender-side abort path. Mark the txe peer-aborted and set
-		 * EFA_RDM_PEER_ERROR_EMITTED so the drain helper only
-		 * frees it if there are no outstanding WR's.
+		 * Defer the free to WR drain: the drain helper only releases
+		 * (EMITTED set, DEFERRED not set) once no outstanding WR still
+		 * references this txe.
 		 */
-		ope->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING |
-				       EFA_RDM_PEER_ERROR_EMITTED;
 		efa_rdm_txe_progress_peer_abort_if_drained(ope);
 		break;
 	case EFA_RDM_RXE:

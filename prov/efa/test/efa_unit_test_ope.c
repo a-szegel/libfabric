@@ -5593,6 +5593,8 @@ void test_efa_rdm_pke_handle_tx_error_longcts_abort_drains_txe(
 	struct efa_rdm_ope *txe;
 	struct efa_rdm_peer *peer;
 	struct efa_rdm_pke *err_pkt;
+	struct fi_cq_data_entry cq_entry;
+	struct fi_cq_err_entry cq_err_entry = {0};
 	size_t txe_base;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
@@ -5617,14 +5619,17 @@ void test_efa_rdm_pke_handle_tx_error_longcts_abort_drains_txe(
 	txe_base = efa_unit_test_get_dlist_length(&ep->txe_list);
 
 	/* A CTSDATA WR fails with INVALID_LKEY (source MR canceled). The
-	 * LONGCTS abort writes the TX CQ error, emits a PEER_ERROR_PKT
-	 * (its own outstanding WR on the txe), marks PENDING|EMITTED, and
-	 * does NOT release -- the PEER_ERROR_PKT is still in flight. */
+	 * LONGCTS abort withholds the TX completion, emits a PEER_ERROR_PKT
+	 * (its own outstanding WR on the txe), and marks the txe; it does
+	 * NOT release -- the PEER_ERROR_PKT is still in flight. */
 	efa_rdm_txe_handle_error(txe, FI_EINVAL,
 		EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
 	assert_int_equal(txe->state, EFA_RDM_OPE_ERR);
 	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
+	assert_true(txe->internal_flags & EFA_RDM_TXE_PEER_ABORT_COMPLETION_DEFERRED);
 	assert_true(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED);
+	/* The completion is withheld until the PEER_ERROR_PKT is sent. */
+	assert_int_equal(fi_cq_read(resource->cq, &cq_entry, 1), -FI_EAGAIN);
 	/* txe still present: the emitted PEER_ERROR_PKT is in flight. */
 	assert_int_equal(efa_unit_test_get_dlist_length(&ep->txe_list),
 			 txe_base);
@@ -5632,9 +5637,8 @@ void test_efa_rdm_pke_handle_tx_error_longcts_abort_drains_txe(
 
 	/* The emitted PEER_ERROR_PKT completes. Complete the real packet
 	 * the abort posted (on peer->outstanding_tx_pkts) so no live pke
-	 * is left referencing the txe. Before the fix this TXE-direction
-	 * completion was a no-op -> the errored txe leaked until ep close.
-	 * With the fix the drain helper frees it now. */
+	 * is left referencing the txe. The drain helper now surfaces the
+	 * single completion and frees the txe. */
 	err_pkt = NULL;
 	dlist_foreach_container(&peer->outstanding_tx_pkts, struct efa_rdm_pke,
 				err_pkt, entry) {
@@ -5647,8 +5651,103 @@ void test_efa_rdm_pke_handle_tx_error_longcts_abort_drains_txe(
 			 EFA_RDM_PEER_ERROR_PKT);
 	efa_rdm_pke_handle_send_completion(err_pkt);
 
-	/* Fix: txe freed exactly once (off txe_list), outstanding == 0. */
+	/* Exactly one TX completion, surfaced as the dedicated
+	 * FI_ECANCELED / FI_EFA_ERR_PEER_ABORTED pair, only after the
+	 * notification went out. */
+	assert_int_equal(fi_cq_read(resource->cq, &cq_entry, 1), -FI_EAVAIL);
+	assert_int_equal(fi_cq_readerr(resource->cq, &cq_err_entry, 0), 1);
+	assert_int_equal(cq_err_entry.err, FI_ECANCELED);
+	assert_int_equal(cq_err_entry.prov_errno, FI_EFA_ERR_PEER_ABORTED);
+	/* No second completion. */
+	assert_int_equal(fi_cq_read(resource->cq, &cq_entry, 1), -FI_EAGAIN);
+
+	/* txe freed exactly once (off txe_list), outstanding == 0. */
 	assert_int_equal(ep->efa_outstanding_tx_ops, 0);
 	assert_int_equal(efa_unit_test_get_dlist_length(&ep->txe_list),
 			 txe_base - 1);
+}
+
+/*
+ * A peer that does not advertise PEER_ERROR has no notification path, so the
+ * abort completion must be written eagerly (with the raw errno) rather than
+ * withheld -- withholding it would hang the op forever.
+ */
+void test_efa_rdm_txe_handle_error_no_defer_when_peer_unsupported(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe;
+	struct efa_rdm_peer *peer;
+	struct fi_cq_data_entry cq_entry;
+	struct fi_cq_err_entry cq_err_entry = {0};
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	txe->state = EFA_RDM_OPE_SEND;
+	txe->cq_entry.flags = FI_SEND | FI_MSG;
+	txe->total_len = 4096;
+	txe->bytes_acked = 256;
+	peer = txe->peer;
+	/* Deny every route to feature support. */
+	peer->is_self = false;
+	ep->homogeneous_peers = false;
+
+	efa_rdm_txe_handle_error(txe, FI_EINVAL,
+		EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+
+	assert_false(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
+	assert_false(txe->internal_flags &
+		     EFA_RDM_TXE_PEER_ABORT_COMPLETION_DEFERRED);
+	/* Completion written now, carrying the raw errno (not deferred). */
+	assert_int_equal(fi_cq_read(resource->cq, &cq_entry, 1), -FI_EAVAIL);
+	assert_int_equal(fi_cq_readerr(resource->cq, &cq_err_entry, 0), 1);
+	assert_int_equal(cq_err_entry.err, FI_EINVAL);
+	assert_int_equal(cq_err_entry.prov_errno,
+			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+}
+
+/*
+ * A CTSDATA send completion that lands on an already-aborting txe must not
+ * write a (second) completion or release the txe; the completion + release
+ * belong to the drain helper (run by the caller, not exercised here).
+ */
+void test_efa_rdm_ctsdata_send_completion_aborting_txe_no_completion(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe;
+	struct efa_rdm_pke *pkt_entry;
+	struct fi_cq_data_entry cq_entry;
+	size_t txe_base;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	txe->state = EFA_RDM_OPE_ERR;
+	txe->cq_entry.flags = FI_SEND | FI_MSG;
+	txe->total_len = 4096;
+	txe->bytes_acked = 4096; /* would reach total_len if not guarded */
+	txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING;
+	txe_base = efa_unit_test_get_dlist_length(&ep->txe_list);
+
+	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
+	assert_non_null(pkt_entry);
+	pkt_entry->ope = txe;
+
+	efa_rdm_pke_handle_ctsdata_send_completion(pkt_entry);
+
+	/* No completion written, txe untouched (drain owns it). */
+	assert_int_equal(fi_cq_read(resource->cq, &cq_entry, 1), -FI_EAGAIN);
+	assert_int_equal(efa_unit_test_get_dlist_length(&ep->txe_list),
+			 txe_base);
+
+	efa_rdm_pke_release_tx(pkt_entry);
 }
