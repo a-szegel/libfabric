@@ -1012,7 +1012,7 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 	 * malformed, duplicate, or stale PEER_ERROR_PKT cannot make us
 	 * act on an arbitrary ope.
 	 */
-	if (OFI_UNLIKELY(!ofi_bufpool_ibuf_is_valid(ep->ope_pool,
+	if (OFI_UNLIKELY(!ofi_bufpool_ibuf_is_valid(ep->base_ep.ope_pool,
 						    err_hdr->op_id))) {
 		EFA_WARN(FI_LOG_CQ,
 			 "PEER_ERROR_PKT op_id=%u out of range or no longer "
@@ -1021,7 +1021,7 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 		return;
 	}
 
-	ope = ofi_bufpool_get_ibuf(ep->ope_pool, err_hdr->op_id);
+	ope = ofi_bufpool_get_ibuf(ep->base_ep.ope_pool, err_hdr->op_id);
 	if (OFI_UNLIKELY(!ope)) {
 		EFA_WARN(FI_LOG_CQ,
 			 "PEER_ERROR_PKT op_id=%u no longer valid; "
