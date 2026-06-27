@@ -385,17 +385,6 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
  */
 #define EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID	BIT_ULL(22)
 
-/**
- * @brief A peer-abort txe must write its terminal completion at drain, not now.
- *
- * Set only on the local sender-side abort path that will emit a PEER_ERROR_PKT.
- * It distinguishes that path -- where the user completion is withheld until the
- * PEER_ERROR_PKT is sent -- from the inbound path (sender received a
- * PEER_ERROR_PKT), which owes no notification and completes eagerly. The drain
- * helper writes the single FI_ECANCELED completion only when this bit is set.
- */
-#define EFA_RDM_TXE_PEER_ABORT_COMPLETION_DEFERRED	BIT_ULL(23)
-
 /* TEMPORARY DIAGNOSTIC: set once a txe has been given a terminal TX CQE, so
  * any second CQE write for the same txe can be detected and dumped. Remove
  * once the double-completion is root-caused. */

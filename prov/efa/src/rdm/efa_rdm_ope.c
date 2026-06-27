@@ -898,14 +898,12 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 		return;
 
 	if (txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED) {
-		/* The emitted PEER_ERROR_PKT has drained. The receiver has now
-		 * been notified, so it is finally safe to surface the user
-		 * completion (withheld until here so the app keeps progressing
-		 * and drives the notification out under manual progress). The
-		 * inbound-abort path completed eagerly and does not set the
-		 * DEFERRED bit, so it only releases. */
-		if (txe->internal_flags & EFA_RDM_TXE_PEER_ABORT_COMPLETION_DEFERRED)
-			efa_rdm_txe_write_deferred_peer_abort_completion(txe, "deferred_emitted");
+		/* Drained, and the PEER_ERROR_PKT (if any) has been sent: the
+		 * peer can no longer expect data from us, so surface the one
+		 * terminal completion now and free the txe. Withholding it until
+		 * here is what keeps a manual-progress app polling long enough to
+		 * drive the notification out. */
+		efa_rdm_txe_write_deferred_peer_abort_completion(txe, "drain_emitted");
 		efa_rdm_txe_release(txe);
 		return;
 	}
@@ -930,8 +928,7 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 			 err);
 		/* No PEER_ERROR_PKT completion will arrive to run the EMITTED
 		 * branch, so surface the withheld completion and free now. */
-		if (txe->internal_flags & EFA_RDM_TXE_PEER_ABORT_COMPLETION_DEFERRED)
-			efa_rdm_txe_write_deferred_peer_abort_completion(txe, "deferred_emitfail");
+		efa_rdm_txe_write_deferred_peer_abort_completion(txe, "drain_emitfail");
 		efa_rdm_txe_release(txe);
 	}
 }
@@ -1110,10 +1107,10 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 		      efa_rdm_pkt_type_is_longcts_rtm(txe->protocol)) &&
 		     !uses_msg_id;
 
-	/* Defer only a locally-detected abort that we will notify the peer
-	 * about. A txe already marked EMITTED got here from the inbound
-	 * PEER_ERROR path (we received the notification); it owes no
-	 * notification and must complete now. */
+	/* Local sender-side abort that we will notify the peer about. A txe
+	 * already marked EMITTED came from the inbound PEER_ERROR path; it owes
+	 * no notification, so it is excluded here and handled by the
+	 * PEER_ABORT_PENDING check below (it also defers, just without an emit). */
 	defer = !(txe->internal_flags & EFA_RDM_OPE_INTERNAL) &&
 		!(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED) &&
 		(txe->op == ofi_op_msg || txe->op == ofi_op_tagged) &&
@@ -1125,27 +1122,34 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 		 txe->peer->is_self ||
 		 efa_rdm_peer_support_peer_error(txe->peer));
 
-	if (!defer) {
-		efa_rdm_txe_diag_cqe(txe, "error_eager", err, prov_errno);
-		efa_cntr_report_error(&ep->base_ep.util_ep, txe->cq_entry.flags);
-		efa_rdm_cq_write_error(&ep->base_ep, util_cq, &err_entry, "TXE");
+	/*
+	 * Sender-side abort: withhold the completion and let the drain helper
+	 * deliver exactly one FI_ECANCELED / FI_EFA_ERR_PEER_ABORTED CQE once
+	 * the txe drains (and, for a local abort, once the PEER_ERROR_PKT it
+	 * emits has been sent) -- so a manual-progress app keeps polling until
+	 * the peer is notified. We only MARK here; the caller drives the single
+	 * progress/drain, so handle_error never frees the txe under the caller.
+	 */
+	if (defer) {
+		if (is_longcts && prev_state != EFA_RDM_OPE_SEND)
+			txe->internal_flags |= EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID;
+		txe->peer_error_prov_errno = prov_errno;
+		txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING;
 		return;
 	}
 
 	/*
-	 * Withhold the completion: surfacing it now would let the app stop
-	 * polling before the PEER_ERROR_PKT goes out (stalling the receiver
-	 * under manual progress) and would race a second completion against
-	 * the still-alive txe. The drain helper writes the one completion
-	 * once the notification has been sent.
+	 * Inbound PEER_ERROR (we received the notification): the caller
+	 * pre-marked the txe PEER_ABORT_PENDING|EMITTED. Withhold here too;
+	 * the caller's drain writes the single completion once the txe's own
+	 * WRs drain (it owes no notification, so nothing is emitted).
 	 */
-	if (is_longcts && prev_state != EFA_RDM_OPE_SEND)
-		txe->internal_flags |= EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID;
+	if (txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
+		return;
 
-	txe->peer_error_prov_errno = prov_errno;
-	txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING |
-			       EFA_RDM_TXE_PEER_ABORT_COMPLETION_DEFERRED;
-	efa_rdm_txe_progress_peer_abort_if_drained(txe);
+	efa_rdm_txe_diag_cqe(txe, "error_eager", err, prov_errno);
+	efa_cntr_report_error(&ep->base_ep.util_ep, txe->cq_entry.flags);
+	efa_rdm_cq_write_error(&ep->base_ep, util_cq, &err_entry, "TXE");
 }
 
 /**
@@ -2419,10 +2423,14 @@ int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope, uint32_t flag)
 			return ret;
 
 		assert(ope->type == EFA_RDM_TXE || ope->type == EFA_RDM_RXE);
-		if (ope->type == EFA_RDM_TXE)
+		if (ope->type == EFA_RDM_TXE) {
 			efa_rdm_txe_handle_error(ope, -ret, prov_errno);
-		else
+			/* handle_error only marks a peer abort; drive the single
+			 * emit/drain here (no-op for a non-abort error). */
+			efa_rdm_txe_progress_peer_abort_if_drained(ope);
+		} else {
 			efa_rdm_rxe_handle_error(ope, -ret, prov_errno);
+		}
 	} else {
 		ope->internal_flags &= ~flag;
 		dlist_remove(&ope->queued_entry);

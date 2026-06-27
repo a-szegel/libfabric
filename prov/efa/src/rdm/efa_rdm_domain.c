@@ -348,6 +348,14 @@ void efa_rdm_domain_progress_peers_and_queues(struct efa_rdm_domain *rdm_domain)
 			continue;
 
 		/*
+		 * A peer-aborted txe owns no more data to send; its single
+		 * completion + release belong to the drain helper. Skip it so
+		 * the drip loop never re-posts CTSDATA (or re-errors) on it.
+		 */
+		if (ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
+			continue;
+
+		/*
 		 * Do not send DATA packet until we received HANDSHAKE packet from the peer,
 		 * this is because endpoint does not know whether peer need connid in header
 		 * until it get the HANDSHAKE packet.
@@ -380,6 +388,9 @@ void efa_rdm_domain_progress_peers_and_queues(struct efa_rdm_domain *rdm_domain)
 			if (OFI_UNLIKELY(ret && ret != -FI_EAGAIN)) {
 				efa_rdm_txe_handle_error(ope, -ret,
 							 FI_EFA_ERR_PKT_POST);
+				/* handle_error only marks a peer abort; drive the
+				 * single emit/drain (no-op for a non-abort error). */
+				efa_rdm_txe_progress_peer_abort_if_drained(ope);
 			}
 		}
 	}

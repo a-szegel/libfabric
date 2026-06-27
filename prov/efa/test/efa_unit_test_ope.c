@@ -5619,18 +5619,24 @@ void test_efa_rdm_pke_handle_tx_error_longcts_abort_drains_txe(
 	txe_base = efa_unit_test_get_dlist_length(&ep->base_ep.ope_list);
 
 	/* A CTSDATA WR fails with INVALID_LKEY (source MR canceled). The
-	 * LONGCTS abort withholds the TX completion, emits a PEER_ERROR_PKT
-	 * (its own outstanding WR on the txe), and marks the txe; it does
-	 * NOT release -- the PEER_ERROR_PKT is still in flight. */
+	 * LONGCTS abort only MARKS the txe here -- it withholds the completion
+	 * and does NOT emit or release; the caller drives the emit/drain. */
 	efa_rdm_txe_handle_error(txe, FI_EINVAL,
 		EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
 	assert_int_equal(txe->state, EFA_RDM_OPE_ERR);
 	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
-	assert_true(txe->internal_flags & EFA_RDM_TXE_PEER_ABORT_COMPLETION_DEFERRED);
-	assert_true(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED);
-	/* The completion is withheld until the PEER_ERROR_PKT is sent. */
+	/* Not yet emitted, nothing on the CQ, txe untouched. */
+	assert_false(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED);
 	assert_int_equal(fi_cq_read(resource->cq, &cq_entry, 1), -FI_EAGAIN);
-	/* txe still present: the emitted PEER_ERROR_PKT is in flight. */
+	assert_int_equal(efa_unit_test_get_dlist_length(&ep->base_ep.ope_list),
+			 txe_base);
+
+	/* Caller drives the single drain: with the txe already drained
+	 * (no data WRs), this emits the PEER_ERROR_PKT and keeps the txe
+	 * alive until that packet's own send completion. */
+	efa_rdm_txe_progress_peer_abort_if_drained(txe);
+	assert_true(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED);
+	assert_int_equal(fi_cq_read(resource->cq, &cq_entry, 1), -FI_EAGAIN);
 	assert_int_equal(efa_unit_test_get_dlist_length(&ep->base_ep.ope_list),
 			 txe_base);
 	assert_int_equal(txe->efa_outstanding_tx_ops, 1);
@@ -5700,8 +5706,6 @@ void test_efa_rdm_txe_handle_error_no_defer_when_peer_unsupported(void **state)
 		EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
 
 	assert_false(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
-	assert_false(txe->internal_flags &
-		     EFA_RDM_TXE_PEER_ABORT_COMPLETION_DEFERRED);
 	/* Completion written now, carrying the raw errno (not deferred). */
 	assert_int_equal(fi_cq_read(resource->cq, &cq_entry, 1), -FI_EAVAIL);
 	assert_int_equal(fi_cq_readerr(resource->cq, &cq_err_entry, 0), 1);
