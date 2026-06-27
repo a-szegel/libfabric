@@ -1038,6 +1038,7 @@ void test_efa_rdm_peer_skip_aborted_msg_id_tombstone_behind_head(
 
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->base_ep.ope_list), 0);
 	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
+}
 
 /**
  * @brief RX side of the LONGCTS pre-CTS abort fix: an inbound
@@ -1141,7 +1142,6 @@ void test_efa_rdm_pke_handle_peer_error_recv_longcts_skip_unblocks_window(
 	 * completion (no recv was ever matched, since no CTS was exchanged). */
 	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->base_ep.ope_list), 0);
 	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
-}
 }
 
 /**
