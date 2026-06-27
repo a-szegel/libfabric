@@ -4072,6 +4072,8 @@ void test_efa_rdm_txe_handle_error_emits_peer_error_on_canceled(void **state)
 	 * and prov_errno = FI_EFA_ERR_PKT_POST. Our hook examines the
 	 * err field. */
 	efa_rdm_txe_handle_error(txe, FI_ECANCELED, FI_EFA_ERR_PKT_POST);
+	/* Mark-only; the caller drives the single emit/drain. */
+	efa_rdm_txe_progress_peer_abort_if_drained(txe);
 
 	assert_int_equal(ep->efa_outstanding_tx_ops,
 			 outstanding_before + 1);
@@ -4126,6 +4128,8 @@ void test_efa_rdm_txe_handle_error_eager_prepost_cancel_emits_skip(void **state)
 	/* Pre-post gen-check cancellation call site: err = FI_ECANCELED,
 	 * prov_errno = FI_EFA_ERR_PKT_POST. */
 	efa_rdm_txe_handle_error(txe, FI_ECANCELED, FI_EFA_ERR_PKT_POST);
+	/* Mark-only; the caller drives the single emit/drain. */
+	efa_rdm_txe_progress_peer_abort_if_drained(txe);
 
 	/* The consolidated emit decision marked the txe PENDING and (single
 	 * WR, already drained) emitted the PEER_ERROR_PKT, keeping the txe
@@ -4189,6 +4193,8 @@ void test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip(void **stat
 	 * process_queued_ope): err = FI_ECANCELED,
 	 * prov_errno = FI_EFA_ERR_PKT_POST. */
 	efa_rdm_txe_handle_error(txe, FI_ECANCELED, FI_EFA_ERR_PKT_POST);
+	/* Mark-only; the caller drives the single emit/drain. */
+	efa_rdm_txe_progress_peer_abort_if_drained(txe);
 
 	/* The consolidated emit decision marked the txe PENDING, recorded
 	 * that it must be signalled by msg_id (no rx_id known pre-CTS), and
@@ -4259,6 +4265,8 @@ void test_efa_rdm_txe_handle_error_runtread_prepost_cancel_emits_skip(void **sta
 	/* Pre-post / pre-match cancellation call site: err = FI_ECANCELED,
 	 * prov_errno = FI_EFA_ERR_PKT_POST. */
 	efa_rdm_txe_handle_error(txe, FI_ECANCELED, FI_EFA_ERR_PKT_POST);
+	/* Mark-only; the caller drives the single emit/drain. */
+	efa_rdm_txe_progress_peer_abort_if_drained(txe);
 
 	/* PENDING + emitted, but NOT BY_MSG_ID: runtread reaches the msg_id
 	 * path via efa_rdm_txe_peer_abort_uses_msg_id(), not the LONGCTS
@@ -4361,6 +4369,8 @@ void test_efa_rdm_txe_handle_error_emits_peer_error_with_homogeneous_peers(void 
 
 	efa_rdm_txe_handle_error(txe, FI_EINVAL,
 		EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+	/* Mark-only; the caller drives the single emit/drain. */
+	efa_rdm_txe_progress_peer_abort_if_drained(txe);
 
 	/* PEER_ERROR_PKT was posted despite no handshake. */
 	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before + 1);
@@ -5117,12 +5127,11 @@ void test_efa_rdm_pke_handle_tx_error_medium_emits_skip_on_zero_delivery(void **
 	run_rtm_tx_error_with_type(resource, txe, EFA_RDM_MEDIUM_MSGRTM_PKT,
 				   EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
 
-	/* User still sees a TX CQ error. */
+	/* The completion is withheld -- deferred to the skip packet's drain
+	 * (not written eagerly here). */
 	memset(&err_entry, 0, sizeof(err_entry));
 	ret = fi_cq_readerr(resource->cq, &err_entry, 0);
-	assert_int_equal(ret, 1);
-	assert_int_equal(err_entry.prov_errno,
-			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+	assert_int_equal(ret, -FI_EAGAIN);
 
 	/* Zero-delivery (bytes_acked == 0): the single data WR drained, so
 	 * the drain helper emitted a REF_MSG_ID_SKIP PEER_ERROR_PKT (window
@@ -5347,12 +5356,11 @@ void test_efa_rdm_pke_handle_tx_error_eager_emits_skip(void **state)
 	run_rtm_tx_error_with_type(resource, txe, EFA_RDM_EAGER_MSGRTM_PKT,
 				   EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
 
-	/* User still sees a TX CQ error for the aborted send. */
+	/* The completion is withheld -- deferred to the skip packet's drain
+	 * (not written eagerly here). */
 	memset(&err_entry, 0, sizeof(err_entry));
 	ret = fi_cq_readerr(resource->cq, &err_entry, 0);
-	assert_int_equal(ret, 1);
-	assert_int_equal(err_entry.prov_errno,
-			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+	assert_int_equal(ret, -FI_EAGAIN);
 
 	/* The eager classifier marked the txe PENDING; the single WR drained,
 	 * so the drain helper emitted the PEER_ERROR_PKT (one new WR), keeping
