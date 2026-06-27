@@ -967,6 +967,7 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	bool uses_msg_id;
 	bool is_longcts;
 	bool defer;
+	bool runtread_read_notifies_receiver;
 
 	ep = txe->ep;
 	memset(&err_entry, 0, sizeof(err_entry));
@@ -1111,8 +1112,21 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 	 * already marked EMITTED came from the inbound PEER_ERROR path; it owes
 	 * no notification, so it is excluded here and handled by the
 	 * PEER_ABORT_PENDING check below (it also defers, just without an emit). */
+	/* A runtread WITH a tail READ that fails post-post (device WR,
+	 * INVALID_LKEY) is already signalled to the receiver by its own
+	 * failing RDMA READ (efa_rdm_rxe_mark_peer_aborted), so the sender
+	 * must NOT also emit. A pre-post gen-check cancel (runt never
+	 * delivered, prov_errno PKT_POST/PEER_ABORTED, no receiver READ) and
+	 * a runt-only runtread (total_len == bytes_runt, no READ at all)
+	 * still emit. */
+	runtread_read_notifies_receiver =
+		efa_rdm_pkt_type_is_runtread(txe->protocol) &&
+		txe->total_len > txe->bytes_runt &&
+		prov_errno == EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
+
 	defer = !(txe->internal_flags & EFA_RDM_OPE_INTERNAL) &&
 		!(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED) &&
+		!runtread_read_notifies_receiver &&
 		(txe->op == ofi_op_msg || txe->op == ofi_op_tagged) &&
 		(is_longcts || uses_msg_id) &&
 		(err == FI_ECANCELED ||

@@ -5572,9 +5572,13 @@ void test_efa_rdm_pke_handle_tx_error_runtread_with_read_no_emit(void **state)
 	run_rtm_tx_error_with_type(resource, txe, EFA_RDM_RUNTREAD_MSGRTM_PKT,
 				   EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
 
-	/* Not flagged for the msg_id emit path; no PEER_ERROR_PKT posted. */
+	/* Not flagged for the emit path; no PEER_ERROR_PKT posted. The runt
+	 * RTM was in flight (post-post INVALID_LKEY), so the receiver matched
+	 * the recv and its tail READ will fail and notify -- the sender must
+	 * not also emit. (efa_rdm_txe_peer_abort_uses_msg_id() still reports
+	 * runtread as msg_id-keyed in general; the gate suppresses the emit
+	 * for this with-READ device-WR case.) */
 	assert_false(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
-	assert_false(efa_rdm_txe_peer_abort_uses_msg_id(txe));
 	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before);
 }
 
