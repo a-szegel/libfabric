@@ -816,13 +816,19 @@ static void efa_rdm_txe_diag_cqe(struct efa_rdm_ope *txe, const char *site,
 	if ((txe->internal_flags & EFA_RDM_TXE_GAVE_CQE) && logged < 4) {
 		logged++;
 		EFA_WARN(FI_LOG_CQ,
-			 "DOUBLE_TX_CQE site=%s op_ctx=%p msg_id=%u proto=%u state=%d "
-			 "flags=0x%lx outstanding=%zu sent=%zu acked=%zu total=%zu "
+			 "DOUBLE_TX_CQE txe=%p op_ctx=%p msg_id=%u proto=%u "
+			 "first_site=%s first_flags=0x%lx second_site=%s "
+			 "flags=0x%lx outstanding=%zu acked=%zu total=%zu "
 			 "err=%d prov_errno=%d\n",
-			 site, txe->cq_entry.op_context, txe->msg_id, txe->protocol,
-			 txe->state, (unsigned long) txe->internal_flags,
-			 txe->efa_outstanding_tx_ops, txe->bytes_sent, txe->bytes_acked,
+			 (void *) txe, txe->cq_entry.op_context, txe->msg_id,
+			 txe->protocol, txe->diag_first_site,
+			 (unsigned long) txe->diag_first_flags, site,
+			 (unsigned long) txe->internal_flags,
+			 txe->efa_outstanding_tx_ops, txe->bytes_acked,
 			 txe->total_len, err, prov_errno);
+	} else if (!(txe->internal_flags & EFA_RDM_TXE_GAVE_CQE)) {
+		txe->diag_first_site = site;
+		txe->diag_first_flags = txe->internal_flags;
 	}
 	txe->internal_flags |= EFA_RDM_TXE_GAVE_CQE;
 }
@@ -835,14 +841,14 @@ static void efa_rdm_txe_diag_cqe(struct efa_rdm_ope *txe, const char *site,
  * wire to the peer in the PEER_ERROR_PKT. All cq_entry fields are stable across
  * the abort window, so nothing needs snapshotting.
  */
-static void efa_rdm_txe_write_deferred_peer_abort_completion(struct efa_rdm_ope *txe)
+static void efa_rdm_txe_write_deferred_peer_abort_completion(struct efa_rdm_ope *txe,
+							     const char *site)
 {
 	struct efa_rdm_ep *ep = txe->ep;
 	struct fi_cq_err_entry err_entry;
 	char err_msg[EFA_ERROR_MSG_BUFFER_LENGTH] = {0};
 
-	efa_rdm_txe_diag_cqe(txe, "error_deferred", FI_ECANCELED,
-			     FI_EFA_ERR_PEER_ABORTED);
+	efa_rdm_txe_diag_cqe(txe, site, FI_ECANCELED, FI_EFA_ERR_PEER_ABORTED);
 	memset(&err_entry, 0, sizeof(err_entry));
 	err_entry.err = FI_ECANCELED;
 	err_entry.prov_errno = FI_EFA_ERR_PEER_ABORTED;
@@ -899,7 +905,7 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 		 * inbound-abort path completed eagerly and does not set the
 		 * DEFERRED bit, so it only releases. */
 		if (txe->internal_flags & EFA_RDM_TXE_PEER_ABORT_COMPLETION_DEFERRED)
-			efa_rdm_txe_write_deferred_peer_abort_completion(txe);
+			efa_rdm_txe_write_deferred_peer_abort_completion(txe, "deferred_emitted");
 		efa_rdm_txe_release(txe);
 		return;
 	}
@@ -925,7 +931,7 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 		/* No PEER_ERROR_PKT completion will arrive to run the EMITTED
 		 * branch, so surface the withheld completion and free now. */
 		if (txe->internal_flags & EFA_RDM_TXE_PEER_ABORT_COMPLETION_DEFERRED)
-			efa_rdm_txe_write_deferred_peer_abort_completion(txe);
+			efa_rdm_txe_write_deferred_peer_abort_completion(txe, "deferred_emitfail");
 		efa_rdm_txe_release(txe);
 	}
 }

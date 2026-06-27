@@ -203,6 +203,12 @@ struct efa_rdm_ope {
 	 * PEER_ERROR_PKT is being emitted from this ope.
 	 */
 	int peer_error_prov_errno;
+
+	/* TEMPORARY DIAGNOSTIC: record where/how this txe's first terminal TX
+	 * CQE was produced, so a second one can be attributed. Remove with the
+	 * EFA_RDM_TXE_GAVE_CQE diagnostic. */
+	const char *diag_first_site;
+	uint64_t diag_first_flags;
 };
 
 void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
