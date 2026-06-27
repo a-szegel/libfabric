@@ -2046,7 +2046,7 @@ void test_efa_rdm_mr_gen_check_cancels_rnr_queued_ope(void **state)
 	assert_int_equal(ret, 0);
 
 	/* Retrieve the txe and pkt */
-	txe = container_of(efa_rdm_ep->txe_list.next, struct efa_rdm_ope, ep_entry);
+	txe = container_of(efa_rdm_ep->base_ep.ope_list.next, struct efa_rdm_ope, ep_entry);
 	efa_rdm_cq = container_of(resource->cq, struct efa_rdm_cq, efa_cq.util_cq.cq_fid.fid);
 	ibv_cq = &efa_rdm_cq->efa_cq.ibv_cq;
 	wr_id = (uint64_t)g_ibv_submitted_wr_id_vec[0];
@@ -2139,7 +2139,7 @@ void test_efa_rdm_mr_gen_check_cancels_longcts_ope(void **state)
 	efa_rdm_pke_release_tx(pkt_entry);
 
 	/* Retrieve the txe */
-	txe = container_of(efa_rdm_ep->txe_list.next, struct efa_rdm_ope, ep_entry);
+	txe = container_of(efa_rdm_ep->base_ep.ope_list.next, struct efa_rdm_ope, ep_entry);
 
 	/*
 	 * Simulate receiving a CTS: craft a CTS pke and call the handler.

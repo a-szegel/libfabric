@@ -802,6 +802,31 @@ void efa_rdm_rxe_emit_peer_error(struct efa_rdm_ope *rxe, int prov_errno)
 	}
 }
 
+/*
+ * TEMPORARY DIAGNOSTIC: call right before writing a terminal TX CQE for a txe.
+ * If the txe was already given a CQE, dump full state so we can see how a second
+ * completion is reached. Rate-limited to a handful of lines so it cannot flood
+ * the log pipe. Remove once root-caused.
+ */
+static void efa_rdm_txe_diag_cqe(struct efa_rdm_ope *txe, const char *site,
+				 int err, int prov_errno)
+{
+	static int logged;
+
+	if ((txe->internal_flags & EFA_RDM_TXE_GAVE_CQE) && logged < 4) {
+		logged++;
+		EFA_WARN(FI_LOG_CQ,
+			 "DOUBLE_TX_CQE site=%s op_ctx=%p msg_id=%u proto=%u state=%d "
+			 "flags=0x%lx outstanding=%zu sent=%zu acked=%zu total=%zu "
+			 "err=%d prov_errno=%d\n",
+			 site, txe->cq_entry.op_context, txe->msg_id, txe->protocol,
+			 txe->state, (unsigned long) txe->internal_flags,
+			 txe->efa_outstanding_tx_ops, txe->bytes_sent, txe->bytes_acked,
+			 txe->total_len, err, prov_errno);
+	}
+	txe->internal_flags |= EFA_RDM_TXE_GAVE_CQE;
+}
+
 /**
  * @brief Write the single withheld TX completion for a peer-aborted txe.
  *
@@ -816,6 +841,8 @@ static void efa_rdm_txe_write_deferred_peer_abort_completion(struct efa_rdm_ope 
 	struct fi_cq_err_entry err_entry;
 	char err_msg[EFA_ERROR_MSG_BUFFER_LENGTH] = {0};
 
+	efa_rdm_txe_diag_cqe(txe, "error_deferred", FI_ECANCELED,
+			     FI_EFA_ERR_PEER_ABORTED);
 	memset(&err_entry, 0, sizeof(err_entry));
 	err_entry.err = FI_ECANCELED;
 	err_entry.prov_errno = FI_EFA_ERR_PEER_ABORTED;
@@ -1093,6 +1120,7 @@ void efa_rdm_txe_handle_error(struct efa_rdm_ope *txe, int err, int prov_errno)
 		 efa_rdm_peer_support_peer_error(txe->peer));
 
 	if (!defer) {
+		efa_rdm_txe_diag_cqe(txe, "error_eager", err, prov_errno);
 		efa_cntr_report_error(&ep->base_ep.util_ep, txe->cq_entry.flags);
 		efa_rdm_cq_write_error(&ep->base_ep, util_cq, &err_entry, "TXE");
 		return;
@@ -1276,6 +1304,7 @@ void efa_rdm_txe_report_completion(struct efa_rdm_ope *txe)
 
 	assert(txe->type == EFA_RDM_TXE);
 	if (efa_rdm_txe_should_update_cq(txe)) {
+		efa_rdm_txe_diag_cqe(txe, "success", 0, 0);
 		EFA_DBG(FI_LOG_CQ,
 		       "Writing send completion for txe to peer: %" PRIu64
 		       " tx_id: %" PRIu32 " msg_id: %" PRIu32 " tag: %lx len: %"

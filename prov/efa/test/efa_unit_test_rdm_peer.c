@@ -655,7 +655,7 @@ void test_efa_rdm_peer_abort_ooo_recvwin_drain_progresses(void **state)
 
 	/* No rxe was built and no user CQ entry was written for the
 	 * tombstoned messages. */
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->rxe_list), 0);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->base_ep.ope_list), 0);
 	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
 }
 
@@ -810,7 +810,7 @@ void test_efa_rdm_peer_skip_aborted_msg_id_never_arrived_unblocks_window(
 	assert_int_equal((&peer->robuf)->exp_msg_id, 3);
 
 	/* No rxe built, no user CQ entry for any skipped id. */
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->rxe_list), 0);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->base_ep.ope_list), 0);
 	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
 }
 
@@ -853,7 +853,7 @@ void test_efa_rdm_peer_skip_aborted_msg_id_head_advances(void **state)
 	/* Window advanced exactly one past the head. */
 	assert_true(ofi_recvwin_id_processed(&peer->robuf, 5));
 	assert_int_equal((&peer->robuf)->exp_msg_id, 6);
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->rxe_list), 0);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->base_ep.ope_list), 0);
 	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
 }
 
@@ -964,7 +964,7 @@ void test_efa_rdm_peer_skip_aborted_msg_id_buffered_tombstones(
 	assert_true(ofi_recvwin_id_processed(&peer->robuf, 1));
 	assert_int_equal((&peer->robuf)->exp_msg_id, 2);
 
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->rxe_list), 0);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->base_ep.ope_list), 0);
 	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
 }
 
@@ -1036,7 +1036,7 @@ void test_efa_rdm_peer_skip_aborted_msg_id_tombstone_behind_head(
 	assert_true(ofi_recvwin_id_processed(&peer->robuf, 2));
 	assert_int_equal((&peer->robuf)->exp_msg_id, 3);
 
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->rxe_list), 0);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->base_ep.ope_list), 0);
 	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
 
 /**
@@ -1139,7 +1139,7 @@ void test_efa_rdm_pke_handle_peer_error_recv_longcts_skip_unblocks_window(
 
 	/* No rxe built and no user CQ entry: a LONGCTS pre-CTS abort owes no
 	 * completion (no recv was ever matched, since no CTS was exchanged). */
-	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->rxe_list), 0);
+	assert_int_equal(efa_unit_test_get_dlist_length(&efa_rdm_ep->base_ep.ope_list), 0);
 	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
 }
 }

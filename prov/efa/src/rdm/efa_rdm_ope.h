@@ -390,6 +390,11 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
  */
 #define EFA_RDM_TXE_PEER_ABORT_COMPLETION_DEFERRED	BIT_ULL(23)
 
+/* TEMPORARY DIAGNOSTIC: set once a txe has been given a terminal TX CQE, so
+ * any second CQE write for the same txe can be detected and dumped. Remove
+ * once the double-completion is root-caused. */
+#define EFA_RDM_TXE_GAVE_CQE	BIT_ULL(24)
+
 #define EFA_RDM_OPE_QUEUED_FLAGS (EFA_RDM_OPE_QUEUED_RNR | EFA_RDM_OPE_QUEUED_CTRL | EFA_RDM_OPE_QUEUED_READ | EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE)
 
 void efa_rdm_ope_try_fill_desc(struct efa_rdm_ope *ope, int mr_iov_start, uint64_t access);

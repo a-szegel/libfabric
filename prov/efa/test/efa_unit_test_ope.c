@@ -465,7 +465,7 @@ void test_efa_rdm_rxe_post_local_read_or_queue_impl(struct efa_resource *resourc
 			assert_int_equal(efa_rdm_ep->efa_rx_pkts_to_post, to_post_before + 1);
 		}
 		/* The internal txe must be cleaned up for a failed read. */
-		assert_true(dlist_empty(&efa_rdm_ep->txe_list));
+		assert_true(dlist_empty(&efa_rdm_ep->base_ep.ope_list));
 	}
 
 	/* The clone variant uses a dedicated endpoint*/
@@ -4493,7 +4493,7 @@ void test_efa_rdm_txe_handle_error_no_emit_when_not_longcts(void **state)
  * never released the rxe -> permanent leak (and it would also post a
  * spurious EOR / success completion). This test fails one read WR,
  * then drives a successful completion for the sibling and asserts
- * the rxe leaves ep->rxe_list (freed exactly once), the user gets a
+ * the rxe leaves ep->base_ep.ope_list (freed exactly once), the user gets a
  * single clean peer-abort error completion, and no spurious success
  * completion is written.
  */
@@ -4574,7 +4574,7 @@ void test_efa_rdm_pke_handle_rma_read_completion_drains_recovered_rxe(
 
 	assert_true(rxe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
 	assert_int_equal(rxe->efa_outstanding_tx_ops, 1);
-	assert_int_equal(efa_unit_test_get_dlist_length(&ep->rxe_list), 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&ep->base_ep.ope_list), 1);
 
 	/* WR #2 completes SUCCESSFULLY (the leak trigger). The forged
 	 * context releases the pkt itself, so do not touch ok_pkt
@@ -4600,7 +4600,7 @@ void test_efa_rdm_pke_handle_rma_read_completion_drains_recovered_rxe(
 	 * error completion was written at drain -- read it first (a pending
 	 * error makes fi_cq_read return -FI_EAVAIL, not -FI_EAGAIN), then
 	 * confirm the success queue is empty (no spurious EOR/success). */
-	assert_int_equal(efa_unit_test_get_dlist_length(&ep->rxe_list), 0);
+	assert_int_equal(efa_unit_test_get_dlist_length(&ep->base_ep.ope_list), 0);
 	assert_int_equal(ep->efa_outstanding_tx_ops, 0);
 	assert_cq_peer_aborted_error(resource);
 	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
@@ -4714,7 +4714,7 @@ void test_efa_rdm_pke_handle_peer_error_recv_longcts_cts_outstanding(
 	/* Recovery ran (HANDLED set) but the rxe must NOT be freed yet:
 	 * the CTS is still outstanding, so the drain was a no-op. */
 	assert_true(rxe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
-	assert_int_equal(efa_unit_test_get_dlist_length(&ep->rxe_list), 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&ep->base_ep.ope_list), 1);
 
 	/* The CTS send completes. Its send-completion handler must now
 	 * drain and free the rxe (the regression: a bare break left it
@@ -4722,7 +4722,7 @@ void test_efa_rdm_pke_handle_peer_error_recv_longcts_cts_outstanding(
 	efa_rdm_pke_handle_send_completion(cts_pkt);
 	ofi_genlock_unlock(srx_ctx->lock);
 
-	assert_int_equal(efa_unit_test_get_dlist_length(&ep->rxe_list), 0);
+	assert_int_equal(efa_unit_test_get_dlist_length(&ep->base_ep.ope_list), 0);
 	assert_int_equal(ep->efa_outstanding_tx_ops, 0);
 }
 
@@ -5048,7 +5048,7 @@ void test_efa_rdm_pke_handle_peer_error_recv_medium_unexpected_tears_down(
 
 	efa_rdm_rxe_map_insert(&peer->rxe_map, msg_id, rxe);
 
-	rxe_list_len_before = efa_unit_test_get_dlist_length(&ep->rxe_list);
+	rxe_list_len_before = efa_unit_test_get_dlist_length(&ep->base_ep.ope_list);
 
 	/* Fill in the PEER_ERROR_PKT wiredata. */
 	err_hdr = (struct efa_rdm_peer_error_hdr *) pkt_entry->wiredata;
@@ -5065,7 +5065,7 @@ void test_efa_rdm_pke_handle_peer_error_recv_medium_unexpected_tears_down(
 	ofi_genlock_unlock(srx_ctx->lock);
 
 	/* rxe was freed (removed from rxe_list). */
-	assert_int_equal(efa_unit_test_get_dlist_length(&ep->rxe_list),
+	assert_int_equal(efa_unit_test_get_dlist_length(&ep->base_ep.ope_list),
 			 rxe_list_len_before - 1);
 
 	/* SRX msg_queue must be empty (peer_rxe freed, not re-queued). */
@@ -5615,8 +5615,8 @@ void test_efa_rdm_pke_handle_tx_error_longcts_abort_drains_txe(
 			  &efa_rdm_ep_rdm_domain(ep)->ope_longcts_send_list);
 
 	/* efa_rdm_txe_construct (via the helper) already links the txe on
-	 * ep->txe_list; track it as the freed observable. */
-	txe_base = efa_unit_test_get_dlist_length(&ep->txe_list);
+	 * ep->base_ep.ope_list; track it as the freed observable. */
+	txe_base = efa_unit_test_get_dlist_length(&ep->base_ep.ope_list);
 
 	/* A CTSDATA WR fails with INVALID_LKEY (source MR canceled). The
 	 * LONGCTS abort withholds the TX completion, emits a PEER_ERROR_PKT
@@ -5631,7 +5631,7 @@ void test_efa_rdm_pke_handle_tx_error_longcts_abort_drains_txe(
 	/* The completion is withheld until the PEER_ERROR_PKT is sent. */
 	assert_int_equal(fi_cq_read(resource->cq, &cq_entry, 1), -FI_EAGAIN);
 	/* txe still present: the emitted PEER_ERROR_PKT is in flight. */
-	assert_int_equal(efa_unit_test_get_dlist_length(&ep->txe_list),
+	assert_int_equal(efa_unit_test_get_dlist_length(&ep->base_ep.ope_list),
 			 txe_base);
 	assert_int_equal(txe->efa_outstanding_tx_ops, 1);
 
@@ -5663,7 +5663,7 @@ void test_efa_rdm_pke_handle_tx_error_longcts_abort_drains_txe(
 
 	/* txe freed exactly once (off txe_list), outstanding == 0. */
 	assert_int_equal(ep->efa_outstanding_tx_ops, 0);
-	assert_int_equal(efa_unit_test_get_dlist_length(&ep->txe_list),
+	assert_int_equal(efa_unit_test_get_dlist_length(&ep->base_ep.ope_list),
 			 txe_base - 1);
 }
 
@@ -5735,7 +5735,7 @@ void test_efa_rdm_ctsdata_send_completion_aborting_txe_no_completion(void **stat
 	txe->total_len = 4096;
 	txe->bytes_acked = 4096; /* would reach total_len if not guarded */
 	txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING;
-	txe_base = efa_unit_test_get_dlist_length(&ep->txe_list);
+	txe_base = efa_unit_test_get_dlist_length(&ep->base_ep.ope_list);
 
 	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
 				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
@@ -5746,7 +5746,7 @@ void test_efa_rdm_ctsdata_send_completion_aborting_txe_no_completion(void **stat
 
 	/* No completion written, txe untouched (drain owns it). */
 	assert_int_equal(fi_cq_read(resource->cq, &cq_entry, 1), -FI_EAGAIN);
-	assert_int_equal(efa_unit_test_get_dlist_length(&ep->txe_list),
+	assert_int_equal(efa_unit_test_get_dlist_length(&ep->base_ep.ope_list),
 			 txe_base);
 
 	efa_rdm_pke_release_tx(pkt_entry);
