@@ -380,6 +380,18 @@ void efa_rdm_domain_progress_peers_and_queues(struct efa_rdm_domain *rdm_domain)
 			continue;
 
 		if (ope->window > 0) {
+			/*
+			 * DIAGNOSTIC (temporary): the PEER_ABORT_PENDING skip
+			 * check earlier in this loop should prevent an aborted
+			 * txe from ever reaching the CTSDATA post. Assert that
+			 * invariant here, and that the iov is non-empty (an
+			 * emitted abort zeroes iov_count). If either fires, the
+			 * drip loop is the path that posts empty CTSDATA -> -22.
+			 */
+			assert(!(ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING) &&
+			       "DIAG: drip loop reached CTSDATA post on a peer-aborted txe");
+			assert(ope->iov_count > 0 &&
+			       "DIAG: drip loop posting CTSDATA with empty iov");
 			if (efa_rdm_mr_gen_check_ope(ope))
 				ret = efa_rdm_ope_post_send(ope, EFA_RDM_CTSDATA_PKT);
 			else

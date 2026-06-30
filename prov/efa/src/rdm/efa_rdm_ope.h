@@ -203,6 +203,16 @@ struct efa_rdm_ope {
 	 * PEER_ERROR_PKT is being emitted from this ope.
 	 */
 	int peer_error_prov_errno;
+
+	/*
+	 * DIAGNOSTIC (temporary): peer-abort lifecycle tracing for the LONGCTS
+	 * mr_abort hang. Recorded at abort/mark time and read in the re-add log
+	 * so a single handle_cts_recv line tells the whole story. Remove with
+	 * the diagnostic commit.
+	 */
+	int diag_abort_prov_errno;       /* prov_errno that triggered the abort */
+	uint64_t diag_abort_bytes_acked; /* bytes_acked at the moment of abort */
+	uint32_t diag_cts_count;         /* CTS packets received for this txe */
 };
 
 void efa_rdm_txe_construct(struct efa_rdm_ope *txe,

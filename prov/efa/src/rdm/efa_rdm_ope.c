@@ -46,6 +46,9 @@ void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
 	txe->rma_iov_count = 0;
 	txe->msg_id = 0;
 	txe->efa_outstanding_tx_ops = 0;
+	txe->diag_abort_prov_errno = 0;
+	txe->diag_abort_bytes_acked = 0;
+	txe->diag_cts_count = 0;
 	dlist_init(&txe->queued_pkts);
 
 	memcpy(txe->iov, msg->msg_iov, sizeof(struct iovec) * msg->iov_count);
@@ -953,6 +956,14 @@ static bool efa_rdm_txe_mark_peer_abort_if_needed(struct efa_rdm_ope *txe,
 
 	txe->peer_error_prov_errno = prov_errno;
 	txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING;
+
+	/*
+	 * DIAGNOSTIC (temporary): record the abort context and log the abort
+	 * point, so the later re-add log can be correlated by ope pointer.
+	 * Rate-limited so the 4096-op flood cannot drown the log.
+	 */
+	txe->diag_abort_prov_errno = prov_errno;
+	txe->diag_abort_bytes_acked = txe->bytes_acked;
 
 	/* A LONGCTS aborted before its CTS arrived has no valid rx_id, so the
 	 * receiver must be signalled by per-peer msg_id (REF_MSG_ID_SKIP)
@@ -2153,6 +2164,18 @@ ssize_t efa_rdm_ope_post_send(struct efa_rdm_ope *ope, int pkt_type)
 
 	ep = ope->ep;
 	assert(ep);
+
+	/*
+	 * DIAGNOSTIC (temporary): once a txe has emitted its PEER_ERROR_PKT it
+	 * has iov_count == 0, so the only packet it may legally post is another
+	 * PEER_ERROR_PKT (an RNR/queued retry). Any other pkt_type here -- in
+	 * particular CTSDATA -- would build an empty payload and trip
+	 * ofi_iov_locate (-22). Assert so the backtrace names the caller that
+	 * drove a data post on an emitted-abort ope.
+	 */
+	assert((!(ope->internal_flags & EFA_RDM_PEER_ERROR_EMITTED) ||
+		pkt_type == EFA_RDM_PEER_ERROR_PKT) &&
+	       "DIAG: emitted-abort ope posting a non-PEER_ERROR packet");
 
 	err = efa_rdm_ope_prepare_to_post_send(ope, pkt_type,
 					       &ep->send_pkt_entry_vec_size,

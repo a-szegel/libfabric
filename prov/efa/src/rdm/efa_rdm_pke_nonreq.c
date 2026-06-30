@@ -227,10 +227,19 @@ void efa_rdm_pke_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_ope *ope;
 	struct efa_rdm_cts_hdr *cts_pkt;
+	int64_t old_window;
 
 	ep = pkt_entry->ep;
 	cts_pkt = (struct efa_rdm_cts_hdr *)pkt_entry->wiredata;
 	ope = ofi_bufpool_get_ibuf(pkt_entry->ep->base_ep.ope_pool, cts_pkt->send_id);
+
+	/*
+	 * DIAGNOSTIC (temporary): capture the pre-overwrite window and a CTS
+	 * count so the re-add log below shows whether the previous window was
+	 * fully consumed and how many CTS this txe has received.
+	 */
+	old_window = ope->window;
+	ope->diag_cts_count++;
 
 	ope->rx_id = cts_pkt->recv_id;
 	ope->window = cts_pkt->recv_length;
@@ -238,7 +247,43 @@ void efa_rdm_pke_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 
 	efa_rdm_pke_release_rx(pkt_entry);
 
+	/*
+	 * DIAGNOSTIC (temporary): log the interesting CTS arrivals -- a CTS for
+	 * an already peer-aborted txe (the re-add this loop is investigating),
+	 * or a CTS that arrives while the previous window was still outstanding.
+	 * Rate-limited per case so it cannot flood the log pipe.
+	 */
+	if (ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING) {
+		static int diag_n;
+		if (diag_n < 64) {
+			diag_n++;
+			EFA_WARN(FI_LOG_EP_CTRL,
+				 "DIAG: CTS for ABORTED txe ope=%p msg_id=%u tx_id=%u "
+				 "rx_id=%u proto=%u cts#=%u emitted=%d "
+				 "old_window=%ld new_window=%ld bytes_acked=%lu "
+				 "bytes_sent=%lu total=%lu | abort_prov_errno=%d "
+				 "abort_bytes_acked=%lu\n",
+				 (void *) ope, ope->msg_id, ope->tx_id, ope->rx_id,
+				 ope->protocol, ope->diag_cts_count,
+				 !!(ope->internal_flags & EFA_RDM_PEER_ERROR_EMITTED),
+				 (long) old_window, (long) ope->window,
+				 (unsigned long) ope->bytes_acked,
+				 (unsigned long) ope->bytes_sent,
+				 (unsigned long) ope->total_len,
+				 ope->diag_abort_prov_errno,
+				 (unsigned long) ope->diag_abort_bytes_acked);
+		}
+	}
+
 	if (ope->state != EFA_RDM_OPE_SEND) {
+		/*
+		 * DIAGNOSTIC (temporary): crash with a backtrace when a CTS
+		 * re-adds an already peer-aborted txe to ope_longcts_send_list.
+		 * The "CTS for ABORTED txe" log above prints the full state
+		 * first, so a debug build yields both the log line and a core.
+		 */
+		assert(!(ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING) &&
+		       "DIAG: CTS re-added a peer-aborted txe to longcts_send_list");
 		ope->state = EFA_RDM_OPE_SEND;
 		dlist_insert_tail(&ope->entry, &efa_rdm_ep_rdm_domain(ep)->ope_longcts_send_list);
 	}

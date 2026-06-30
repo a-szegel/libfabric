@@ -47,6 +47,18 @@ ssize_t efa_rdm_pke_init_payload_from_ope(struct efa_rdm_pke *pke,
 
 	efa_rdm_pke_set_ope(pke, ope);
 	pke->peer = ope->peer;
+
+	/*
+	 * DIAGNOSTIC (temporary): a peer-aborted ope has its single completion
+	 * owned by the drain helper and (once it emits) iov_count == 0, so it
+	 * must never build an outgoing payload packet. This is the exact site
+	 * that logs "ofi_iov_locate failed -22" for an empty iov. If this
+	 * assert fires, the backtrace shows which post path reached an aborted
+	 * ope (drip loop / process_queued_ope / other), proving the mechanism.
+	 */
+	assert(!(ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING) &&
+	       "DIAG: init_payload_from_ope on a peer-aborted ope");
+
 	if (data_size == 0) {
 		pke->pkt_size = payload_offset;
 		return 0;
@@ -55,7 +67,26 @@ ssize_t efa_rdm_pke_init_payload_from_ope(struct efa_rdm_pke *pke,
 	ret = ofi_iov_locate(ope->iov, ope->iov_count, segment_offset,
 			     &tx_iov_index, &tx_iov_offset);
 	if (OFI_UNLIKELY(ret)) {
-		EFA_WARN(FI_LOG_CQ, "ofi_iov_locate failed! err: %d\n", ret);
+		/*
+		 * DIAGNOSTIC (temporary): rate-limited rich dump so a non-debug
+		 * build still shows whether the iov is empty (iov_count == 0, the
+		 * emitted-abort case) or the offset is simply out of range, plus
+		 * the ope's abort flags. Capped so the spin cannot flood the log.
+		 */
+		static int diag_n;
+		if (diag_n < 8) {
+			diag_n++;
+			EFA_WARN(FI_LOG_CQ,
+				 "ofi_iov_locate failed! err=%d ope=%p type=%d proto=%u "
+				 "flags=0x%lx iov_count=%lu seg_off=%zu total=%lu acked=%lu\n",
+				 ret, (void *) ope, ope->type, ope->protocol,
+				 (unsigned long) ope->internal_flags,
+				 (unsigned long) ope->iov_count, segment_offset,
+				 (unsigned long) ope->total_len,
+				 (unsigned long) ope->bytes_acked);
+		} else {
+			EFA_WARN(FI_LOG_CQ, "ofi_iov_locate failed! err: %d\n", ret);
+		}
 		return ret;
 	}
 
