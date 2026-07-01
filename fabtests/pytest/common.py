@@ -9,6 +9,7 @@ import functools
 from subprocess import Popen, TimeoutExpired, run
 from tempfile import NamedTemporaryFile
 from time import sleep
+from datetime import datetime
 
 from retrying import retry
 import pytest
@@ -175,6 +176,45 @@ PASS = 1
 SKIP = 2
 FAIL = 3
 
+
+def get_fabtests_log_dir():
+    """
+    Directory where per-test server/client logs are persisted. Override with
+    the FABTESTS_LOG_DIR environment variable; defaults to ~/fabtest_logs.
+    """
+    return os.environ.get(
+        "FABTESTS_LOG_DIR", os.path.expanduser("~/fabtest_logs"))
+
+
+def make_test_log_paths():
+    """
+    Build persistent server/client log file paths for the currently running
+    test, named by test id + timestamp (+ xdist worker id). These survive the
+    run so an intermittent failure can be inspected even when pytest's captured
+    stdout is truncated/lost under parallel (-n) execution (Subspace-3769).
+
+    @return: (server_log_path, client_log_path)
+    """
+    # PYTEST_CURRENT_TEST looks like:
+    #   "efa/test_mr_abort.py::test_mr_abort_tagged[params] (call)"
+    raw = os.environ.get("PYTEST_CURRENT_TEST", "unknown_test").split(" (")[0]
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", raw)
+    # bound the filename length (test ids with many params get very long)
+    if len(safe) > 180:
+        safe = safe[:180]
+    # microsecond timestamp keeps names unique within an until-fail loop
+    parts = [safe, datetime.now().strftime("%Y%m%d-%H%M%S.%f")]
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if worker:
+        parts.append(worker)
+    base = "_".join(parts)
+
+    log_dir = get_fabtests_log_dir()
+    os.makedirs(log_dir, exist_ok=True)
+    return (os.path.join(log_dir, base + ".server.log"),
+            os.path.join(log_dir, base + ".client.log"))
+
+
 def check_returncode(returncode, strict):
     """
     check one return code
@@ -202,7 +242,7 @@ def check_returncode(returncode, strict):
 
     return FAIL, error_msg
 
-def check_returncode_list(returncode_list, strict):
+def check_returncode_list(returncode_list, strict, extra_fail_message=None):
     """
     check a list of returncode, and call pytest's handler accordingly.
         If there is failure in return, call pytest.fail()
@@ -210,6 +250,9 @@ def check_returncode_list(returncode_list, strict):
         If there is no failure or skip, do nothing
     @param resultcode_list: a list of return code
     @param strict: a boolean indicating wether strict mode should be used.
+    @param extra_fail_message: optional string appended to the pytest.fail
+                   message (e.g. saved log file paths) so it is preserved in
+                   the failure report even when captured stdout is lost.
     @return: no return
     """
     result = PASS
@@ -231,6 +274,8 @@ def check_returncode_list(returncode_list, strict):
             break
 
     if result == FAIL:
+        if extra_fail_message:
+            reason = "{}\n{}".format(reason, extra_fail_message)
         pytest.fail(reason)
 
     if result == SKIP:
@@ -560,6 +605,12 @@ class ClientServerTest:
         if self._cmdline_args.is_test_excluded(self._client_base_command):
             pytest.skip("excluded")
 
+        # Persist server/client output to per-test log files (named by test id
+        # + timestamp) so an intermittent failure can be inspected even when
+        # pytest's captured stdout is truncated under parallel runs.
+        server_log_path, client_log_path = make_test_log_paths()
+        log_msg = "server log: {}\nclient log: {}".format(server_log_path, client_log_path)
+
         # Start server
         print("")
         print("server_command: " + self._server_command)
@@ -575,7 +626,7 @@ class ClientServerTest:
                 retry_on_exception=is_ssh_connection_error,
                 stop_max_delay=self._timeout * 1000,  # Convert to milliseconds
                 wait_fixed=CLIENT_RETRY_INTERVAL_MS,
-            )(self._run_client_command)(server_process, self._client_command).returncode
+            )(self._run_client_command)(server_process, self._client_command, client_log_path).returncode
         except Exception as e:
             print("Client error: {}".format(e))
             # Clean up server if client is terminated unexpectedly
@@ -590,6 +641,11 @@ class ClientServerTest:
             server_process.terminate()
             server_timed_out = True
 
+        # Persist server output regardless of pass/fail (client output was
+        # streamed to client_log_path by _run_client_command).
+        with open(server_log_path, "w") as server_log_file:
+            server_log_file.write(server_output or "")
+
         if has_ssh_connection_err_msg(server_output):
             print("encountered ssh connection issue!")
             raise SshConnectionError()
@@ -597,9 +653,11 @@ class ClientServerTest:
         print("server_stdout:")
         print(server_output)
         print(f"server returncode: {server_process.returncode}")
+        print("server log saved to: " + server_log_path)
+        print("client log saved to: " + client_log_path)
 
         if server_timed_out:
-            raise RuntimeError("Server timed out")
+            raise RuntimeError("Server timed out\n" + log_msg)
 
         list_to_check_return_code = []
         if not self._server_parameters['might_fail']:
@@ -608,7 +666,8 @@ class ClientServerTest:
             list_to_check_return_code.append(client_returncode)
 
         check_returncode_list(list_to_check_return_code,
-                              self._cmdline_args.strict_fabtests_mode)
+                              self._cmdline_args.strict_fabtests_mode,
+                              extra_fail_message=log_msg)
 
 
 class MultinodeTest(ClientServerTest):
