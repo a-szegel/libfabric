@@ -74,7 +74,7 @@ static int efa_rdm_domain_init(struct efa_rdm_domain *rdm_domain, struct fi_info
 				&rdm_fabric->shm_fabric,
 				efa_domain->fabric->util_fabric.fabric_fid.fid.context);
 		if (err) {
-			EFA_WARN(FI_LOG_DOMAIN, 
+			EFA_WARN(FI_LOG_DOMAIN,
 				 "Failed to create shm_fabric: %s\n",
 				 fi_strerror(-err));
 			return err;
@@ -370,6 +370,10 @@ void efa_rdm_domain_progress_peers_and_queues(struct efa_rdm_domain *rdm_domain)
 		 */
 		if (!(peer->flags & EFA_RDM_PEER_HANDSHAKE_RECEIVED))
 			continue;
+
+
+		assert(!(ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING) && "DIAG: drip loop reached CTSDATA post on a peer-aborted txe");
+		assert(ope->iov_count > 0 && "DIAG: drip loop posting CTSDATA with empty iov");
 
 		if (ope->window > 0) {
 			if (efa_rdm_mr_gen_check_ope(ope))
