@@ -428,6 +428,12 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 	}
 
 	efa_rdm_pke_assert_ope_valid(pkt_entry);
+	EFA_WARN(FI_LOG_EP_CTRL,
+		 "PEERABORT_TRACE TX_ERR_COMPLETION pkt_type=%d ope=%p type=%d msg_id=%u tx_id=%u rx_id=%u gen=%u state=%d flags=0x%lx prov_errno=%d\n",
+		 efa_rdm_pkt_type_of(pkt_entry), (void *)pkt_entry->ope, pkt_entry->ope->type,
+		 pkt_entry->ope->msg_id, pkt_entry->ope->tx_id, pkt_entry->ope->rx_id,
+		 (unsigned)pkt_entry->ope->gen, pkt_entry->ope->state,
+		 (unsigned long)pkt_entry->ope->internal_flags, prov_errno);
 	switch (pkt_entry->ope->type) {
 	case EFA_RDM_TXE:
 		txe = pkt_entry->ope;
@@ -610,6 +616,13 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
 	}
 
 	/* Start handling pkts with hdrs */
+	EFA_WARN(FI_LOG_EP_CTRL,
+		 "PEERABORT_TRACE TX_SEND_COMPLETION pkt_type=%d ope=%p type=%d msg_id=%u tx_id=%u rx_id=%u gen=%u state=%d flags=0x%lx outstanding=%d\n",
+		 efa_rdm_pkt_type_of(pkt_entry), (void *)pkt_entry->ope, pkt_entry->ope->type,
+		 pkt_entry->ope->msg_id, pkt_entry->ope->tx_id, pkt_entry->ope->rx_id,
+		 (unsigned)pkt_entry->ope->gen, pkt_entry->ope->state,
+		 (unsigned long)pkt_entry->ope->internal_flags,
+		 (int)pkt_entry->ope->efa_outstanding_tx_ops);
 	switch (efa_rdm_pkt_type_of(pkt_entry)) {
 	case EFA_RDM_HANDSHAKE_PKT:
 		efa_rdm_pke_assert_ope_valid(pkt_entry);

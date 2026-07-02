@@ -74,6 +74,21 @@ void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
 	txe->fi_flags = fi_flags | tx_op_flags;
 	txe->bytes_runt = 0;
 	txe->local_read_pkt_entry = NULL;
+	/*
+	 * The ope pool does not zero slots on reuse, so reset the state that is
+	 * otherwise only written mid-op -- a recycled slot (possibly from a
+	 * different protocol) would otherwise carry the prior op's values.
+	 */
+	txe->rx_id = 0;
+	txe->queued_ctrl_type = 0;
+	txe->peer_error_prov_errno = 0;
+	txe->bytes_read_completed = 0;
+	txe->bytes_read_submitted = 0;
+	txe->bytes_read_total_len = 0;
+	txe->bytes_read_offset = 0;
+	txe->bytes_write_completed = 0;
+	txe->bytes_write_submitted = 0;
+	txe->bytes_write_total_len = 0;
 	dlist_init(&txe->entry);
 
 	switch (op) {
@@ -983,6 +998,13 @@ static bool efa_rdm_txe_mark_peer_abort_if_needed(struct efa_rdm_ope *txe,
 	 * valid rx_id and is referenced by ope index at emit time. */
 	if (is_longcts && prev_state != EFA_RDM_OPE_SEND)
 		txe->internal_flags |= EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID;
+
+	EFA_WARN(FI_LOG_EP_CTRL,
+		 "PEERABORT_TRACE TX_MARK_PEER_ABORT msg_id=%u tx_id=%u rx_id=%u gen=%u protocol=%d prev_state=%d prov_errno=%d is_longcts=%d by_msg_id=%d bytes_sent=%zu bytes_acked=%zu\n",
+		 txe->msg_id, txe->tx_id, txe->rx_id, (unsigned)txe->gen, txe->protocol,
+		 prev_state, prov_errno, is_longcts,
+		 !!(txe->internal_flags & EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID),
+		 (size_t)txe->bytes_sent, (size_t)txe->bytes_acked);
 
 	return true;
 }
