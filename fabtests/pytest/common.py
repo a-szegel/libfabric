@@ -588,8 +588,6 @@ class ClientServerTest:
             print("client encountered ssh connection issue!")
             raise SshConnectionError()
 
-        print("client_stdout:")
-        print(result.output)
         print(f"client returncode: {result.returncode}")
 
         if client_timed_out:
@@ -614,8 +612,13 @@ class ClientServerTest:
         # Start server
         print("")
         print("server_command: " + self._server_command)
-        server_process = Popen(self._server_command, stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT, shell=True, universal_newlines=True)
+        # Redirect stdout+stderr straight to the per-test log file instead of a
+        # pipe. Verbose provider logging can exceed the pipe buffer and deadlock
+        # the server before communicate() drains it, and a piped process that
+        # cores/times out loses its buffered output. A file redirect streams to
+        # disk and survives both. (Uses "> f 2>&1"; /bin/sh has no "&>".)
+        server_process = Popen(self._server_command + " > " + server_log_path + " 2>&1",
+                               shell=True, universal_newlines=True)
         sleep(1)
 
         client_returncode = -1
@@ -632,26 +635,27 @@ class ClientServerTest:
             # Clean up server if client is terminated unexpectedly
             server_process.terminate()
 
-        server_output = ""
         server_timed_out = False
         try:
-            server_output, _ = server_process.communicate(
+            server_process.wait(
                 timeout=self._timeout + SERVER_RESTART_DELAY_MS/1000)
         except TimeoutExpired:
             server_process.terminate()
             server_timed_out = True
 
-        # Persist server output regardless of pass/fail (client output was
-        # streamed to client_log_path by _run_client_command).
-        with open(server_log_path, "w") as server_log_file:
-            server_log_file.write(server_output or "")
+        # Server output was redirected straight to server_log_path; read it
+        # back only for the ssh-error check below.
+        server_output = ""
+        try:
+            with open(server_log_path) as server_log_file:
+                server_output = server_log_file.read()
+        except OSError:
+            pass
 
         if has_ssh_connection_err_msg(server_output):
             print("encountered ssh connection issue!")
             raise SshConnectionError()
 
-        print("server_stdout:")
-        print(server_output)
         print(f"server returncode: {server_process.returncode}")
         print("server log saved to: " + server_log_path)
         print("client log saved to: " + client_log_path)
