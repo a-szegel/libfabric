@@ -260,6 +260,9 @@ ssize_t efa_rdm_pke_proc_matched_rtm(struct efa_rdm_pke *pkt_entry)
 	ep->pending_recv_counter++;
 #endif
 	rxe->state = EFA_RDM_RXE_RECV;
+	EFA_WARN(FI_LOG_EP_CTRL,
+		 "PEERABORT_TRACE RX_SEND_CTS_INITIAL msg_id=%u rx_id=%u tx_id=%u rxe=%p gen=%u\n",
+		 rxe->msg_id, rxe->rx_id, rxe->tx_id, (void *)rxe, (unsigned)rxe->gen);
 	ret = efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_CTS_PKT);
 
 	return ret;

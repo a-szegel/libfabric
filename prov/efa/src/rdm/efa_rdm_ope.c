@@ -800,6 +800,9 @@ void efa_rdm_rxe_emit_peer_error(struct efa_rdm_ope *rxe, int prov_errno)
 	}
 
 	rxe->peer_error_prov_errno = prov_errno;
+	EFA_WARN(FI_LOG_EP_CTRL,
+		 "PEERABORT_TRACE RX_EMIT_PEER_ERROR msg_id=%u rx_id=%u tx_id=%u ope=%p gen=%u prov_errno=%d\n",
+		 rxe->msg_id, rxe->rx_id, rxe->tx_id, (void *)rxe, (unsigned)rxe->gen, prov_errno);
 	err = efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_PEER_ERROR_PKT);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ,
@@ -901,6 +904,12 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 		 * association so the requeue-path MR gen check cannot cancel the
 		 * very notification that tells the peer to recover. */
 		txe->iov_count = 0;
+		EFA_WARN(FI_LOG_EP_CTRL,
+			 "PEERABORT_TRACE TX_EMIT_PEER_ERROR msg_id=%u tx_id=%u rx_id=%u ope=%p gen=%u flags=0x%lx by_msg_id=%d bytes_acked=%zu\n",
+			 txe->msg_id, txe->tx_id, txe->rx_id, (void *)txe, (unsigned)txe->gen,
+			 (unsigned long)txe->internal_flags,
+			 !!(txe->internal_flags & EFA_RDM_TXE_PEER_ERROR_BY_MSG_ID),
+			 (size_t)txe->bytes_acked);
 		err = efa_rdm_ope_post_send_or_queue(txe, EFA_RDM_PEER_ERROR_PKT);
 		if (OFI_UNLIKELY(err)) {
 			EFA_WARN(FI_LOG_CQ,

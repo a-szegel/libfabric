@@ -238,6 +238,11 @@ void efa_rdm_pke_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 	cts_pkt = (struct efa_rdm_cts_hdr *)pkt_entry->wiredata;
 	ope = ofi_bufpool_get_ibuf(pkt_entry->ep->base_ep.ope_pool, cts_pkt->send_id);
 
+	EFA_WARN(FI_LOG_EP_CTRL,
+		 "PEERABORT_TRACE TX_RECV_CTS msg_id=%u tx_id=%u send_id=%u recv_id=%u ope=%p gen=%u flags=0x%lx state=%d\n",
+		 ope->msg_id, ope->tx_id, cts_pkt->send_id, cts_pkt->recv_id,
+		 (void *)ope, (unsigned)ope->gen, (unsigned long)ope->internal_flags, ope->state);
+
 	ope->rx_id = cts_pkt->recv_id;
 	ope->window = cts_pkt->recv_length;
 	assert(ope->window > 0);
@@ -245,6 +250,10 @@ void efa_rdm_pke_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 	efa_rdm_pke_release_rx(pkt_entry);
 
 	if (ope->state != EFA_RDM_OPE_SEND) {
+		EFA_WARN(FI_LOG_EP_CTRL,
+			 "PEERABORT_TRACE TX_DRIP_ADD_CTS msg_id=%u tx_id=%u rx_id=%u ope=%p gen=%u flags=0x%lx prev_state=%d\n",
+			 ope->msg_id, ope->tx_id, ope->rx_id, (void *)ope, (unsigned)ope->gen,
+			 (unsigned long)ope->internal_flags, ope->state);
 		ope->state = EFA_RDM_OPE_SEND;
 		dlist_insert_tail(&ope->entry, &efa_rdm_ep_rdm_domain(ep)->ope_longcts_send_list);
 	}
@@ -392,6 +401,10 @@ void efa_rdm_pke_proc_ctsdata(struct efa_rdm_pke *pkt_entry,
 		return;
 
 	if (!ope->window) {
+		EFA_WARN(FI_LOG_EP_CTRL,
+			 "PEERABORT_TRACE RX_SEND_CTS_WINDOW msg_id=%u rx_id=%u tx_id=%u rxe=%p gen=%u bytes_received=%zu total=%zu\n",
+			 ope->msg_id, ope->rx_id, ope->tx_id, (void *)ope, (unsigned)ope->gen,
+			 (size_t)ope->bytes_received, (size_t)ope->total_len);
 		err = efa_rdm_ope_post_send_or_queue(ope, EFA_RDM_CTS_PKT);
 		if (err) {
 			EFA_WARN(FI_LOG_CQ, "post CTS packet failed!\n");
@@ -938,6 +951,10 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 	ep = pkt_entry->ep;
 	err_hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
 	prov_errno = (int) err_hdr->prov_errno;
+
+	EFA_WARN(FI_LOG_EP_CTRL,
+		 "PEERABORT_TRACE RECV_PEER_ERROR op_id=%u ref_kind=%d prov_errno=%d\n",
+		 err_hdr->op_id, err_hdr->ref_kind, prov_errno);
 
 	EFA_INFO(FI_LOG_CQ,
 		 "Received PEER_ERROR_PKT (op_id=%u prov_errno=%d %s)\n",
