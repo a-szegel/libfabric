@@ -166,6 +166,7 @@ ssize_t efa_rdm_pke_init_cts(struct efa_rdm_pke *pkt_entry,
 	bytes_left = ope->total_len - ope->bytes_received;
 	cts_hdr->recv_length = MIN(bytes_left, efa_env.tx_min_credits * ope->ep->max_data_payload_size);
 	assert(cts_hdr->recv_length > 0);
+	cts_hdr->msg_id = ope->msg_id;
 	pkt_entry->pkt_size = sizeof(struct efa_rdm_cts_hdr);
 
 	/*
@@ -236,7 +237,58 @@ void efa_rdm_pke_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 
 	ep = pkt_entry->ep;
 	cts_pkt = (struct efa_rdm_cts_hdr *)pkt_entry->wiredata;
+
+	/*
+	 * A source-MR cancel can free/reuse the send_id-named ope before this
+	 * CTS lands (the device errors without waiting for the peer), so acting
+	 * on it blindly could corrupt an unrelated transfer. Drop the CTS unless
+	 * the slot is still allocated, still this transfer (msg_id; only trusted
+	 * when the peer wrote it -- PEER_ERROR / homogeneous_peers / self), and
+	 * not already peer-aborting.
+	 */
+	if (OFI_UNLIKELY(!ofi_bufpool_ibuf_is_valid(ep->base_ep.ope_pool,
+						    cts_pkt->send_id))) {
+		EFA_WARN(FI_LOG_CQ,
+			 "CTS send_id=%u out of range or no longer valid; "
+			 "dropping stale CTS.\n", cts_pkt->send_id);
+		efa_rdm_pke_release_rx(pkt_entry);
+		return;
+	}
+
 	ope = ofi_bufpool_get_ibuf(pkt_entry->ep->base_ep.ope_pool, cts_pkt->send_id);
+
+	if (ep->homogeneous_peers || pkt_entry->peer->is_self ||
+	    efa_rdm_peer_support_peer_error(pkt_entry->peer)) {
+		if (OFI_UNLIKELY(ope->msg_id != cts_pkt->msg_id)) {
+			EFA_INFO(FI_LOG_CQ,
+				 "CTS send_id=%u msg_id=%u does not match resolved ope "
+				 "msg_id=%u (txe freed/reused); dropping stale CTS.\n",
+				 cts_pkt->send_id, cts_pkt->msg_id, ope->msg_id);
+			efa_rdm_pke_release_rx(pkt_entry);
+			return;
+		}
+	} else if (!(pkt_entry->peer->flags & EFA_RDM_PEER_HANDSHAKE_RECEIVED)) {
+		/*
+		 * Every CTS-soliciting protocol waits for the peer's
+		 * handshake before posting its request, so no CTS can
+		 * legitimately arrive before the handshake: this one is
+		 * stale (a leftover from a torn-down transfer).
+		 */
+		EFA_WARN(FI_LOG_CQ,
+			 "Received CTS send_id=%u before peer handshake; "
+			 "dropping stale CTS.\n", cts_pkt->send_id);
+		efa_rdm_pke_release_rx(pkt_entry);
+		return;
+	}
+
+	if (OFI_UNLIKELY(ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)) {
+		EFA_INFO(FI_LOG_CQ,
+			 "CTS send_id=%u names an ope already peer-aborting; "
+			 "dropping stale CTS (cleanup owned by drain).\n",
+			 cts_pkt->send_id);
+		efa_rdm_pke_release_rx(pkt_entry);
+		return;
+	}
 
 	ope->rx_id = cts_pkt->recv_id;
 	ope->window = cts_pkt->recv_length;
