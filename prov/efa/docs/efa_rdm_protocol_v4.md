@@ -1721,33 +1721,65 @@ The same packet type serves both directions. The wire layout is:
 
 | Field | Length | Notes |
 |---|---|---|
-| base header | 4 bytes | type, version, flags |
-| `op_id` | 4 bytes | id of an ope owned by the receiver of this packet (interpreted per `ref_kind`) |
-| `ref_kind` | 4 bytes | how the receiver resolves `op_id` (see below) |
+| base header | 4 bytes | type, version, flags (incl. `EFA_RDM_PEER_ERROR_OP_ID_VALID`) |
+| `msg_id` | 4 bytes | per-peer message id of the aborted transfer (always valid) |
+| `op_id` | 4 bytes | optional peer-owned ope-pool index (valid iff `OP_ID_VALID` flag set) |
 | `prov_errno` | 4 bytes | the underlying provider errno that triggered the abort |
 | `connid` | 4 bytes | sender's connection id (when `EFA_RDM_PKT_CONNID_HDR` is on) |
 
-`op_id` references an ope owned by the receiver-of-the-packet, and
-`ref_kind` tells the receiver how to resolve it:
+**Receiver-decides model.** The packet carries only *identifiers*, never a
+verdict about what the remote must do. The side that *receives* a
+`PEER_ERROR` inspects its own local state (reorder window, `rxe_map`,
+matched/unexpected `rxe`, or `txe`) to decide the outcome. This is required
+because a device TX error completion can fire *after* the data already
+landed at the peer — firmware writes the TX error on MR-close detection
+without waiting for remote ACKs — so the emitting side cannot know whether
+the receiver is owed a completion. Only the receiver's own state is
+authoritative.
 
-* `EFA_RDM_PEER_ERROR_REF_OPE_INDEX` (0): `op_id` is an ope-pool
-  index — the sender's `txe` in the LONGREAD direction (receiver
-  -> sender), or the receiver's `rxe` in the LONGCTS direction
-  (sender -> receiver).
-* `EFA_RDM_PEER_ERROR_REF_MSG_ID` (1): `op_id` is a per-peer
-  `msg_id` — used by the medium direction (sender -> receiver),
-  which has no CTS and therefore no shared ope index; the receiver
-  resolves it via `peer->rxe_map`.
-* `EFA_RDM_PEER_ERROR_REF_MSG_ID_SKIP` (2): `op_id` is a per-peer
-  `msg_id` whose message was aborted at the source before any payload
-  the receiver is owed was delivered. The receiver owes **no**
-  completion; the packet only advances the reorder window past a
-  `msg_id` that will never arrive (see "Reorder-window skip" below).
+* `msg_id` is **always** valid. Combined with the packet's source peer it
+  uniquely names the transfer, letting the receiver find a matched `rxe`
+  (via `peer->rxe_map`), a buffered out-of-order segment, or an as-yet-unseen
+  slot in the reorder window.
+* `op_id` is an **optional** fast-path hint: an ope-pool index owned by the
+  *receiver* of the packet — the sender's `txe` in the LONGREAD direction
+  (receiver -> sender), or the receiver's `rxe` in the LONGCTS direction
+  (sender -> receiver). It is present only when the emitter already knew the
+  peer's index (the `EFA_RDM_PEER_ERROR_OP_ID_VALID` base-header flag is set):
+  the LONGREAD direction always sets it (the `txe` index is required, as the
+  TX side has no `msg_id`->`txe` map), while a `txe` emitting toward a
+  receiver sets it only for a LONGCTS RTM that already processed its CTS. Even
+  when present, the receiver confirms the resolved ope's `msg_id` matches
+  before trusting the hint, since the slot may have been freed and reused.
 
-`ref_kind` only selects *how to resolve* `op_id`; the action taken
-is still decided from the resolved ope's local `type`, so a single
-packet type serves every direction without an on-the-wire action
-discriminator.
+The receiving side recovers the direction locally (a valid `op_id` resolving
+to a `txe` is the LONGREAD RX->TX case; everything else is the TX->RX case)
+and then chooses the outcome from its own state — so a single packet type
+serves every direction without an on-the-wire action discriminator.
+
+On the **RX side** (a sender abandoned the transfer) the outcomes are: drop
+(already completed, including the DC recv that reported success before its
+RECEIPT round-trip finished); tear down an unmatched `rxe` with no completion;
+complete a matched `rxe` with `FI_ECANCELED` / `FI_EFA_ERR_PEER_ABORTED` at
+WR drain; mark a buffered out-of-order segment aborted; or queue an abort
+marker so the reorder window slides past a `msg_id` that never arrived.
+
+On the **TX side** (a receiver told us our send failed, LONGREAD) the
+outcomes are: drop (this `txe` already determined its own error first) or mark
+the `txe` aborted and write the deferred TX error completion at WR drain.
+
+#### CTS header extension (stale-CTS detection)
+
+A source-MR cancel can free (and reuse) a LONGCTS `txe` before the receiver's
+CTS — which names that `txe` by `send_id` — arrives, because the device TX
+error fires without waiting for the peer. To let the CTS-receive path reject
+such a stale CTS, the `CTS` header gains a trailing `msg_id` field (appended
+after `recv_length`, so every pre-2.6 field keeps its offset and an older peer
+simply ignores the extra bytes; no handshake negotiation is required). On
+receiving a CTS the sender confirms the named ope-pool slot is still allocated,
+still names this transfer (`msg_id` match, consulted only when the peer
+supports `PEER_ERROR` / `homogeneous_peers` / self), and is not already
+peer-aborting; otherwise it drops the CTS.
 
 #### Backward compatibility
 
