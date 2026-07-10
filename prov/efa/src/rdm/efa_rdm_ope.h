@@ -403,6 +403,14 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
  */
 void efa_rdm_txe_read_msg_uncount(struct efa_rdm_ope *txe);
 
+/**
+ * @brief Sentinel for an ope id not yet learned from the peer.
+ *
+ * A txe's rx_id is only known once a CTS has been processed; testing
+ * against this sentinel avoids tracking that with a separate flag.
+ */
+#define EFA_RDM_OPE_INVALID_ID	UINT32_MAX
+
 #define EFA_RDM_OPE_QUEUED_FLAGS (EFA_RDM_OPE_QUEUED_RNR | EFA_RDM_OPE_QUEUED_CTRL | EFA_RDM_OPE_QUEUED_READ | EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE)
 
 void efa_rdm_ope_try_fill_desc(struct efa_rdm_ope *ope, int mr_iov_start, uint64_t access);
