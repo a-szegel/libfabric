@@ -4437,6 +4437,88 @@ void test_efa_rdm_txe_handle_error_longread_emits_and_balances_read_cnt(void **s
 }
 
 /**
+ * @brief A failed PEER_ERROR emit must be requeued for retry, not dropped.
+ *
+ * A dropped notification is unrecoverable for the peer (its reorder
+ * window parks on the msg_id forever); a delayed one is harmless, so a
+ * hard post failure must queue the emit for retry via the progress
+ * engine like any other ctrl packet that could not post.
+ *
+ * Force efa_qp_post_send to hard-fail (EINVAL) during the emit and
+ * assert the txe is parked on the domain's ope_queued_list with
+ * queued_ctrl_type = EFA_RDM_PEER_ERROR_PKT and its completion withheld.
+ * Then let the retry succeed via efa_rdm_ope_process_queued_ope() and
+ * assert the queue state is cleared and the packet went out.
+ */
+void test_efa_rdm_txe_peer_error_emit_failure_requeues(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe;
+	struct efa_rdm_peer *peer;
+	struct fi_cq_err_entry err_entry;
+	struct efa_rdm_domain *domain;
+	size_t outstanding_before;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+	domain = efa_rdm_ep_rdm_domain(ep);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_tagged);
+	assert_non_null(txe);
+	txe->state = EFA_RDM_TXE_REQ;
+	txe->cq_entry.flags = FI_SEND | FI_TAGGED;
+	txe->cq_entry.op_context = (void *) 0xd5;
+	txe->total_len = 1024;
+
+	peer = txe->peer;
+	assert_non_null(peer);
+	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
+	peer->extra_info[0] |= EFA_RDM_EXTRA_FEATURE_PEER_ERROR;
+
+	txe->protocol = EFA_RDM_EAGER_TAGRTM_PKT;
+	efa_unit_test_txe_simulate_source_mr_canceled(txe);
+
+	assert_int_equal(efa_unit_test_get_dlist_length(&domain->ope_queued_list), 0);
+
+	/* Hard-fail the PEER_ERROR post (not EAGAIN: that path self-queues
+	 * inside post_send_or_queue already). */
+	g_efa_unit_test_mocks.efa_qp_post_send = &efa_mock_efa_qp_post_send_return_mock;
+	will_return(efa_mock_efa_qp_post_send_return_mock, EINVAL);
+
+	outstanding_before = ep->efa_outstanding_tx_ops;
+
+	efa_rdm_txe_handle_error(txe, FI_ECANCELED, FI_EFA_ERR_PKT_POST);
+
+	/*
+	 * The txe is marked, EMITTED (decision made), and queued for retry
+	 * rather than released with its notification dropped.
+	 */
+	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
+	assert_true(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED_OR_SKIPPED);
+	assert_true(txe->internal_flags & EFA_RDM_OPE_QUEUED_CTRL);
+	assert_int_equal(txe->queued_ctrl_type, EFA_RDM_PEER_ERROR_PKT);
+	assert_int_equal(efa_unit_test_get_dlist_length(&domain->ope_queued_list), 1);
+	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before);
+
+	/* The user completion is withheld while the retry is pending. */
+	memset(&err_entry, 0, sizeof(err_entry));
+	ret = fi_cq_readerr(resource->cq, &err_entry, 0);
+	assert_int_equal(ret, -FI_EAGAIN);
+
+	/* Progress engine retries; this time the post succeeds. */
+	will_return(efa_mock_efa_qp_post_send_return_mock, 0);
+	ret = efa_rdm_ope_process_queued_ope(txe, EFA_RDM_OPE_QUEUED_CTRL);
+	assert_int_equal(ret, 0);
+
+	assert_false(txe->internal_flags & EFA_RDM_OPE_QUEUED_CTRL);
+	assert_int_equal(efa_unit_test_get_dlist_length(&domain->ope_queued_list), 0);
+	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before + 1);
+}
+
+/**
  * @brief Before-post (gen-check) cancellation of a queued EAGER two-sided
  *        RTM emits a msg_id-only PEER_ERROR_PKT.
  *

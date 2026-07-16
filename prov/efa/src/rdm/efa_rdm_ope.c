@@ -815,11 +815,31 @@ void efa_rdm_rxe_emit_peer_error(struct efa_rdm_ope *rxe, int prov_errno)
 	rxe->peer_error_prov_errno = prov_errno;
 	err = efa_rdm_ope_post_send_or_queue(rxe, EFA_RDM_PEER_ERROR_PKT);
 	if (OFI_UNLIKELY(err)) {
-		EFA_WARN(FI_LOG_CQ,
-			 "Failed to post PEER_ERROR_PKT err=%zd; falling back "
-			 "to local cleanup. Sender's txe will leak.\n", err);
-		/* EFA_RDM_OPE_PEER_ABORT_PENDING stays set so the drain helper
-		 * still releases the rxe once sibling READ WRs drain. */
+		/*
+		 * Dropping this notification leaks the sender's txe, which
+		 * waits forever for the EOR/PEER_ERROR this packet replaces,
+		 * so queue for retry by the progress engine. While queued,
+		 * the drain helper's QUEUED_FLAGS check keeps the rxe alive.
+		 * Retry is only impossible when the rxe's queued_entry is
+		 * already in use by another queued op.
+		 */
+		if (!(rxe->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS)) {
+			EFA_WARN(FI_LOG_CQ,
+				 "Failed to post PEER_ERROR_PKT err=%zd; "
+				 "queueing for retry.\n", err);
+			rxe->internal_flags |= EFA_RDM_OPE_QUEUED_CTRL;
+			rxe->queued_ctrl_type = EFA_RDM_PEER_ERROR_PKT;
+			dlist_insert_tail(&rxe->queued_entry,
+					  &efa_rdm_ep_rdm_domain(ep)->ope_queued_list);
+		} else {
+			EFA_WARN(FI_LOG_CQ,
+				 "Failed to post PEER_ERROR_PKT err=%zd and the "
+				 "rxe already has a queued op; falling back to "
+				 "local cleanup. Sender's txe will leak.\n", err);
+			/* EFA_RDM_OPE_PEER_ABORT_PENDING stays set so the drain
+			 * helper still releases the rxe once sibling READ WRs
+			 * drain. */
+		}
 	}
 }
 
@@ -925,12 +945,21 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 		if (OFI_UNLIKELY(err)) {
 			EFA_WARN(FI_LOG_CQ,
 				 "Sender-side abort: failed to post PEER_ERROR_PKT "
-				 "err=%zd. Receiver's rxe/reorder window may stall.\n",
-				 err);
-			/* No PEER_ERROR_PKT completion will arrive to run the
-			 * EMITTED branch, so surface the completion and free now. */
-			efa_rdm_txe_write_deferred_peer_abort_completion(txe);
-			efa_rdm_txe_release(txe);
+				 "err=%zd; queueing for retry.\n", err);
+			/*
+			 * Dropping this notification parks the receiver's
+			 * reorder window on our msg_id forever, so queue for
+			 * retry by the progress engine (iov_count is 0, so
+			 * the MR-gen check cannot cancel it). While queued,
+			 * the QUEUED_FLAGS check above keeps the txe alive;
+			 * the retried packet's completion writes the withheld
+			 * user completion, and a peer teardown reclaims the
+			 * txe if the post never succeeds.
+			 */
+			txe->internal_flags |= EFA_RDM_OPE_QUEUED_CTRL;
+			txe->queued_ctrl_type = EFA_RDM_PEER_ERROR_PKT;
+			dlist_insert_tail(&txe->queued_entry,
+					  &efa_rdm_ep_rdm_domain(txe->ep)->ope_queued_list);
 		}
 		return;
 	}
