@@ -4044,6 +4044,123 @@ void test_efa_rdm_pke_handle_peer_error_recv_longcts_msg_id_only(void **state)
 }
 
 /**
+ * @brief A stale op_id hint must not drop the PEER_ERROR: resolution
+ *        falls back to the wire msg_id.
+ *
+ * The op_id hint is derived state: the slot it names can be freed and
+ * reused by an unrelated transfer, or the hint itself mis-learned by a
+ * defect elsewhere. A mismatch therefore proves only that the slot does
+ * not hold the transfer -- the transfer may still be alive and owed a
+ * completion -- so resolution must fall back to the authoritative wire
+ * msg_id rather than drop the packet.
+ *
+ * Stage a matched LONGCTS-style rxe (msg_id 42, resolvable only via the
+ * peer's rxe_list) plus a decoy ope whose pool slot the hint names but
+ * whose msg_id differs. Dispatch a PEER_ERROR with op_id_valid=1
+ * pointing at the decoy and msg_id=42. The dispatcher must ignore the
+ * mismatched hint, resolve the rxe by msg_id, and complete it with
+ * FI_ECANCELED -- leaving the decoy untouched.
+ */
+void test_efa_rdm_pke_handle_peer_error_recv_stale_hint_falls_back_to_msg_id(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct util_srx_ctx *srx_ctx;
+	struct fid_peer_srx *peer_srx;
+	struct fi_peer_match_attr match_attr = {0};
+	struct fi_peer_rx_entry *peer_rxe = NULL;
+	struct efa_rdm_peer *peer;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	fi_addr_t peer_addr = 0;
+	struct efa_rdm_pke *pkt_entry;
+	struct efa_rdm_peer_error_hdr *err_hdr;
+	struct efa_rdm_ope *rxe, *decoy;
+	struct iovec iov;
+	char buf[16];
+	void *desc = NULL;
+	uint32_t msg_id = 42;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+	srx_ctx = efa_rdm_ep_get_peer_srx_ctx(ep);
+	peer_srx = util_get_peer_srx(ep->peer_srx_ep);
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &peer_addr, 0, NULL),
+			 1);
+	peer = efa_rdm_ep_get_peer(ep, peer_addr);
+	assert_non_null(peer);
+
+	/* The decoy: a live ope whose pool slot the stale hint names, but
+	 * an unrelated transfer (different msg_id). Allocated before the
+	 * srx lock is taken: its allocation inserts an AV entry, and
+	 * efa_av_insert() takes the same lock. */
+	decoy = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(decoy);
+	decoy->msg_id = msg_id + 57;
+
+	iov.iov_base = buf;
+	iov.iov_len = sizeof(buf);
+	ret = util_srx_generic_recv(ep->peer_srx_ep, &iov, &desc, 1,
+				    FI_ADDR_UNSPEC, /*context=*/(void *) 0xa2, 0);
+	assert_int_equal(ret, FI_SUCCESS);
+
+	match_attr.addr = FI_ADDR_UNSPEC;
+	match_attr.tag = 0;
+	match_attr.msg_size = 16;
+	ofi_genlock_lock(srx_ctx->lock);
+	ret = peer_srx->owner_ops->get_msg(peer_srx, &match_attr, &peer_rxe);
+	assert_int_equal(ret, FI_SUCCESS);
+
+	/* The transfer the PEER_ERROR names: matched rxe, msg_id 42, on
+	 * peer->rxe_list only (LONGCTS rxes are not in rxe_map). */
+	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
+	assert_non_null(rxe);
+	rxe->state = EFA_RDM_RXE_MATCHED;
+	rxe->peer_rxe = peer_rxe;
+	rxe->msg_id = msg_id;
+
+	/* PEER_ERROR with a hint pointing at the decoy's slot. */
+	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_rx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_RX_POOL);
+	assert_non_null(pkt_entry);
+	ep->efa_rx_pkts_posted += 1;
+	pkt_entry->peer = peer;
+
+	err_hdr = (struct efa_rdm_peer_error_hdr *) pkt_entry->wiredata;
+	err_hdr->type = EFA_RDM_PEER_ERROR_PKT;
+	err_hdr->version = EFA_RDM_PROTOCOL_VERSION;
+	err_hdr->flags = EFA_RDM_PKT_CONNID_HDR;
+	err_hdr->op_id_valid = 1;
+	err_hdr->msg_id = msg_id;
+	err_hdr->op_id = decoy->tx_id;	/* valid slot, wrong transfer */
+	err_hdr->direction = EFA_RDM_PEER_ERROR_TX_TO_RX;
+	err_hdr->prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
+	err_hdr->connid = 0xbeef;
+	pkt_entry->pkt_size = sizeof(struct efa_rdm_peer_error_hdr);
+
+	efa_rdm_pke_handle_peer_error_recv(pkt_entry);
+
+	/*
+	 * The mismatched hint is ignored; the msg_id resolves the matched
+	 * rxe via peer->rxe_list and it completes with FI_ECANCELED.
+	 */
+	assert_true(slist_empty(&srx_ctx->msg_queue));
+	ofi_genlock_unlock(srx_ctx->lock);
+
+	assert_cq_peer_aborted_error(resource);
+
+	/* The decoy was never touched. */
+	assert_false(decoy->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
+	assert_int_equal(decoy->msg_id, msg_id + 57);
+}
+
+/**
  * @brief Inbound dispatcher drops a PEER_ERROR_PKT whose op_id is
  *        out of range, without touching domain state.
  *

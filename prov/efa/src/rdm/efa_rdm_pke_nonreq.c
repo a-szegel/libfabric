@@ -1041,6 +1041,8 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 	 * Resolve the optional op_id hint. Trust it only if the slot is still
 	 * allocated and still this transfer (msg_id match). ofi_bufpool_get_ibuf()
 	 * does not bounds-check, so gate on ofi_bufpool_ibuf_is_valid() first.
+	 * A hint that fails validation is ignored, not fatal: the wire
+	 * msg_id stays authoritative for the resolution below.
 	 */
 	if (err_hdr->op_id_valid &&
 	    ofi_bufpool_ibuf_is_valid(ep->base_ep.ope_pool, err_hdr->op_id)) {
@@ -1048,12 +1050,11 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 		if (ope->msg_id != err_hdr->msg_id) {
 			EFA_INFO(FI_LOG_CQ,
 				 "PEER_ERROR op_id=%u resolved ope msg_id=%u != "
-				 "wire msg_id=%u (freed/reused); ignoring hint.\n",
+				 "wire msg_id=%u (freed/reused); ignoring hint and "
+				 "falling back to msg_id resolution.\n",
 				 err_hdr->op_id, ope->msg_id, err_hdr->msg_id);
-			goto out;
-		}
-
-		if (ope->type == EFA_RDM_TXE) {
+			ope = NULL;
+		} else if (ope->type == EFA_RDM_TXE) {
 			assert(err_hdr->direction == EFA_RDM_PEER_ERROR_RX_TO_TX);
 			if (ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING) {
 				EFA_INFO(FI_LOG_CQ,
