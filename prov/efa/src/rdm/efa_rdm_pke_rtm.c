@@ -1203,6 +1203,13 @@ ssize_t efa_rdm_pke_init_longread_tagrtm(struct efa_rdm_pke *pkt_entry,
 void efa_rdm_pke_handle_longread_rtm_sent(struct efa_rdm_pke *pkt_entry)
 {
 	efa_rdm_ep_rdm_domain(pkt_entry->ep)->num_read_msg_in_flight += 1;
+	/*
+	 * Record the bump on the txe so a sender-side abort, which receives
+	 * none of the packets that normally decrement the counter, can
+	 * balance it.
+	 */
+	assert(pkt_entry->ope);
+	pkt_entry->ope->internal_flags |= EFA_RDM_TXE_LONGREAD_RTM_SENT;
 }
 
 /**

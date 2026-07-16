@@ -363,6 +363,16 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
 #define EFA_RDM_PEER_ERROR_EMITTED_OR_SKIPPED	BIT_ULL(21)
 
 /**
+ * @brief flag: this LONGREAD RTM txe bumped num_read_msg_in_flight.
+ *
+ * The decrement normally comes from the EOR, READ_NACK, or PEER_ERROR the
+ * receiver sends back, none of which arrive for a self-aborted send; the
+ * abort path balances the counter itself, but only if the RTM was actually
+ * posted. Cleared at the single point the balancing decrement happens.
+ */
+#define EFA_RDM_TXE_LONGREAD_RTM_SENT		BIT_ULL(22)
+
+/**
  * @brief Sentinel for an ope id not yet learned from the peer.
  *
  * A txe's rx_id is only known once a CTS has been processed; testing
