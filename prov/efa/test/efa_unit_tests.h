@@ -483,6 +483,7 @@ void test_efa_rdm_peer_reorder_smaller_msg_id(void **state);
 void test_efa_rdm_peer_reorder_larger_msg_id(void **state);
 void test_efa_rdm_peer_reorder_overflow_msg_id(void **state);
 void test_efa_rdm_peer_abort_ooo_msg_overflow_multi_segment(void **state);
+void test_efa_rdm_peer_robuf_stall_promotes_overflow_marker(void **state);
 void test_efa_rdm_peer_move_overflow_pke_to_recvwin(void **state);
 void test_efa_rdm_peer_keep_pke_in_overflow_list(void **state);
 void test_efa_rdm_peer_append_overflow_pke_to_recvwin(void **state);

@@ -468,8 +468,22 @@ void efa_rdm_peer_proc_pending_items_in_robuf(struct efa_rdm_peer *peer, struct 
 
 	while (1) {
 		pending_pkt = *ofi_recvwin_peek((&peer->robuf));
-		if (!pending_pkt)
-			return;
+		if (!pending_pkt) {
+			/*
+			 * The window stalled on an empty head slot. The pke or
+			 * abort marker for exp_msg_id may be parked in the
+			 * overflow list, and the periodic promotion below only
+			 * runs after an in-order packet -- traffic a stall has
+			 * stopped -- so promote here or the window can park
+			 * forever.
+			 */
+			if (dlist_empty(&peer->overflow_pke_list))
+				return;
+			efa_rdm_peer_move_overflow_pke_to_recvwin(peer);
+			pending_pkt = *ofi_recvwin_peek((&peer->robuf));
+			if (!pending_pkt)
+				return;
+		}
 
 		/*
 		 * An abort marker owes no completion -- it is either an aborted

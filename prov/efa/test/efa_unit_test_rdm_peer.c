@@ -1261,3 +1261,63 @@ void test_efa_rdm_peer_abort_ooo_msg_overflow_multi_segment(void **state)
 		}
 	}
 }
+
+/**
+ * @brief A stalled reorder window must promote overflow entries instead of
+ *        parking forever.
+ *
+ * An RTM arrives far out-of-order and lands in the overflow list, the
+ * sender aborts it (PEER_ERROR marks the entry in place), and the window
+ * advances to the aborted msg_id with no further in-order traffic. The
+ * drain loop must notice the stall, promote the marked entry, consume it
+ * as an abort marker, and slide the window past the msg_id.
+ */
+void test_efa_rdm_peer_robuf_stall_promotes_overflow_marker(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct efa_rdm_peer *peer;
+	struct efa_rdm_pke *pkt_entry;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	fi_addr_t addr;
+	uint32_t msg_id;
+	bool ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &addr, 0, NULL), 1);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, addr);
+	assert_non_null(peer);
+
+	efa_env.rx_copy_ooo = 0;
+
+	/* Step 1: RTM arrives out-of-window -> parked in overflow list. */
+	msg_id = EFA_RDM_PEER_DEFAULT_REORDER_BUFFER_SIZE + 2;
+	alloc_pke_in_overflow_list(efa_rdm_ep, &pkt_entry, peer, raw_addr, msg_id);
+	assert_int_equal(efa_unit_test_get_dlist_length(&peer->overflow_pke_list), 1);
+
+	/* Step 2: sender aborts the message; PEER_ERROR marks it in place. */
+	ret = efa_rdm_peer_abort_ooo_msg(peer, msg_id);
+	assert_true(ret);
+	assert_true(pkt_entry->flags & EFA_RDM_PKE_ABORTED);
+	assert_int_equal(efa_unit_test_get_dlist_length(&peer->overflow_pke_list), 1);
+
+	/* Step 3: all earlier messages completed; the window is now parked
+	 * on the aborted msg_id with an empty head slot. */
+	(&peer->robuf)->exp_msg_id = msg_id;
+
+	efa_rdm_peer_proc_pending_items_in_robuf(peer, efa_rdm_ep);
+
+	/*
+	 * The drain must promote the marked entry on stall, consume it, and
+	 * slide the window past the aborted msg_id.
+	 */
+	assert_int_equal((&peer->robuf)->exp_msg_id, msg_id + 1);
+	assert_int_equal(efa_unit_test_get_dlist_length(&peer->overflow_pke_list), 0);
+}
