@@ -130,6 +130,25 @@ void efa_rdm_pke_handle_handshake_recv(struct efa_rdm_pke *pkt_entry)
 	peer->device_version = efa_rdm_pke_get_handshake_opt_device_version(pkt_entry);
 	EFA_INFO(FI_LOG_CQ, "Received peer EFA device version: 0x%x\n", peer->device_version);
 
+	/*
+	 * Peer-abort emits decided before this handshake were parked because
+	 * PEER_ERROR support was unknown; re-drive them now that the peer's
+	 * feature flags are known. The helper is idempotent and drain-gated;
+	 * it may release the txe (unsupported peer), so walk safely.
+	 */
+	{
+		struct efa_rdm_ope *txe;
+		struct dlist_entry *tmp;
+
+		dlist_foreach_container_safe(&peer->txe_list,
+					     struct efa_rdm_ope, txe,
+					     peer_entry, tmp) {
+			if ((txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING) &&
+			    !(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED_OR_SKIPPED))
+				efa_rdm_txe_progress_peer_abort_if_drained(txe);
+		}
+	}
+
 	efa_rdm_pke_release_rx(pkt_entry);
 }
 
