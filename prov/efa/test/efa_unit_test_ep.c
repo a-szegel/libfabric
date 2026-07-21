@@ -2248,3 +2248,93 @@ void test_efa_base_ep_construct_info_and_util_ep_initialized(void **state)
 	/* Reset the mock */
 	g_efa_unit_test_mocks.calloc_fail_nmemb = 0;
 }
+
+/**
+ * @brief A LONGCTS send to a peer without a handshake must queue, not post.
+ *
+ * LONGCTS solicits a CTS whose validation depends on the peer's feature
+ * flags, so the RTM waits for the handshake like every other
+ * CTS-soliciting protocol. Post a LONGCTS-sized send to a handshake-less
+ * peer and assert the txe parks on the domain's queued list
+ * (QUEUED_BEFORE_HANDSHAKE, no WR posted); then mark the handshake
+ * received, drive the queued ope, and assert the LONGCTS RTM posts.
+ */
+void test_efa_rdm_msg_longcts_queued_before_handshake(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_unit_test_buff send_buff;
+	struct efa_ep_addr raw_addr = {0};
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct efa_rdm_peer *peer;
+	struct efa_rdm_ope *txe;
+	struct efa_rdm_cq *efa_rdm_cq;
+	struct efa_ibv_cq *ibv_cq;
+	struct efa_rdm_pke *pkt_entry;
+	size_t raw_addr_len = sizeof(raw_addr);
+	size_t outstanding_before;
+	fi_addr_t peer_addr;
+	uint64_t wr_id;
+	int ret;
+
+	efa_unit_test_resource_construct_rdm_shm_disabled(resource);
+	/* LONGCTS is only selected above max_medium_msg_size (64 KB by
+	 * default) and below min_read_msg_size (1 MB by default); smaller
+	 * sends pick the eager/medium RTMs, which do not solicit a CTS and
+	 * post without waiting for the handshake. */
+	efa_unit_test_buff_construct(&send_buff, resource, 131072 /* buff_size */);
+
+	ret = fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len);
+	assert_int_equal(ret, 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	ret = fi_av_insert(resource->av, &raw_addr, 1, &peer_addr, 0, NULL);
+	assert_int_equal(ret, 1);
+
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+	peer = efa_rdm_ep_get_peer(efa_rdm_ep, peer_addr);
+	assert_non_null(peer);
+	/* A REQ is already out; the handshake it solicits has not arrived. */
+	peer->flags |= EFA_RDM_PEER_REQ_SENT;
+	assert_false(efa_rdm_ep->homogeneous_peers);
+
+	outstanding_before = efa_rdm_ep->efa_outstanding_tx_ops;
+
+	ret = fi_send(resource->ep, send_buff.buff, send_buff.size,
+		      fi_mr_desc(send_buff.mr), peer_addr, NULL);
+	assert_int_equal(ret, 0);
+
+	/* The txe parked: queued before handshake, no RTM on the wire. */
+	assert_int_equal(efa_unit_test_get_ope_list_length(efa_rdm_ep, EFA_RDM_TXE), 1);
+	txe = container_of(efa_rdm_ep_rdm_domain(efa_rdm_ep)->ope_queued_list.next,
+			   struct efa_rdm_ope, queued_entry);
+	assert_true(txe->internal_flags & EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE);
+	assert_int_equal(efa_rdm_ep->efa_outstanding_tx_ops, outstanding_before);
+
+	/* The handshake arrives; the queued ope reposts as a LONGCTS RTM.
+	 * Mock the qp post so the WR id is recorded (and nothing hits the
+	 * device), allowing the RTM to be reaped below. */
+	g_efa_unit_test_mocks.efa_qp_post_send = &efa_mock_efa_qp_post_send_return_mock;
+	will_return(efa_mock_efa_qp_post_send_return_mock, 0);
+	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
+	ret = efa_rdm_ope_process_queued_ope(txe, EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE);
+	assert_int_equal(ret, 0);
+	assert_false(txe->internal_flags & EFA_RDM_OPE_QUEUED_BEFORE_HANDSHAKE);
+	assert_true(txe->protocol == EFA_RDM_LONGCTS_MSGRTM_PKT);
+	assert_int_equal(efa_rdm_ep->efa_outstanding_tx_ops, outstanding_before + 1);
+
+	/* Reap the RTM WR so no in-flight packet references the MR or the
+	 * pkt pool at teardown; the txe itself is reclaimed by peer
+	 * destruction at ep close. */
+	efa_rdm_cq = container_of(resource->cq, struct efa_rdm_cq,
+				  efa_cq.util_cq.cq_fid.fid);
+	ibv_cq = &efa_rdm_cq->efa_cq.ibv_cq;
+	assert_int_equal(g_ibv_submitted_wr_id_cnt, 1);
+	wr_id = (uint64_t) g_ibv_submitted_wr_id_vec[0];
+	pkt_entry = efa_rdm_cq_get_pke_from_wr_id(ibv_cq, wr_id);
+	assert_non_null(pkt_entry);
+	efa_rdm_ep_record_tx_op_completed(efa_rdm_ep, pkt_entry);
+	efa_rdm_pke_release_tx(pkt_entry);
+
+	efa_unit_test_buff_destruct(&send_buff);
+}
