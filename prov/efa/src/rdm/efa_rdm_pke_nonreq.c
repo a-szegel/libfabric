@@ -12,6 +12,10 @@
 
 #include "efa_rdm_tracepoint.h"
 
+static void efa_rdm_ep_proc_cts(struct efa_rdm_ep *ep,
+				uint32_t send_id, uint32_t recv_id,
+				uint64_t recv_length);
+
 /* This file define functons for the following packet type:
  *       HANDSHAKE
  *       CTS
@@ -96,6 +100,7 @@ void efa_rdm_pke_handle_handshake_recv(struct efa_rdm_pke *pkt_entry)
 	struct efa_rdm_handshake_hdr *handshake_pkt;
 	struct efa_rdm_peer *peer;
 	struct efa_rdm_ope *txe;
+	struct efa_rdm_peer_parked_cts *parked_cts;
 	struct dlist_entry *tmp;
 	uint64_t *host_id_ptr;
 
@@ -159,7 +164,9 @@ void efa_rdm_pke_handle_handshake_recv(struct efa_rdm_pke *pkt_entry)
 	 * Peer-abort emits decided before this handshake were parked because
 	 * PEER_ERROR support was unknown; re-drive them now that the peer's
 	 * feature flags are known. The helper is idempotent and drain-gated;
-	 * it may release the txe (unsupported peer), so walk safely.
+	 * it may release the txe (unsupported peer), so walk safely. Run
+	 * before the parked-CTS apply below so a parked CTS naming an
+	 * aborted ope sees the ope's final state.
 	 */
 	dlist_foreach_container_safe(&peer->txe_list,
 				     struct efa_rdm_ope, txe,
@@ -167,6 +174,22 @@ void efa_rdm_pke_handle_handshake_recv(struct efa_rdm_pke *pkt_entry)
 		if ((txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING) &&
 		    !(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED_OR_SKIPPED))
 			efa_rdm_txe_progress_peer_abort_if_drained(txe);
+	}
+
+	/*
+	 * Apply CTSs that were parked awaiting this handshake, now that
+	 * the peer's feature flags are known.
+	 */
+	dlist_foreach_container_safe(&peer->parked_cts_list,
+				     struct efa_rdm_peer_parked_cts,
+				     parked_cts, entry, tmp) {
+		efa_rdm_ep_proc_cts(pkt_entry->ep,
+				    parked_cts->send_id,
+				    parked_cts->recv_id,
+				    parked_cts->recv_length);
+		dlist_remove(&parked_cts->entry);
+		peer->parked_cts_cnt--;
+		ofi_buf_free(parked_cts);
 	}
 
 	efa_rdm_pke_release_rx(pkt_entry);
@@ -295,10 +318,49 @@ static void efa_rdm_ep_proc_cts(struct efa_rdm_ep *ep,
 
 void efa_rdm_pke_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 {
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_peer *peer;
 	struct efa_rdm_cts_hdr *cts_pkt;
+	struct efa_rdm_peer_parked_cts *parked_cts;
 
+	ep = pkt_entry->ep;
+	peer = pkt_entry->peer;
 	cts_pkt = (struct efa_rdm_cts_hdr *)pkt_entry->wiredata;
-	efa_rdm_ep_proc_cts(pkt_entry->ep, cts_pkt->send_id,
+
+	if (OFI_UNLIKELY(!ep->homogeneous_peers && !peer->is_self &&
+			 !(peer->flags & EFA_RDM_PEER_HANDSHAKE_RECEIVED))) {
+		/*
+		 * Do not act on a CTS before the peer's handshake delivers
+		 * its feature flags: park the CTS's fields and let the
+		 * handshake handler apply them. The peer's handshake is
+		 * already in flight -- it received a packet of ours before
+		 * it could send this CTS (the REQ that solicited it, or our
+		 * handshake in the emulated-read responder flow), and
+		 * receiving any packet from a not-yet-handshaken peer makes
+		 * an endpoint post its handshake -- but SRD does not order
+		 * the handshake against this CTS.
+		 */
+		parked_cts = ofi_buf_alloc(ep->parked_cts_pool);
+		if (OFI_UNLIKELY(!parked_cts)) {
+			EFA_WARN(FI_LOG_CQ,
+				 "Failed to allocate parked CTS record; dropping "
+				 "CTS send_id=%u received before peer handshake.\n",
+				 cts_pkt->send_id);
+			efa_rdm_pke_release_rx(pkt_entry);
+			return;
+		}
+
+		parked_cts->send_id = cts_pkt->send_id;
+		parked_cts->recv_id = cts_pkt->recv_id;
+		parked_cts->recv_length = cts_pkt->recv_length;
+		dlist_insert_tail(&parked_cts->entry, &peer->parked_cts_list);
+		peer->parked_cts_cnt++;
+
+		efa_rdm_pke_release_rx(pkt_entry);
+		return;
+	}
+
+	efa_rdm_ep_proc_cts(ep, cts_pkt->send_id,
 			    cts_pkt->recv_id, cts_pkt->recv_length);
 	efa_rdm_pke_release_rx(pkt_entry);
 }
