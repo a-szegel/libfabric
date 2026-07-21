@@ -140,6 +140,18 @@ ssize_t efa_rdm_msg_post_rtm(struct efa_rdm_ep *ep, struct efa_rdm_ope *txe)
 	txe->protocol = rtm_type;
 
 	if (rtm_type < EFA_RDM_EXTRA_REQ_PKT_BEGIN) {
+		/*
+		 * LONGCTS solicits a CTS whose validation depends on the
+		 * peer's feature flags, so it must wait for the handshake.
+		 * With every CTS-soliciting protocol gated this way, a CTS
+		 * arriving before the handshake can only be stale.
+		 */
+		if ((rtm_type == EFA_RDM_LONGCTS_MSGRTM_PKT ||
+		     rtm_type == EFA_RDM_LONGCTS_TAGRTM_PKT) &&
+		    !ep->homogeneous_peers && !txe->peer->is_self &&
+		    !(txe->peer->flags & EFA_RDM_PEER_HANDSHAKE_RECEIVED))
+			return efa_rdm_ep_enforce_handshake_for_txe(ep, txe);
+
 		/* rtm requires only baseline feature, which peer should always support. */
 		return efa_rdm_ope_post_send(txe, rtm_type);
 	}
