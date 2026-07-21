@@ -1,10 +1,6 @@
 import pytest
 from common import ClientServerTest
 
-
-pytestmark = pytest.mark.pre_release
-
-
 # fi_mr_abort fabtest will allocate MR_ABORT_NUM_MRS and attempt
 # to post N transfers per MR until the provider returns -FI_EAGAIN
 # or we posted transactions for each MR. A larger number corresponds
@@ -15,7 +11,7 @@ MR_ABORT_NUM_MRS = 2046
 
 # --- Test: abort (RMA) ---
 @pytest.mark.functional
-@pytest.mark.fabric(params=["efa-direct"])  # TODO add test for efa fabric
+@pytest.mark.fabric(params=["efa-direct", "efa"])
 @pytest.mark.parametrize("rma_op", ["write", "read", "writedata"])
 @pytest.mark.parametrize("cancel_order", ["reverse", "random"])
 @pytest.mark.parametrize("close_side", ["initiator", "target"])
@@ -39,13 +35,13 @@ def test_mr_abort(cmdline_args, rma_fabric, rma_op, cancel_order, close_side, op
     command = (f"fi_mr_abort -T abort -o {rma_op} -C {cancel_order}"
                f" -R {close_side} -N {ops_per_mr} -W {MR_ABORT_NUM_MRS}"
                f" -S {message_size}")
-    test = ClientServerTest(cmdline_args, command, timeout=300, fabric=rma_fabric, memory_type=memory_type_symm)
+    test = ClientServerTest(cmdline_args, command, timeout=160000, fabric=rma_fabric, memory_type=memory_type_symm)
     test.run()
 
 
 # --- Test: partial (2 MRs on same buffer) ---
 @pytest.mark.functional
-@pytest.mark.fabric(params=["efa-direct"]) # TODO add test for efa fabric
+@pytest.mark.fabric(params=["efa-direct", "efa"])
 @pytest.mark.parametrize("rma_op", ["write", "read", "writedata"])
 @pytest.mark.parametrize("message_size", [
     4096,
@@ -59,7 +55,7 @@ def test_mr_abort_partial(cmdline_args, rma_fabric, rma_op, message_size, memory
         pytest.skip("fi_mr_abort not supported with efa with SHM")
 
     command = (f"fi_mr_abort -T partial -o {rma_op} -S {message_size}")
-    test = ClientServerTest(cmdline_args, command, timeout=300, fabric=rma_fabric, memory_type=memory_type_symm)
+    test = ClientServerTest(cmdline_args, command, timeout=160000, fabric=rma_fabric, memory_type=memory_type_symm)
     test.run()
 
 
@@ -204,7 +200,7 @@ def abort_owes_rx_completion(protocol):
 
 # --- Test: send ---
 @pytest.mark.functional
-@pytest.mark.fabric(params=["efa-direct"]) # TODO add test for efa fabric
+@pytest.mark.fabric(params=["efa-direct", "efa"])
 @pytest.mark.parametrize("cancel_order", ["reverse", "random"])
 @pytest.mark.parametrize("close_side", ["initiator"]) # TODO add target
 @pytest.mark.parametrize("ops_per_mr", [1, 4])
@@ -236,14 +232,14 @@ def test_mr_abort_send(cmdline_args, fabric, cancel_order, close_side,
     command = (f"fi_mr_abort -T send -C {cancel_order}"
                f" -R {close_side} -N {ops_per_mr} -W {MR_ABORT_NUM_MRS}"
                f" -S {message_size}{owe_flag}{homogeneous_flag}  -A ep_first")
-    test = ClientServerTest(cmdline_args, command, timeout=360, fabric=fabric,
+    test = ClientServerTest(cmdline_args, command, timeout=160000, fabric=fabric,
                             memory_type=memory_type_symm, additional_env=env)
     test.run()
 
 
 # --- Test: tagged ---
 @pytest.mark.functional
-@pytest.mark.fabric(params=["efa-direct"])  # TODO add test for efa fabric
+@pytest.mark.fabric(params=["efa-direct", "efa"])
 @pytest.mark.parametrize("cancel_order", ["reverse", "random"])
 @pytest.mark.parametrize("close_side", ["initiator"]) # TODO add target
 @pytest.mark.parametrize("ops_per_mr", [1, 4])
@@ -269,6 +265,6 @@ def test_mr_abort_tagged(cmdline_args, fabric, cancel_order, close_side,
     command = (f"fi_mr_abort -T tagged -C {cancel_order}"
                f" -R {close_side} -N {ops_per_mr} -W {MR_ABORT_NUM_MRS}"
                f" -S {message_size}{owe_flag}{homogeneous_flag} -A ep_first")
-    test = ClientServerTest(cmdline_args, command, timeout=300, fabric=fabric,
+    test = ClientServerTest(cmdline_args, command, timeout=160000, fabric=fabric,
                             memory_type=memory_type_symm, additional_env=env)
     test.run()

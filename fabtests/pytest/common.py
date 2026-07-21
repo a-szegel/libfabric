@@ -4,8 +4,10 @@ import json
 import errno
 import os
 import re
+import shlex
 import subprocess
 import functools
+from datetime import datetime
 from subprocess import Popen, TimeoutExpired, run
 from tempfile import NamedTemporaryFile
 from time import sleep
@@ -17,6 +19,14 @@ import pytest
 perf_progress_model_cli = "--data-progress manual --control-progress unified"
 SERVER_RESTART_DELAY_MS = 10_1000
 CLIENT_RETRY_INTERVAL_MS = 1_000
+
+# Shared non-interactive SSH command.
+bssh = "ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o BatchMode=yes"
+
+# Polling limits for Linux xdist OOB port readiness.
+OOB_POLL_INTERVAL_SEC = 0.5
+PORT_CLEAR_TIMEOUT_SEC = 10
+SERVER_LISTEN_TIMEOUT_SEC = 30
 
 
 class SshConnectionError(Exception):
@@ -175,6 +185,37 @@ PASS = 1
 SKIP = 2
 FAIL = 3
 
+
+def get_fabtests_log_dir():
+    """Return FABTESTS_LOG_DIR, defaulting to ~/fabtest_logs."""
+    return os.environ.get(
+        "FABTESTS_LOG_DIR", os.path.expanduser("~/fabtest_logs"))
+
+
+def make_test_log_paths():
+    """Create unique server and client log paths for the current test."""
+    test_id = os.environ.get(
+        "PYTEST_CURRENT_TEST", "unknown_test").split(" (")[0]
+    safe_test_id = re.sub(r"[^A-Za-z0-9._-]", "_", test_id)[:180]
+    name_parts = [
+        safe_test_id,
+        datetime.now().strftime("%Y%m%d-%H%M%S.%f"),
+    ]
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if worker:
+        name_parts.append(worker)
+
+    log_dir = get_fabtests_log_dir()
+    os.makedirs(log_dir, exist_ok=True)
+    base_path = os.path.join(log_dir, "_".join(name_parts))
+    return base_path + ".server.log", base_path + ".client.log"
+
+
+def remove_test_logs(*log_paths):
+    for log_path in log_paths:
+        os.unlink(log_path)
+
+
 def check_returncode(returncode, strict):
     """
     check one return code
@@ -202,7 +243,7 @@ def check_returncode(returncode, strict):
 
     return FAIL, error_msg
 
-def check_returncode_list(returncode_list, strict):
+def check_returncode_list(returncode_list, strict, extra_fail_message=None):
     """
     check a list of returncode, and call pytest's handler accordingly.
         If there is failure in return, call pytest.fail()
@@ -210,6 +251,7 @@ def check_returncode_list(returncode_list, strict):
         If there is no failure or skip, do nothing
     @param resultcode_list: a list of return code
     @param strict: a boolean indicating wether strict mode should be used.
+    @param extra_fail_message: optional text appended to the failure reason.
     @return: no return
     """
     result = PASS
@@ -231,6 +273,8 @@ def check_returncode_list(returncode_list, strict):
             break
 
     if result == FAIL:
+        if extra_fail_message:
+            reason = "{}\n{}".format(reason, extra_fail_message)
         pytest.fail(reason)
 
     if result == SKIP:
@@ -341,6 +385,99 @@ class UnitTest:
         if self._failing_warn_msgs:
             for msg in self._failing_warn_msgs:
                 assert output.find(msg) == -1
+
+
+def _run_ssh_probe(host_id, command):
+    """Run `command` on `host_id` over SSH and return stdout."""
+    remote_command = "/bin/bash --login -c {}".format(shlex.quote(command))
+    try:
+        proc = run("{} {} {}".format(bssh, host_id, shlex.quote(remote_command)),
+                   shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                   timeout=60, encoding="utf-8")
+    except TimeoutExpired:
+        raise SshConnectionError()
+    if has_ssh_connection_err_msg(proc.stderr):
+        raise SshConnectionError()
+    if proc.returncode != 0:
+        raise RuntimeError("'{}' failed on {}: {}".format(
+            command, host_id, proc.stderr.strip()))
+    return proc.stdout
+
+
+@functools.lru_cache(10)
+def _is_linux_host(host_id):
+    """Return whether `host_id` runs Linux."""
+    return _run_ssh_probe(host_id, "uname -s").strip() == "Linux"
+
+
+def _oob_port_has_listener(host_id, port):
+    """Return whether TCP `port` has a listener on `host_id`."""
+    output = _run_ssh_probe(host_id, "ss -ltn")
+    # Match the port in the local-address column.
+    suffix = ":{}".format(port)
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) >= 4 and fields[3].endswith(suffix):
+            return True
+    return False
+
+
+def _oob_port_from_command(command):
+    """Return the explicit `-E=<port>` value, if present."""
+    match = re.search(r"(?:^|\s)-E=(\d+)(?![\w=-])", command)
+    return int(match.group(1)) if match else None
+
+
+def _wait_for_oob_port_free(host_id, port):
+    """Wait until the worker's OOB port is available."""
+    deadline = time.time() + PORT_CLEAR_TIMEOUT_SEC
+    while _oob_port_has_listener(host_id, port):
+        if time.time() >= deadline:
+            raise RuntimeError(
+                "OOB port {} on {} is still in use before starting the "
+                "server -- orphaned listener from a previous test?".format(
+                    port, host_id))
+        sleep(OOB_POLL_INTERVAL_SEC)
+
+
+def _wait_for_server_listening(host_id, port, server_process,
+                               server_log_path=None):
+    """
+    Wait for the server's OOB listener before starting the client.
+
+    Include server output when the server exits or the wait times out.
+    Server stdout is redirected to server_log_path, so read output from
+    the log file rather than the process pipe.
+    """
+    def server_output():
+        if not server_log_path:
+            return "<no server log>"
+        try:
+            with open(server_log_path) as f:
+                return f.read()
+        except OSError as e:
+            return "<failed to read server log {}: {}>".format(
+                server_log_path, e)
+
+    deadline = time.time() + SERVER_LISTEN_TIMEOUT_SEC
+    while True:
+        if server_process.poll() is not None:
+            raise RuntimeError(
+                "Server exited (returncode {}) before listening on OOB port "
+                "{}. Server output:\n{}".format(
+                    server_process.returncode, port, server_output()))
+        if _oob_port_has_listener(host_id, port):
+            return
+        if time.time() >= deadline:
+            server_process.terminate()
+            server_process.wait()
+            raise RuntimeError(
+                "Server did not listen on OOB port {} on {} within {}s. "
+                "Server output:\n{}".format(
+                    port, host_id, SERVER_LISTEN_TIMEOUT_SEC,
+                    server_output()))
+        sleep(OOB_POLL_INTERVAL_SEC)
+
 
 class ClientServerTest:
 
@@ -539,12 +676,14 @@ class ClientServerTest:
         except TimeoutExpired:
             client_timed_out = True
 
-        if has_ssh_connection_err_msg(result.output):
+        client_output = result.output
+        print("client_stdout:")
+        print(client_output)
+
+        if has_ssh_connection_err_msg(client_output):
             print("client encountered ssh connection issue!")
             raise SshConnectionError()
 
-        print("client_stdout:")
-        print(result.output)
         print(f"client returncode: {result.returncode}")
 
         if client_timed_out:
@@ -560,12 +699,40 @@ class ClientServerTest:
         if self._cmdline_args.is_test_excluded(self._client_base_command):
             pytest.skip("excluded")
 
+        server_log_path, client_log_path = make_test_log_paths()
+        log_msg = "server log: {}\nclient log: {}".format(
+            server_log_path, client_log_path)
+
         # Start server
         print("")
         print("server_command: " + self._server_command)
-        server_process = Popen(self._server_command, stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT, shell=True, universal_newlines=True)
-        sleep(1)
+        print(log_msg)
+
+        # Use port readiness for Linux xdist workers with explicit OOB ports.
+        oob_port = None
+        if "PYTEST_XDIST_WORKER" in os.environ:
+            oob_port = _oob_port_from_command(self._server_command)
+        use_oob_readiness = (oob_port is not None and
+                             _is_linux_host(self._cmdline_args.server_id))
+
+        if use_oob_readiness:
+            _wait_for_oob_port_free(self._cmdline_args.server_id, oob_port)
+
+        with open(server_log_path, "w") as server_log_file:
+            server_process = Popen(
+                self._server_command,
+                stdout=server_log_file,
+                stderr=subprocess.STDOUT,
+                shell=True,
+                universal_newlines=True,
+            )
+
+        if use_oob_readiness:
+            _wait_for_server_listening(self._cmdline_args.server_id, oob_port,
+                                       server_process,
+                                       server_log_path=server_log_path)
+        else:
+            sleep(1)
 
         client_returncode = -1
         try:
@@ -575,31 +742,45 @@ class ClientServerTest:
                 retry_on_exception=is_ssh_connection_error,
                 stop_max_delay=self._timeout * 1000,  # Convert to milliseconds
                 wait_fixed=CLIENT_RETRY_INTERVAL_MS,
-            )(self._run_client_command)(server_process, self._client_command).returncode
+            )(self._run_client_command)(server_process, self._client_command, client_log_path).returncode
         except Exception as e:
             print("Client error: {}".format(e))
             # Clean up server if client is terminated unexpectedly
             server_process.terminate()
 
-        server_output = ""
         server_timed_out = False
         try:
-            server_output, _ = server_process.communicate(
+            server_process.wait(
                 timeout=self._timeout + SERVER_RESTART_DELAY_MS/1000)
         except TimeoutExpired:
-            server_process.terminate()
             server_timed_out = True
+            server_process.terminate()
+            try:
+                server_process.wait(timeout=SERVER_RESTART_DELAY_MS/1000)
+            except TimeoutExpired:
+                server_process.kill()
+                server_process.wait()
 
-        if has_ssh_connection_err_msg(server_output):
+        print("server_stdout:")
+        ssh_connection_error = False
+        output_ends_with_newline = True
+        with open(server_log_path, errors="replace") as server_log_file:
+            for line in server_log_file:
+                print(line, end="")
+                output_ends_with_newline = line.endswith("\n")
+                if has_ssh_connection_err_msg(line):
+                    ssh_connection_error = True
+        if not output_ends_with_newline:
+            print("")
+
+        if ssh_connection_error:
             print("encountered ssh connection issue!")
             raise SshConnectionError()
 
-        print("server_stdout:")
-        print(server_output)
         print(f"server returncode: {server_process.returncode}")
 
         if server_timed_out:
-            raise RuntimeError("Server timed out")
+            raise RuntimeError("Server timed out\n" + log_msg)
 
         list_to_check_return_code = []
         if not self._server_parameters['might_fail']:
@@ -607,8 +788,15 @@ class ClientServerTest:
         if not self._client_parameters['might_fail']:
             list_to_check_return_code.append(client_returncode)
 
-        check_returncode_list(list_to_check_return_code,
-                              self._cmdline_args.strict_fabtests_mode)
+        strict = self._cmdline_args.strict_fabtests_mode
+        has_failure = any(
+            check_returncode(returncode, strict)[0] == FAIL
+            for returncode in list_to_check_return_code)
+        if not has_failure:
+            remove_test_logs(server_log_path, client_log_path)
+
+        check_returncode_list(list_to_check_return_code, strict,
+                              extra_fail_message=log_msg)
 
 
 class MultinodeTest(ClientServerTest):
