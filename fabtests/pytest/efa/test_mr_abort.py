@@ -1,6 +1,6 @@
 import pytest
 from common import ClientServerTest
-from efa.efa_common import memory_type_list_host
+from efa.efa_common import memory_type_list_symm_hmem, memory_type_list_host
 
 
 pytestmark = pytest.mark.pre_release
@@ -63,11 +63,12 @@ def combined_msg_size_params():
 
 # --- Test: abort (RMA) ---
 @pytest.mark.functional
-@pytest.mark.fabric(params=["efa-direct"])  # TODO add test for efa fabric
+@pytest.mark.fabric(params=["efa", "efa-direct"])
 @pytest.mark.parametrize("cancel_order", ["reverse", "random"])
 @pytest.mark.parametrize("close_side", ["initiator", "target"])
 @pytest.mark.parametrize("ops_per_mr", [1, 4])
-@pytest.mark.memory_type(memory_type_list_host)  # TODO run HMEM cases on the efa fabric
+@pytest.mark.memory_type(efa=memory_type_list_symm_hmem,
+                         efa_direct=memory_type_list_host)
 @pytest.mark.parametrize("message_size, rma_op, high_pps, sl_low_latency",
                          list(combined_msg_size_params()))
 def test_mr_abort(cmdline_args, rma_fabric, rma_op, cancel_order, close_side, ops_per_mr,
@@ -96,8 +97,9 @@ def test_mr_abort(cmdline_args, rma_fabric, rma_op, cancel_order, close_side, op
 
 # --- Test: partial (2 MRs on same buffer) ---
 @pytest.mark.functional
-@pytest.mark.fabric(params=["efa-direct"]) # TODO add test for efa fabric
-@pytest.mark.memory_type(memory_type_list_host)  # TODO run HMEM cases on the efa fabric
+@pytest.mark.fabric(params=["efa", "efa-direct"])
+@pytest.mark.memory_type(efa=memory_type_list_symm_hmem,
+                         efa_direct=memory_type_list_host)
 @pytest.mark.parametrize("message_size, rma_op, high_pps, sl_low_latency",
                          list(combined_msg_size_params()))
 def test_mr_abort_partial(cmdline_args, rma_fabric, rma_op, high_pps,
@@ -261,13 +263,14 @@ def abort_owes_rx_completion(protocol):
 
 # --- Test: send and tagged ---
 @pytest.mark.functional
-@pytest.mark.fabric(params=["efa-direct"]) # TODO add test for efa fabric
+@pytest.mark.fabric(params=["efa", "efa-direct"])
 @pytest.mark.parametrize("cancel_order", ["reverse", "random"])
 @pytest.mark.parametrize("close_side", ["initiator"]) # TODO add target
 @pytest.mark.parametrize("ops_per_mr", [1, 4])
 @pytest.mark.parametrize("tagged", [True, False])
 @pytest.mark.parametrize("protocol", ["EAGER", "MEDIUM", "LONGCTS", "LONGREAD", "RUNTREAD-LONGREAD", "RUNTREAD-NOREAD"])
-@pytest.mark.memory_type(memory_type_list_host)  # TODO run HMEM cases on the efa fabric
+@pytest.mark.memory_type(efa=memory_type_list_symm_hmem,
+                         efa_direct=memory_type_list_host)
 def test_mr_abort_send(cmdline_args, fabric, cancel_order, close_side,
                        ops_per_mr, tagged, protocol, memory_type):
     if fabric == "efa" and cmdline_args.server_id == cmdline_args.client_id:

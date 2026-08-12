@@ -34,6 +34,14 @@ memory_type_list_symm = [
     pytest.param("rocr_to_rocr", marks=pytest.mark.rocr_memory),
 ]
 
+# Symmetric HMEM-only list (no host memory), for tests that cover the
+# host memory path on another fabric.
+memory_type_list_symm_hmem = [
+    pytest.param("cuda_to_cuda", marks=pytest.mark.cuda_memory),
+    pytest.param("neuron_to_neuron", marks=pytest.mark.neuron_memory),
+    pytest.param("rocr_to_rocr", marks=pytest.mark.rocr_memory),
+]
+
 # System (host) memory only.
 memory_type_list_host = [
     pytest.param("host_to_host"),
