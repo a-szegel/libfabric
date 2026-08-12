@@ -104,15 +104,84 @@ def add_fabric_and_message_size_parametrization(metafunc, fabric_marker, sizes_m
     metafunc.parametrize("message_sizes", sizes)
 
 
+def choose_memory_types_for_fabric(fabric, memory_type_marker, nodeid):
+    """
+    Return all matching memory-type lists for 'fabric' from a
+    @pytest.mark.memory_type marker using per-fabric kwargs.
+    example:
+    @pytest.mark.memory_type(efa=memory_type_list_symm_hmem,
+                             efa_direct=memory_type_list_host)
+    """
+    types = []
+    for kwarg_name, kwarg_types in memory_type_marker.kwargs.items():
+        if fabric_present(kwarg_name, fabric):
+            types.extend(kwarg_types)
+    if not types:
+        raise ValueError(
+            f"@pytest.mark.memory_type on {nodeid} is missing a kwarg for "
+            f"fabric={fabric!r} (have {sorted(memory_type_marker.kwargs)})"
+        )
+    return types
+
+
+def filter_available_memory_types(metafunc, candidates):
+    """
+    Drop memory type candidates whose device is absent on the owning
+    endpoint.
+
+    Fallback (no coverage regression): if --server-id/--client-id are not
+    provided or device detection fails, every candidate memory type is
+    included and the runtime skip in common.py remains the safety net.
+    """
+    server_id = metafunc.config.getoption("--server-id", default=None)
+    client_id = metafunc.config.getoption("--client-id", default=None)
+
+    if not server_id or not client_id:
+        return candidates
+
+    try:
+        return [
+            param for param in candidates
+            if client_server_have_device(param.values[0], server_id, client_id)
+        ]
+    except Exception:
+        # Fallback to all memory types when detection/SSH fails
+        return candidates
+
+
+def add_fabric_and_memory_type_parametrization(metafunc, fabric_marker, memory_type_marker):
+    """
+    Jointly parametrize (fabric, memory_type) when the memory_type marker
+    uses per-fabric kwargs, so each fabric only generates the memory types
+    named by its kwarg:
+
+        @pytest.mark.fabric(params=["efa", "efa-direct"])
+        @pytest.mark.memory_type(efa=memory_type_list_symm_hmem,
+                                 efa_direct=memory_type_list_host)
+    """
+    nodeid = metafunc.definition.nodeid
+
+    if fabric_marker is None or "fabric" not in metafunc.fixturenames:
+        raise ValueError(
+            f"{nodeid} uses per-fabric @pytest.mark.memory_type kwargs but "
+            f"does not consume the fabric fixture with @pytest.mark.fabric"
+        )
+
+    params = []
+    for fabric in fabric_marker.kwargs["params"]:
+        candidates = choose_memory_types_for_fabric(fabric, memory_type_marker, nodeid)
+        for memory_type in filter_available_memory_types(metafunc, candidates):
+            params.append(pytest.param(fabric, memory_type.values[0],
+                                       marks=memory_type.marks))
+
+    metafunc.parametrize(("fabric", "memory_type"), params, indirect=["fabric"])
+
+
 def add_memory_type_parametrization(metafunc, memory_type_marker):
     """
     Parametrize the memory_type fixture at collection time from the test's
     @pytest.mark.memory_type(...) declaration, dropping any permutation whose
     device is absent on the owning endpoint.
-
-    Fallback (no coverage regression): if --server-id/--client-id are not
-    provided or device detection fails, every candidate memory type is
-    included and the runtime skip in common.py remains the safety net.
     """
 
     if "memory_type" not in metafunc.fixturenames:
@@ -127,21 +196,7 @@ def add_memory_type_parametrization(metafunc, memory_type_marker):
         )
 
     candidates = memory_type_marker.args[0]
-
-    server_id = metafunc.config.getoption("--server-id", default=None)
-    client_id = metafunc.config.getoption("--client-id", default=None)
-
-    if not server_id or not client_id:
-        params = candidates
-    else:
-        try:
-            params = [
-                param for param in candidates
-                if client_server_have_device(param.values[0], server_id, client_id)
-            ]
-        except Exception:
-            # Fallback to all memory types when detection/SSH fails
-            params = candidates
+    params = filter_available_memory_types(metafunc, candidates)
 
     metafunc.parametrize("memory_type", params, scope="module")
 
@@ -163,6 +218,18 @@ def pytest_generate_tests(metafunc):
     # find out the test type running from markers (currently pr_ci or default)
     test_markers = {m.name for m in metafunc.definition.iter_markers()}
     test_type = get_test_type(test_markers, metafunc.config)
+
+    # per-fabric memory_type kwargs pair each fabric with its own memory
+    # type list, so fabric and memory_type must be parametrized jointly
+    if memory_type_marker is not None and memory_type_marker.kwargs:
+        if sizes_marker is not None:
+            raise ValueError(
+                f"{metafunc.definition.nodeid}: per-fabric memory_type kwargs "
+                f"cannot be combined with @pytest.mark.message_sizes"
+            )
+        add_fabric_and_memory_type_parametrization(metafunc, fabric_marker,
+                                                   memory_type_marker)
+        return
 
     # generate parametrization based on found markers and test type
     add_fabric_and_message_size_parametrization(metafunc, fabric_marker, sizes_marker, test_type)
