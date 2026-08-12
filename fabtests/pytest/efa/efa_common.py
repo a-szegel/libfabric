@@ -34,6 +34,11 @@ memory_type_list_symm = [
     pytest.param("rocr_to_rocr", marks=pytest.mark.rocr_memory),
 ]
 
+# System (host) memory only.
+memory_type_list_host = [
+    pytest.param("host_to_host"),
+]
+
 # Single memory type lists for tests that run only one.
 memory_type_list_cuda_to_cuda = [
     pytest.param("cuda_to_cuda", marks=pytest.mark.cuda_memory),
