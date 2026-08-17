@@ -1785,6 +1785,28 @@ complete the transfer, read-based protocols), the outcomes are: ignore it
 TX error completion with the peer's errno once any in-flight device work
 for it finishes.
 
+#### CTS header extension (stale-CTS detection)
+
+A sender that withdraws can release a long-CTS transfer's state before
+the receiver's CTS -- which names that transfer by `send_id` -- arrives,
+and the released `send_id` may be reused by an unrelated transfer. To let
+the sender reject such a stale CTS, the CTS header gains a trailing
+`msg_id` field (appended after `recv_length`, so every pre-2.7 field
+keeps its offset and an older peer simply ignores the extra bytes; no
+handshake negotiation is required). On receiving a CTS the sender
+confirms the operation named by `send_id` still exists, still belongs to
+the transfer named by `msg_id` (consulted only when the peer is known to
+write the field), and is not itself being aborted; otherwise the CTS is
+dropped.
+
+Whether the `msg_id` field can be trusted is a property of the peer that is
+unknown until its handshake arrives, so a CTS received before the peer's
+handshake is parked and processed once the handshake delivers the peer's
+feature flags. Against an older peer that never writes `msg_id`, a CTS
+cannot be validated as belonging to the current transfer rather than a past,
+aborted one: combining MR abort with the long-CTS protocols toward such a
+peer can therefore corrupt the state machine.
+
 #### Backward compatibility
 
 The feature is negotiated via the handshake: an endpoint advertises

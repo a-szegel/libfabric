@@ -348,6 +348,7 @@ void test_efa_rdm_rxe_emit_peer_error_reentry_safe(void **state);
 void test_efa_rdm_pke_handle_tx_error_sibling_read_wr_does_not_release_rxe(void **state);
 void test_efa_rdm_pke_handle_peer_error_recv_longread_fails_txe(void **state);
 void test_efa_rdm_pke_handle_peer_error_recv_longcts_reaps_rxe(void **state);
+void test_efa_rdm_pke_handle_peer_error_recv_longcts_op_id_hint(void **state);
 void test_efa_rdm_pke_handle_peer_error_recv_longcts_tagged(void **state);
 void test_efa_rdm_pke_handle_peer_error_recv_eager_unexpected_tears_down(void **state);
 void test_efa_rdm_pke_handle_peer_error_recv_invalid_op_id_dropped(void **state);
@@ -538,6 +539,7 @@ void test_efa_rdm_pke_init_peer_error_for_ope_ope_index(void **state);
 void test_efa_rdm_pke_init_peer_error_for_ope_medium_msg_id(void **state);
 void test_efa_rdm_pke_init_peer_error_for_ope_runtread(void **state);
 void test_efa_rdm_pke_init_peer_error_for_ope_eager_skip(void **state);
+void test_efa_rdm_pke_init_peer_error_for_ope_longcts_pre_cts_skip(void **state);
 /* end of efa_unit_test_pke.c */
 
 void test_efa_msg_fi_recv(void **state);

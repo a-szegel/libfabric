@@ -1015,15 +1015,16 @@ void test_efa_rdm_pkt_is_rxe_remote_read(void **state)
 
 /**
  * @brief Verify efa_rdm_pke_init_peer_error_for_ope() sets the optional
- *        op_id hint only for the RX->TX direction.
+ *        op_id hint for the two directions that know the peer's ope index.
  *
  * The wire always carries msg_id; op_id is an optional hint, usable only
  * when the op_id_valid field is nonzero:
  *   - rxe (LONGREAD direction, receiver -> sender): op_id = rxe->tx_id,
  *     always set (the RTM carried it, and the TX side needs it to resolve
  *     its txe).
- *   - txe (sender -> receiver): the sender never learns the receiver's
- *     rxe index, so the emit is always msg_id-only (no hint).
+ *   - txe (LONGCTS direction, sender -> receiver) that processed its CTS:
+ *     op_id = txe->rx_id, set only when rx_id has been learned (no longer
+ *     the unset sentinel).
  */
 void test_efa_rdm_pke_init_peer_error_for_ope_ope_index(void **state)
 {
@@ -1058,11 +1059,12 @@ void test_efa_rdm_pke_init_peer_error_for_ope_ope_index(void **state)
 			 EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS);
 	efa_rdm_pke_release_tx(pkt_entry);
 
-	/* txe (LONGCTS direction): the sender never learns the receiver's
-	 * rxe index, so the emit is msg_id-only (no op_id hint). */
+	/* txe (LONGCTS direction, CTS processed): op_id = rx_id, valid because
+	 * rx_id has been learned (no longer the unset sentinel). */
 	txe.type = EFA_RDM_TXE;
 	txe.ep = ep;
 	txe.protocol = EFA_RDM_LONGCTS_MSGRTM_PKT;
+	txe.rx_id = 0x5678;
 	txe.msg_id = 0x43;
 	txe.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
 	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
@@ -1070,7 +1072,8 @@ void test_efa_rdm_pke_init_peer_error_for_ope_ope_index(void **state)
 	assert_non_null(pkt_entry);
 	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe), 0);
 	hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
-	assert_false(hdr->op_id_valid);
+	assert_true(hdr->op_id_valid);
+	assert_int_equal(hdr->op_id, txe.rx_id);
 	assert_int_equal(hdr->msg_id, txe.msg_id);
 	assert_int_equal(hdr->direction, EFA_RDM_PEER_ERROR_TX_TO_RX);
 	assert_int_equal(hdr->prov_errno,
@@ -1108,6 +1111,7 @@ void test_efa_rdm_pke_init_peer_error_for_ope_medium_msg_id(void **state)
 	txe.ep = ep;
 	txe.protocol = EFA_RDM_MEDIUM_MSGRTM_PKT;
 	txe.msg_id = 0x99;
+	txe.rx_id = EFA_RDM_OPE_INVALID_ID;	/* no CTS -> not known -> not emitted */
 	txe.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
 
 	for (i = 0; i < 2; i++) {
@@ -1161,6 +1165,7 @@ void test_efa_rdm_pke_init_peer_error_for_ope_runtread(void **state)
 	txe.ep = ep;
 	txe.protocol = EFA_RDM_RUNTREAD_MSGRTM_PKT;
 	txe.msg_id = 0x99;
+	txe.rx_id = EFA_RDM_OPE_INVALID_ID;
 	txe.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
 
 	for (i = 0; i < 4; i++) {
@@ -1204,6 +1209,7 @@ void test_efa_rdm_pke_init_peer_error_for_ope_eager_skip(void **state)
 	txe.ep = ep;
 	txe.protocol = EFA_RDM_EAGER_MSGRTM_PKT;
 	txe.msg_id = 0x99;
+	txe.rx_id = EFA_RDM_OPE_INVALID_ID;	/* no CTS -> not emitted */
 	txe.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
 
 	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
@@ -1217,6 +1223,65 @@ void test_efa_rdm_pke_init_peer_error_for_ope_eager_skip(void **state)
 	assert_int_equal(hdr->direction, EFA_RDM_PEER_ERROR_TX_TO_RX);
 	assert_int_equal(hdr->prov_errno,
 			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+	efa_rdm_pke_release_tx(pkt_entry);
+}
+
+/**
+ * @brief Verify efa_rdm_pke_init_peer_error_for_ope() emits op_id only for
+ *        a LONGCTS txe once its CTS is processed, and msg_id-only before.
+ *
+ * A LONGCTS RTM that reached EFA_RDM_OPE_SEND (a CTS was processed) knows
+ * the receiver's rxe index (txe->rx_id is set), so the emit sets
+ * OP_ID_VALID + op_id = txe->rx_id. A LONGCTS RTM aborted before its first
+ * CTS has no rx_id (still the unset sentinel), so the emit is msg_id-only
+ * and the receiver decides from its reorder-window state -- the fix for the LONGCTS
+ * reorder-window stall.
+ */
+void test_efa_rdm_pke_init_peer_error_for_ope_longcts_pre_cts_skip(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_pke *pkt_entry;
+	struct efa_rdm_peer_error_hdr *hdr;
+	struct efa_rdm_ope txe = {0};
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe.type = EFA_RDM_TXE;
+	txe.ep = ep;
+	txe.protocol = EFA_RDM_LONGCTS_MSGRTM_PKT;
+	txe.msg_id = 0x99;
+	txe.bytes_acked = 0;
+	txe.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
+
+	/* Pre-CTS abort: rx_id never learned (unset sentinel) -> msg_id-only. */
+	txe.rx_id = EFA_RDM_OPE_INVALID_ID;
+	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
+	assert_non_null(pkt_entry);
+	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe), 0);
+	hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
+	assert_int_equal(hdr->type, EFA_RDM_PEER_ERROR_PKT);
+	assert_false(hdr->op_id_valid);
+	assert_int_equal(hdr->msg_id, txe.msg_id);
+	assert_int_equal(hdr->direction, EFA_RDM_PEER_ERROR_TX_TO_RX);
+	assert_int_equal(hdr->prov_errno,
+			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+	efa_rdm_pke_release_tx(pkt_entry);
+
+	/* CTS processed: rx_id learned -> op_id = rx_id hint is emitted. */
+	txe.rx_id = 0x5678;
+	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
+	assert_non_null(pkt_entry);
+	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe), 0);
+	hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
+	assert_true(hdr->op_id_valid);
+	assert_int_equal(hdr->op_id, txe.rx_id);
+	assert_int_equal(hdr->msg_id, txe.msg_id);
+	assert_int_equal(hdr->direction, EFA_RDM_PEER_ERROR_TX_TO_RX);
 	efa_rdm_pke_release_tx(pkt_entry);
 }
 

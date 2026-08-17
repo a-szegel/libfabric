@@ -3904,6 +3904,98 @@ void test_efa_rdm_pke_handle_peer_error_recv_longcts_reaps_rxe(void **state)
 	assert_cq_peer_aborted_error(resource);
 }
 
+/**
+ * @brief LONGCTS post-CTS: a PEER_ERROR_PKT carrying the rx_id hint
+ *        resolves the receiver's matched rxe directly from the ope pool
+ *        (no msg_id lookup); the rxe is marked peer-aborted and, once
+ *        drained, completes with a clean FI_ECANCELED /
+ *        FI_EFA_ERR_PEER_ABORTED error and is reaped.
+ */
+void test_efa_rdm_pke_handle_peer_error_recv_longcts_op_id_hint(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct util_srx_ctx *srx_ctx;
+	struct fid_peer_srx *peer_srx;
+	struct fi_peer_match_attr match_attr = {0};
+	struct fi_peer_rx_entry *peer_rxe = NULL;
+	struct efa_rdm_peer *peer;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	fi_addr_t peer_addr = 0;
+	struct efa_rdm_pke *pkt_entry;
+	struct efa_rdm_peer_error_hdr *err_hdr;
+	struct efa_rdm_ope *rxe;
+	struct iovec iov;
+	char buf[16];
+	void *desc = NULL;
+	int ret;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+	srx_ctx = efa_rdm_ep_get_peer_srx_ctx(ep);
+	peer_srx = util_get_peer_srx(ep->peer_srx_ep);
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &peer_addr, 0, NULL),
+			 1);
+	peer = efa_rdm_ep_get_peer_explicit(ep, peer_addr);
+	assert_non_null(peer);
+
+	/* Post + match a recv to build the rxe. */
+	iov.iov_base = buf;
+	iov.iov_len = sizeof(buf);
+	ret = util_srx_generic_recv(ep->peer_srx_ep, &iov, &desc, 1,
+				    FI_ADDR_UNSPEC, /*context=*/(void *) 0xa1, 0);
+	assert_int_equal(ret, FI_SUCCESS);
+
+	match_attr.addr = FI_ADDR_UNSPEC;
+	match_attr.tag = 0;
+	match_attr.msg_size = 16;
+	ofi_genlock_lock(srx_ctx->lock);
+	ret = peer_srx->owner_ops->get_msg(peer_srx, &match_attr, &peer_rxe);
+	assert_int_equal(ret, FI_SUCCESS);
+
+	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
+	assert_non_null(rxe);
+	rxe->state = EFA_RDM_RXE_MATCHED;
+	rxe->peer_rxe = peer_rxe;
+
+	/* Build the inbound PEER_ERROR_PKT pointing at our rxe via recv_id. */
+	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_rx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_RX_POOL);
+	assert_non_null(pkt_entry);
+	ep->efa_rx_pkts_posted += 1;
+
+	pkt_entry->peer = peer;
+
+	err_hdr = (struct efa_rdm_peer_error_hdr *) pkt_entry->wiredata;
+	err_hdr->type = EFA_RDM_PEER_ERROR_PKT;
+	err_hdr->direction = EFA_RDM_PEER_ERROR_TX_TO_RX;
+	err_hdr->version = EFA_RDM_PROTOCOL_VERSION;
+	err_hdr->flags = EFA_RDM_PKT_CONNID_HDR;
+	err_hdr->op_id_valid = 1;
+	err_hdr->msg_id = rxe->msg_id;
+	err_hdr->op_id = rxe->rx_id;
+	err_hdr->prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
+	err_hdr->connid = 0xbeef;
+	pkt_entry->pkt_size = sizeof(struct efa_rdm_peer_error_hdr);
+
+	efa_rdm_pke_handle_peer_error_recv(pkt_entry);
+
+	/* The matched rxe has no outstanding WR, so the drain fires
+	 * immediately: peer_rxe returned to the SRX (freed, not
+	 * re-queued), so the queue is empty, and the rxe is reaped. */
+	assert_true(slist_empty(&srx_ctx->msg_queue));
+	ofi_genlock_unlock(srx_ctx->lock);
+
+	/* The receiver's matched recv gets a clean peer-abort error. */
+	assert_cq_peer_aborted_error(resource);
+}
+
 
 
 /**
@@ -4560,9 +4652,10 @@ void test_efa_rdm_txe_handle_error_eager_prepost_cancel_emits_skip(void **state)
  * processed, so txe->rx_id is unknown) used to be suppressed by the
  * prev_state == OPE_SEND gate, leaving the receiver's reorder window
  * parked forever on the never-delivered msg_id. The fix marks the txe
- * PENDING and, with its
+ * PENDING (rx_id stays the unset sentinel -- no rx_id known pre-CTS) and, with its
  * single WR already drained, emits a msg_id-only PEER_ERROR_PKT; the
- * receiver decides the outcome from its reorder-window state.
+ * receiver decides the outcome from its reorder-window state (see
+ * test_efa_rdm_pke_init_peer_error_for_ope_longcts_pre_cts_skip).
  *
  * Mirrors test_efa_rdm_txe_handle_error_eager_prepost_cancel_emits_skip
  * but for the LONGCTS protocol in TXE_REQ.
@@ -4605,10 +4698,12 @@ void test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip(void **stat
 	/* handle_error marks the txe and, with no WR in flight, drives the
 	 * single emit itself. */
 
-	/* The consolidated emit decision marked the txe PENDING, signalled
-	 * it msg_id-only, and emitted the PEER_ERROR_PKT, keeping the txe
-	 * alive for that packet's completion. */
+	/* The consolidated emit decision marked the txe PENDING, recorded
+	 * that no rx_id is known (pre-CTS), so it is signalled msg_id-only
+	 * (rx_id stays the unset sentinel), and emitted the PEER_ERROR_PKT, keeping
+	 * the txe alive for that packet's completion. */
 	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
+	assert_int_equal(txe->rx_id, EFA_RDM_OPE_INVALID_ID);
 	assert_true(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED_OR_SKIPPED);
 	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before + 1);
 }
@@ -4632,8 +4727,8 @@ void test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip(void **stat
  *
  * Mirrors test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip
  * but for a RUNTREAD RTM with a READ remainder. Like every runtread abort
- * it is keyed by msg_id (it has no rx_id), so no op_id hint is
- * emitted.
+ * it is keyed by msg_id (it has no rx_id), so rx_id stays the unset sentinel
+ * and no op_id hint is emitted.
  */
 void test_efa_rdm_txe_handle_error_runtread_prepost_cancel_emits_skip(void **state)
 {
@@ -4680,6 +4775,7 @@ void test_efa_rdm_txe_handle_error_runtread_prepost_cancel_emits_skip(void **sta
 	/* PENDING + emitted, but rx_id unset: runtread exchanges no CTS,
 	 * so no rx_id is ever known and the emit is msg_id-only. */
 	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
+	assert_int_equal(txe->rx_id, EFA_RDM_OPE_INVALID_ID);
 	assert_true(txe->internal_flags & EFA_RDM_PEER_ERROR_EMITTED_OR_SKIPPED);
 	assert_int_equal(ep->efa_outstanding_tx_ops, outstanding_before + 1);
 }
@@ -5952,10 +6048,12 @@ void test_efa_rdm_pke_handle_tx_error_runtread_only_emits_peer_error(void **stat
 				   EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
 
 	/* The gate accepted the runt-only runtread: PENDING set, errno
-	 * stashed. Runtread exchanges no CTS, so the emit is msg_id-only. */
+	 * stashed. Runtread exchanges no CTS, so the emit is msg_id-only
+	 * (rx_id stays the unset sentinel). */
 	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
 	assert_int_equal(txe->peer_error_prov_errno,
 			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+	assert_int_equal(txe->rx_id, EFA_RDM_OPE_INVALID_ID);
 }
 
 /**
@@ -6013,6 +6111,7 @@ void test_efa_rdm_pke_handle_tx_error_runtread_with_read_emits(void **state)
 	assert_true(txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
 	assert_int_equal(txe->peer_error_prov_errno,
 			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
+	assert_int_equal(txe->rx_id, EFA_RDM_OPE_INVALID_ID);
 }
 
 /**
