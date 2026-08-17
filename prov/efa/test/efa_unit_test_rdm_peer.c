@@ -1069,8 +1069,9 @@ void test_efa_rdm_peer_skip_aborted_msg_id_abort_marker_behind_head(
  *        through the full inbound dispatcher
  *        efa_rdm_pke_handle_peer_error_recv().
  *
- * Counterpart to the sender-side test
- * (test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip): a
+ * Counterpart to the sender-side tests
+ * (test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip /
+ * test_efa_rdm_pke_init_peer_error_for_ope_longcts_pre_cts_skip): a
  * LONGCTS sender aborted before its first CTS has no receiver rxe index,
  * so it emits a msg_id-only packet (no op_id hint). On the wire that
  * packet is indistinguishable from an EAGER/medium msg_id-only abort, so

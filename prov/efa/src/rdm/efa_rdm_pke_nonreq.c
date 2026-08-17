@@ -100,8 +100,8 @@ void efa_rdm_pke_handle_handshake_recv(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_handshake_hdr *handshake_pkt;
 	struct efa_rdm_peer *peer;
-	struct efa_rdm_ope *txe;
 	struct efa_rdm_peer_parked_cts *parked_cts;
+	struct efa_rdm_ope *txe;
 	struct dlist_entry *tmp;
 	uint64_t *host_id_ptr;
 
@@ -1032,9 +1032,14 @@ int efa_rdm_pke_init_peer_error_for_ope(struct efa_rdm_pke *pkt_entry,
 		op_id_valid = true;
 	} else {
 		assert(ope->type == EFA_RDM_TXE);
-		/* An aborting sender: msg_id is the primary key; the sender
-		 * never learns the receiver's rxe index, so no op_id hint is
-		 * attached. */
+		/* An aborting sender: msg_id is the primary key. Include the
+		 * receiver's rxe index as an optional hint only when we learned
+		 * it from a CTS (LONGCTS post-CTS), i.e. rx_id is no longer the
+		 * unset sentinel. */
+		if (ope->rx_id != EFA_RDM_OPE_INVALID_ID) {
+			op_id = ope->rx_id;
+			op_id_valid = true;
+		}
 	}
 
 	connid = efa_rdm_ep_raw_addr(ope->ep)->qkey;
@@ -1204,12 +1209,29 @@ void efa_rdm_pke_handle_peer_error_recv(struct efa_rdm_pke *pkt_entry)
 	}
 
 	/*
-	 * The transfer's sender is aborting (emitter_ope_type == TXE). The
-	 * sender never learns the receiver's rxe index, so the packet
-	 * carries no usable hint; resolve from local state by msg_id.
+	 * The transfer's sender is aborting (emitter_ope_type == TXE). op_id
+	 * carries the receiver's rxe index when the emitter learned it from a
+	 * CTS (LONGCTS post-CTS); otherwise resolve from local state by msg_id.
 	 */
 	assert(err_hdr->emitter_ope_type == EFA_RDM_TXE);
 	assert(pkt_entry->peer);
+
+	/*
+	 * Trust the hint only while the slot is still allocated, still an
+	 * rxe, and still names this transfer (pooled opes are freed and
+	 * reused). A hint that does not resolve falls through to msg_id
+	 * resolution: unlike RX->TX, the msg_id names a transfer in OUR
+	 * receive sequence space, so the msg_id paths below are safe.
+	 */
+	if (err_hdr->op_id_valid &&
+	    ofi_bufpool_ibuf_is_valid(ep->base_ep.ope_pool, err_hdr->op_id)) {
+		ope = ofi_bufpool_get_ibuf(ep->base_ep.ope_pool, err_hdr->op_id);
+		if (ope->type == EFA_RDM_RXE &&
+		    ope->msg_id == err_hdr->msg_id) {
+			efa_rdm_pke_peer_error_handle_rxe(ope, err_hdr->prov_errno);
+			goto out;
+		}
+	}
 
 	ope = efa_rdm_rxe_map_lookup(&pkt_entry->peer->rxe_map, err_hdr->msg_id);
 	if (ope && ope->type == EFA_RDM_RXE) {
