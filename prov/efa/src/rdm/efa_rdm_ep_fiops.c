@@ -266,6 +266,14 @@ int efa_rdm_ep_create_buffer_pools(struct efa_rdm_ep *ep)
 	if (ret)
 		goto err_free;
 
+	ret = ofi_bufpool_create(&ep->parked_cts_pool,
+				 sizeof(struct efa_rdm_peer_parked_cts),
+				 EFA_RDM_BUFPOOL_ALIGNMENT,
+				 0, /* no limit for max_cnt */
+				 ep->base_ep.info->rx_attr->size, 0);
+	if (ret)
+		goto err_free;
+
 	ret = ofi_bufpool_create(&ep->efa_rdm_peer_pool,
 				 sizeof(struct efa_rdm_peer),
 				 EFA_RDM_BUFPOOL_ALIGNMENT,
@@ -329,6 +337,9 @@ err_free:
 
 	if (ep->overflow_pke_pool)
 		ofi_bufpool_destroy(ep->overflow_pke_pool);
+
+	if (ep->parked_cts_pool)
+		ofi_bufpool_destroy(ep->parked_cts_pool);
 
 	if (ep->rx_readcopy_pkt_pool)
 		ofi_bufpool_destroy(ep->rx_readcopy_pkt_pool);
@@ -849,6 +860,9 @@ static void efa_rdm_ep_destroy_buffer_pools(struct efa_rdm_ep *efa_rdm_ep)
 	if (efa_rdm_ep->overflow_pke_pool)
 		ofi_bufpool_destroy(efa_rdm_ep->overflow_pke_pool);
 
+	if (efa_rdm_ep->parked_cts_pool)
+		ofi_bufpool_destroy(efa_rdm_ep->parked_cts_pool);
+
 	if (efa_rdm_ep->map_entry_pool)
 		ofi_bufpool_destroy(efa_rdm_ep->map_entry_pool);
 
@@ -1103,12 +1117,6 @@ static int efa_rdm_ep_close(struct fid *fid)
 				efa_rdm_rxe_release(rxe);
 		}
 		/*
-		* Drop srx_lock here since util_srx_close acquires it
-		* internally, so calling it while holding the lock would
-		* self-deadlock.
-		*/
-		ofi_genlock_unlock(&((struct efa_rdm_domain *) domain)->srx_lock);
-		/*
 		* util_srx_close will clean all efa_rdm_rxes that are
 		* associated with peer_rx_entries in unexp msg/tag lists.
 		* It also decrements the ref count of rx cq. So it must
@@ -1117,8 +1125,6 @@ static int efa_rdm_ep_close(struct fid *fid)
 		*/
 		util_srx_close(&efa_rdm_ep->peer_srx_ep->fid);
 		efa_rdm_ep->peer_srx_ep = NULL;
-
-		ofi_genlock_lock(&((struct efa_rdm_domain *) domain)->srx_lock);
 	}
 
 	/* We need to free the util_ep first to avoid race conditions
@@ -1201,7 +1207,7 @@ void efa_rdm_ep_set_extra_info(struct efa_rdm_ep *ep)
 	/* READ_NACK feature introduced in libfabric 1.20 */
 	ep->extra_info[0] |= EFA_RDM_EXTRA_FEATURE_READ_NACK;
 
-	/* PEER_ERROR feature introduced in libfabric 2.6.
+	/* PEER_ERROR feature introduced in libfabric 2.7.
 	 * Advertise unconditionally; the packet type is purely a
 	 * control message and has no other dependency.
 	 */
