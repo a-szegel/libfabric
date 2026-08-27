@@ -224,16 +224,25 @@ struct efa_rdm_ope {
  * index one short of the one that would produce it. */
 #define EFA_RDM_OPE_ID_INVALID		UINT32_MAX
 
-/* An ope id is a pool index beside the tag, so a pool holds at most as many
- * entries as that payload can name, less the one index a txe id would turn
- * into the sentinel. */
-#define EFA_RDM_OPE_POOL_MAX_CNT	((size_t) EFA_RDM_OPE_ID_MASK)
+/* The two pools have independent index spaces, so each carries its own cap.
+ * An rxe id never sets the tag, so it can never reach the sentinel and its
+ * pool may hold every index the payload can name. A txe id does set the tag,
+ * so its cap stops one index short of the one that would produce it. */
+#define EFA_RDM_RXE_POOL_MAX_CNT	((size_t) EFA_RDM_OPE_ID_MASK + 1)
+#define EFA_RDM_TXE_POOL_MAX_CNT	((size_t) EFA_RDM_OPE_ID_MASK)
+
+/* Default cap on concurrent tx operations, see FI_EFA_RDM_TXE_POOL_SIZE. */
+#define EFA_RDM_TXE_POOL_SIZE_DEFAULT	(8192)
 
 static_assert((EFA_RDM_OPE_ID_INVALID & EFA_RDM_OPE_ID_TAG) != 0,
 	      "the sentinel must be txe tagged so no rxe id can reach it");
-static_assert((EFA_RDM_OPE_ID_TAG | (EFA_RDM_OPE_POOL_MAX_CNT - 1)) <
+static_assert(EFA_RDM_RXE_POOL_MAX_CNT - 1 <= EFA_RDM_OPE_ID_MASK,
+	      "an rxe pool index must fit in the ope id payload");
+static_assert((EFA_RDM_OPE_ID_TAG | (EFA_RDM_TXE_POOL_MAX_CNT - 1)) <
 		      EFA_RDM_OPE_ID_INVALID,
 	      "the largest txe id must stop short of the sentinel");
+static_assert(EFA_RDM_TXE_POOL_SIZE_DEFAULT <= EFA_RDM_TXE_POOL_MAX_CNT,
+	      "the default txe pool cap must fit in a txe id");
 
 /**
  * @brief whether an ope id names an rxe, which is to say its tag is clear
@@ -266,13 +275,14 @@ static inline uint32_t efa_rdm_ope_get_ope_id(struct efa_rdm_ope *ope)
 {
 	size_t index = ofi_buf_index(ope);
 
-	/* the pool cap is what keeps EFA_RDM_OPE_ID_INVALID out of the id space */
-	assert(index < EFA_RDM_OPE_POOL_MAX_CNT);
-
-	if (ope->type == EFA_RDM_RXE)
+	/* each cap keeps its pool's index inside the field that carries it */
+	if (ope->type == EFA_RDM_RXE) {
+		assert(index < EFA_RDM_RXE_POOL_MAX_CNT);
 		return (uint32_t) index;	/* the clear tag marks it rxe */
+	}
 
 	assert(ope->type == EFA_RDM_TXE);
+	assert(index < EFA_RDM_TXE_POOL_MAX_CNT);
 	return EFA_RDM_OPE_ID_TAG | (uint32_t) index;
 }
 
