@@ -797,6 +797,42 @@ void test_efa_rdm_ope_peer_id_invalid_until_learned(void **state)
 	efa_rdm_rxe_release(rxe);
 }
 
+/**
+ * @brief Verify an ope id says which kind of ope it names.
+ *
+ * The tag has to survive the round trip through a packet field and the index
+ * has to come back intact, since a lookup recovers the ope from the id alone.
+ */
+void test_efa_rdm_ope_id_carries_ope_type(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe, *rxe;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_msg);
+	assert_non_null(rxe);
+
+	assert_false(txe->tx_id & EFA_RDM_OPE_ID_RXE);
+	assert_true(rxe->rx_id & EFA_RDM_OPE_ID_RXE);
+
+	assert_int_equal(txe->tx_id & EFA_RDM_OPE_ID_INDEX_MASK,
+			 ofi_buf_index(txe));
+	assert_int_equal(rxe->rx_id & EFA_RDM_OPE_ID_INDEX_MASK,
+			 ofi_buf_index(rxe));
+
+	assert_ptr_equal(efa_rdm_ep_ope_from_id(ep, txe->tx_id), txe);
+	assert_ptr_equal(efa_rdm_ep_ope_from_id(ep, rxe->rx_id), rxe);
+
+	efa_rdm_txe_release(txe);
+	efa_rdm_rxe_release(rxe);
+}
+
 void test_efa_rdm_rxe_map(void **state)
 {
 	struct efa_resource *resource = *state;

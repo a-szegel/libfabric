@@ -275,7 +275,7 @@ void efa_rdm_pke_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 
 	ep = pkt_entry->ep;
 	cts_pkt = (struct efa_rdm_cts_hdr *)pkt_entry->wiredata;
-	ope = ofi_bufpool_get_ibuf(pkt_entry->ep->base_ep.ope_pool, cts_pkt->send_id);
+	ope = efa_rdm_ep_ope_from_id(ep, cts_pkt->send_id);
 
 	ope->rx_id = cts_pkt->recv_id;
 	ope->window = cts_pkt->recv_length;
@@ -448,8 +448,7 @@ void efa_rdm_pke_handle_ctsdata_recv(struct efa_rdm_pke *pkt_entry)
 
 	data_hdr = efa_rdm_pke_get_ctsdata_hdr(pkt_entry);
 
-	ope = ofi_bufpool_get_ibuf(pkt_entry->ep->base_ep.ope_pool,
-				   data_hdr->recv_id);
+	ope = efa_rdm_ep_ope_from_id(pkt_entry->ep, data_hdr->recv_id);
 
 	hdr_size = sizeof(struct efa_rdm_ctsdata_hdr);
 	if (data_hdr->flags & EFA_RDM_PKT_CONNID_HDR)
