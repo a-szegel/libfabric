@@ -78,7 +78,16 @@ enum efa_rdm_cuda_copy_method {
  */
 struct efa_rdm_ope {
 	enum efa_rdm_ope_type type;
-	uint8_t gen; /**< generation counter, incremented on release for use-after-free detection */
+	/**
+	 * @brief generation of this pool slot
+	 *
+	 * Bumped on release and preserved across the release-time poisoning,
+	 * so it tells this occupant of the slot from any earlier one. A pke
+	 * snapshots it to catch a stale ope back-pointer, and a txe id carries
+	 * it so a peer's id stops resolving once the slot moves on. That second
+	 * use is not debug only, so this must stay correct in release builds.
+	 */
+	uint8_t gen;
 
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_peer *peer;
@@ -226,10 +235,21 @@ struct efa_rdm_ope {
 
 /* The two pools have independent index spaces, so each carries its own cap.
  * An rxe id never sets the tag, so it can never reach the sentinel and its
- * pool may hold every index the payload can name. A txe id does set the tag,
- * so its cap stops one index short of the one that would produce it. */
+ * pool may hold every index the payload can name. */
 #define EFA_RDM_RXE_POOL_MAX_CNT	((size_t) EFA_RDM_OPE_ID_MASK + 1)
-#define EFA_RDM_TXE_POOL_MAX_CNT	((size_t) EFA_RDM_OPE_ID_MASK)
+
+/* A txe id does set the tag, and a slot is reused as soon as its txe is
+ * released, so a txe id spends 8 bits of its payload on the slot generation to
+ * tell a live id from one that outlived it and 22 on its pool index. Leaving
+ * the payload short is what keeps a txe id clear of the sentinel. */
+#define EFA_RDM_TXE_ID_GEN_BITS		(8)
+#define EFA_RDM_TXE_ID_INDEX_BITS	(22)
+#define EFA_RDM_TXE_ID_INDEX_MASK \
+	(((uint32_t) 1 << EFA_RDM_TXE_ID_INDEX_BITS) - 1)
+#define EFA_RDM_TXE_ID_GEN_MASK \
+	(((uint32_t) 1 << EFA_RDM_TXE_ID_GEN_BITS) - 1)
+#define EFA_RDM_TXE_POOL_MAX_CNT \
+	((size_t) 1 << EFA_RDM_TXE_ID_INDEX_BITS)
 
 /* Default cap on concurrent tx operations, see FI_EFA_RDM_TXE_POOL_SIZE. */
 #define EFA_RDM_TXE_POOL_SIZE_DEFAULT	(8192)
@@ -238,11 +258,30 @@ static_assert((EFA_RDM_OPE_ID_INVALID & EFA_RDM_OPE_ID_TAG) != 0,
 	      "the sentinel must be txe tagged so no rxe id can reach it");
 static_assert(EFA_RDM_RXE_POOL_MAX_CNT - 1 <= EFA_RDM_OPE_ID_MASK,
 	      "an rxe pool index must fit in the ope id payload");
-static_assert((EFA_RDM_OPE_ID_TAG | (EFA_RDM_TXE_POOL_MAX_CNT - 1)) <
-		      EFA_RDM_OPE_ID_INVALID,
+static_assert((EFA_RDM_OPE_ID_TAG |
+	       (EFA_RDM_TXE_ID_GEN_MASK << EFA_RDM_TXE_ID_INDEX_BITS) |
+	       EFA_RDM_TXE_ID_INDEX_MASK) < EFA_RDM_OPE_ID_INVALID,
 	      "the largest txe id must stop short of the sentinel");
 static_assert(EFA_RDM_TXE_POOL_SIZE_DEFAULT <= EFA_RDM_TXE_POOL_MAX_CNT,
 	      "the default txe pool cap must fit in a txe id");
+static_assert(EFA_RDM_TXE_ID_GEN_BITS == 8,
+	      "the generation field must match the width of ope::gen");
+
+/**
+ * @brief pool index named by a txe id
+ */
+static inline size_t efa_rdm_txe_id_index(uint32_t txe_id)
+{
+	return txe_id & EFA_RDM_TXE_ID_INDEX_MASK;
+}
+
+/**
+ * @brief slot generation named by a txe id
+ */
+static inline uint32_t efa_rdm_txe_id_gen(uint32_t txe_id)
+{
+	return (txe_id >> EFA_RDM_TXE_ID_INDEX_BITS) & EFA_RDM_TXE_ID_GEN_MASK;
+}
 
 /**
  * @brief whether an ope id names an rxe, which is to say its tag is clear
@@ -261,14 +300,6 @@ static inline size_t efa_rdm_rxe_id_index(uint32_t rxe_id)
 }
 
 /**
- * @brief pool index named by a txe id
- */
-static inline size_t efa_rdm_txe_id_index(uint32_t txe_id)
-{
-	return txe_id & EFA_RDM_OPE_ID_MASK;
-}
-
-/**
  * @brief Initialize the ope id
  */
 static inline uint32_t efa_rdm_ope_get_ope_id(struct efa_rdm_ope *ope)
@@ -283,7 +314,10 @@ static inline uint32_t efa_rdm_ope_get_ope_id(struct efa_rdm_ope *ope)
 
 	assert(ope->type == EFA_RDM_TXE);
 	assert(index < EFA_RDM_TXE_POOL_MAX_CNT);
-	return EFA_RDM_OPE_ID_TAG | (uint32_t) index;
+	return EFA_RDM_OPE_ID_TAG |
+	       (((uint32_t) ope->gen & EFA_RDM_TXE_ID_GEN_MASK)
+		<< EFA_RDM_TXE_ID_INDEX_BITS) |
+	       ((uint32_t) index & EFA_RDM_TXE_ID_INDEX_MASK);
 }
 
 void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
