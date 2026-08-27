@@ -769,6 +769,34 @@ void test_efa_rdm_rxe_handle_error_not_write_cq(void **state)
 	efa_rdm_rxe_release(rxe);
 }
 
+/**
+ * @brief Verify a fresh ope names itself, but not yet its peer.
+ *
+ * The id a side creates for itself is always legal. The peer's id is only
+ * learned from the wire, so until a packet carries it the field must read
+ * back as the reserved invalid id rather than as whatever the pool last
+ * left there.
+ */
+void test_efa_rdm_ope_peer_id_invalid_until_learned(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ope *txe, *rxe;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	assert_int_not_equal(txe->tx_id, EFA_RDM_OPE_ID_INVALID);
+	assert_int_equal(txe->rx_id, EFA_RDM_OPE_ID_INVALID);
+	efa_rdm_txe_release(txe);
+
+	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_msg);
+	assert_non_null(rxe);
+	assert_int_not_equal(rxe->rx_id, EFA_RDM_OPE_ID_INVALID);
+	assert_int_equal(rxe->tx_id, EFA_RDM_OPE_ID_INVALID);
+	efa_rdm_rxe_release(rxe);
+}
+
 void test_efa_rdm_rxe_map(void **state)
 {
 	struct efa_resource *resource = *state;
@@ -6407,3 +6435,226 @@ void test_efa_rdm_txe_handle_error_emulated_canceled_not_peer_aborted(void **sta
 	}
 }
 
+
+/**
+ * @brief Stand a two entry pool in for one of the endpoint's ope pools
+ *
+ * The real cap is far too large to reach in a test. What the id space relies on
+ * is that a cap exists, not what it is, so a pool with the same entry size and
+ * a cap of two exercises the same exhaustion path.
+ */
+static void efa_unit_test_shrink_ope_pool(struct ofi_bufpool **pool)
+{
+	ofi_bufpool_destroy(*pool);
+	/* a test leaves entries held on purpose, so opt out of the tracking
+	 * that would make destroying the pool complain about them */
+	assert_int_equal(ofi_bufpool_create(pool, sizeof(struct efa_rdm_ope),
+					    EFA_RDM_BUFPOOL_ALIGNMENT, 2, 2,
+					    OFI_BUFPOOL_NO_TRACK),
+			 0);
+}
+
+/**
+ * @brief Hand the endpoint an eager MSGRTM as if the device had received it
+ *
+ * Mirrors what efa_rdm_cq.c does once it has resolved the packet's peer, which
+ * is the point where the receive path needs an rxe.
+ */
+static void efa_unit_test_deliver_eager_rtm(struct efa_resource *resource,
+					    struct efa_rdm_peer *peer,
+					    uint32_t msg_id, bool tagged,
+					    uint64_t tag)
+{
+	struct efa_unit_test_eager_rtm_pkt_attr pkt_attr = {0};
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_pke *pkt_entry;
+
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_rx_pkt_pool,
+				      EFA_RDM_PKE_FROM_EFA_RX_POOL);
+	assert_non_null(pkt_entry);
+	ep->efa_rx_pkts_posted = efa_base_ep_get_rx_pool_size(&ep->base_ep);
+
+	pkt_attr.msg_id = msg_id;
+	pkt_attr.connid = peer->conn->ep_addr->qkey;
+	pkt_attr.tag = tag;
+	if (tagged)
+		efa_unit_test_eager_tagrtm_pkt_construct(pkt_entry, &pkt_attr);
+	else
+		efa_unit_test_eager_msgrtm_pkt_construct(pkt_entry, &pkt_attr);
+
+	pkt_entry->peer = peer;
+	/* the cq holds this across a received packet, and the srx matching
+	 * reached from here asserts that it is held */
+	ofi_genlock_lock(&ep->srx_lock);
+	efa_rdm_pke_proc_received(pkt_entry);
+	ofi_genlock_unlock(&ep->srx_lock);
+}
+
+/**
+ * @brief fi_send reports FI_EAGAIN once the txe pool has hit its cap
+ *
+ * A txe is held for the life of the transfer, so a capped pool eventually has
+ * nothing left to hand out. fi_send has a caller to answer, so it must report
+ * that as FI_EAGAIN for the application to retry rather than proceed without a
+ * txe and mint an id from a slot it does not own.
+ */
+void test_efa_rdm_ope_txe_pool_cap_fails_send(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	fi_addr_t addr;
+
+	efa_unit_test_rdm_0byte_prep(resource, &addr);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	/* the endpoint's own pool is bounded, which is what the id space
+	 * relies on; the value of the bound is checked elsewhere */
+	assert_true(ep->base_ep.ope_pool->attr.max_cnt > 0);
+	efa_unit_test_shrink_ope_pool(&ep->base_ep.ope_pool);
+
+	/* neither send completes, so each one holds its txe */
+	assert_int_equal(fi_send(resource->ep, NULL, 0, NULL, addr, NULL), 0);
+	assert_int_equal(fi_send(resource->ep, NULL, 0, NULL, addr, NULL), 0);
+	assert_int_equal(efa_unit_test_get_ope_list_length(ep, EFA_RDM_TXE), 2);
+
+	/* tx packets are still available, so only the txe pool can fail here */
+	assert_true(efa_rdm_ep_get_available_tx_pkts(ep) > 0);
+	assert_int_equal(fi_send(resource->ep, NULL, 0, NULL, addr, NULL),
+			 -FI_EAGAIN);
+	assert_int_equal(efa_unit_test_get_ope_list_length(ep, EFA_RDM_TXE), 2);
+}
+
+/**
+ * @brief A receive reports FI_ENOBUFS once the rxe pool has hit its cap
+ *
+ * An unexpected message holds its rxe until a receive is posted to match it, so
+ * a capped pool eventually has nothing left for the next arrival. The receive
+ * path has no caller to answer, so it must report the failure on the event
+ * queue and drop the packet rather than proceed without an rxe.
+ */
+void test_efa_rdm_ope_rxe_pool_cap_fails_recv(void **state)
+{
+	struct efa_resource *resource = *state;
+	char recv_buff[64];
+	struct fi_eq_err_entry eq_err_entry;
+	struct efa_rdm_peer *peer;
+	struct efa_rdm_ep *ep;
+	fi_addr_t addr;
+	uint32_t msg_id;
+
+	efa_unit_test_rdm_0byte_prep(resource, &addr);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+	peer = efa_rdm_ep_get_peer_explicit(ep, addr);
+	assert_non_null(peer);
+
+	assert_int_equal(ep->base_ep.ope_pool->attr.max_cnt,
+			 EFA_RDM_OPE_POOL_MAX_CNT);
+	efa_unit_test_shrink_ope_pool(&ep->base_ep.ope_pool);
+
+	/* the one posted receive takes the first arrival, and the arrivals
+	 * behind it go unexpected, so each one holds an rxe */
+	assert_int_equal(fi_recv(resource->ep, recv_buff, sizeof(recv_buff),
+				 NULL, addr, NULL),
+			 0);
+
+	/* the first arrival is matched and completes, so it gives its rxe back.
+	 * The next two go unexpected and hold theirs, filling the pool, which
+	 * leaves the fourth with nothing to allocate. */
+	for (msg_id = 0; msg_id < 4; msg_id++)
+		efa_unit_test_deliver_eager_rtm(resource, peer, msg_id, false, 0);
+
+	assert_int_equal(efa_unit_test_get_ope_list_length(ep, EFA_RDM_RXE), 2);
+	assert_int_equal(fi_eq_readerr(resource->eq, &eq_err_entry, 0),
+			 sizeof(eq_err_entry));
+	assert_int_equal(eq_err_entry.err, FI_ENOBUFS);
+	assert_int_equal(eq_err_entry.prov_errno,
+			 FI_EFA_ERR_RXE_POOL_EXHAUSTED);
+
+}
+/**
+ * @brief Verify a failed rxe allocation still releases the srx entry
+ *
+ * efa_rdm_msg_proc_rtm_rta() owns the peer rx entry from the moment get_msg()
+ * or get_tag() hands it over, so every path that then fails to allocate an rxe
+ * has to give it back. A matched entry is released outright; an unmatched one
+ * is queued first, because free_entry() undoes that accounting unconditionally.
+ * Getting either wrong leaks the entry and trips the outstanding entry check in
+ * util_srx_close() when the endpoint closes, which is what this exercises.
+ */
+static void test_efa_rdm_srx_entry_released_common(struct efa_resource *resource,
+						   bool tagged, bool matched)
+{
+	const uint64_t tag = 0x1234abcd;
+	struct efa_rdm_ope *held[64];
+	struct fi_eq_err_entry eq_err_entry;
+	struct efa_rdm_peer *peer;
+	struct efa_rdm_ep *ep;
+	char recv_buff[64];
+	size_t n = 0;
+	fi_addr_t addr;
+
+	efa_unit_test_rdm_0byte_prep(resource, &addr);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+	peer = efa_rdm_ep_get_peer_explicit(ep, addr);
+	assert_non_null(peer);
+
+	/* a posted receive decides which branch the arrival takes */
+	if (matched) {
+		if (tagged)
+			assert_int_equal(fi_trecv(resource->ep, recv_buff,
+						  sizeof(recv_buff), NULL, addr,
+						  tag, 0, NULL),
+					 0);
+		else
+			assert_int_equal(fi_recv(resource->ep, recv_buff,
+						 sizeof(recv_buff), NULL, addr,
+						 NULL),
+					 0);
+	}
+
+	/* drain the pool so the arrival cannot get an rxe at all */
+	efa_unit_test_shrink_ope_pool(&ep->base_ep.ope_pool);
+	while (n < ARRAY_SIZE(held) &&
+	       (held[n] = ofi_buf_alloc(ep->base_ep.ope_pool)))
+		n++;
+	assert_true(n > 0);
+	assert_true(n < ARRAY_SIZE(held));
+
+	efa_unit_test_deliver_eager_rtm(resource, peer, 0, tagged, tag);
+
+	/* the failure is reported, and the srx entry must not have leaked */
+	assert_int_equal(fi_eq_readerr(resource->eq, &eq_err_entry, 0),
+			 sizeof(eq_err_entry));
+	assert_int_equal(eq_err_entry.err, FI_ENOBUFS);
+	assert_int_equal(eq_err_entry.prov_errno,
+			 FI_EFA_ERR_RXE_POOL_EXHAUSTED);
+
+	while (n--)
+		ofi_buf_free(held[n]);
+}
+
+void test_efa_rdm_srx_entry_released_matched_msg(void **state)
+{
+	test_efa_rdm_srx_entry_released_common(*state, false, true);
+}
+
+void test_efa_rdm_srx_entry_released_unmatched_msg(void **state)
+{
+	test_efa_rdm_srx_entry_released_common(*state, false, false);
+}
+
+void test_efa_rdm_srx_entry_released_matched_tagged(void **state)
+{
+	test_efa_rdm_srx_entry_released_common(*state, true, true);
+}
+
+void test_efa_rdm_srx_entry_released_unmatched_tagged(void **state)
+{
+	test_efa_rdm_srx_entry_released_common(*state, true, false);
+}

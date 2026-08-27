@@ -214,6 +214,28 @@ struct efa_rdm_ope {
 	int peer_error_prov_errno;
 };
 
+/* Every bit set is reserved as an ope id that is never legal. */
+#define EFA_RDM_OPE_ID_INVALID		UINT32_MAX
+
+/* An ope id is a pool index, so a pool is capped to keep every index it hands
+ * out clear of the sentinel. */
+#define EFA_RDM_OPE_POOL_MAX_CNT	((size_t) EFA_RDM_OPE_ID_INVALID)
+
+static_assert(EFA_RDM_OPE_POOL_MAX_CNT - 1 < EFA_RDM_OPE_ID_INVALID,
+	      "an ope pool index must never reach EFA_RDM_OPE_ID_INVALID");
+
+/**
+ * @brief Initialize the ope id
+ */
+static inline uint32_t efa_rdm_ope_get_ope_id(struct efa_rdm_ope *ope)
+{
+	size_t index = ofi_buf_index(ope);
+
+	/* the pool cap is what keeps EFA_RDM_OPE_ID_INVALID out of the id space */
+	assert(index < EFA_RDM_OPE_POOL_MAX_CNT);
+	return (uint32_t) index;
+}
+
 void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
 			   struct efa_rdm_ep *ep,
 		      	   struct efa_rdm_peer *peer,
