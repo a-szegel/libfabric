@@ -80,6 +80,16 @@ struct efa_rdm_ope {
 	enum efa_rdm_ope_type type;
 	uint8_t gen; /**< generation counter, incremented on release for use-after-free detection */
 
+	/**
+	 * @brief generation of this pool slot, carried in the ids of a txe
+	 *
+	 * Bumped on every txe release and preserved across the release-time
+	 * poisoning, so it distinguishes an id created by this txe from one
+	 * created by any earlier occupant of the same slot. Wraps naturally at
+	 * the width of the generation field in a txe id. Unused by an rxe.
+	 */
+	uint8_t id_gen;
+
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_peer *peer;
 
@@ -214,9 +224,28 @@ struct efa_rdm_ope {
 	int peer_error_prov_errno;
 };
 
-/* Bits 0..29 of a txe id hold its pool index. Bit 31 is the ope type tag and
- * bit 30 stays clear so a txe id is never EFA_RDM_OPE_ID_INVALID. */
+/* Bits 0..29 of a txe id hold its pool index and its slot generation. Bit 31
+ * is the ope type tag and bit 30 is unused. efa_rdm_ope_id() masks both
+ * fields, which keeps a txe id out of those two bits and so keeps it from
+ * ever being EFA_RDM_OPE_ID_INVALID. */
 #define EFA_RDM_TXE_ID_BITS		(30)
+
+/* A pool slot is handed to a new txe as soon as its previous txe is released,
+ * so an index alone cannot tell an id that still names its transfer from one
+ * that outlived it. The slot generation takes the top bits of a txe id and the
+ * pool index takes the rest. The index field is wider than the pool cap needs,
+ * so its high bits are always zero and the mask is what keeps them out of the
+ * lookup. */
+#define EFA_RDM_TXE_ID_GEN_BITS		(8)
+#define EFA_RDM_TXE_ID_INDEX_BITS \
+	(EFA_RDM_TXE_ID_BITS - EFA_RDM_TXE_ID_GEN_BITS)
+#define EFA_RDM_TXE_ID_INDEX_MASK \
+	(((uint32_t) 1 << EFA_RDM_TXE_ID_INDEX_BITS) - 1)
+#define EFA_RDM_TXE_ID_GEN_MASK \
+	(((uint32_t) 1 << EFA_RDM_TXE_ID_GEN_BITS) - 1)
+
+/* Largest txe pool cap a txe id can index, see FI_EFA_RDM_MAX_TXE. */
+#define EFA_RDM_MAX_TXE_LIMIT		((size_t) 1 << EFA_RDM_TXE_ID_INDEX_BITS)
 
 /* Default cap on concurrent tx operations, see FI_EFA_RDM_MAX_TXE. */
 #define EFA_RDM_DEFAULT_MAX_TXE		(8192)
@@ -227,11 +256,29 @@ struct efa_rdm_ope {
 
 #define EFA_RDM_OPE_ID_INVALID	((uint32_t) INT32_MAX)
 
-static_assert((((uint64_t) 1 << EFA_RDM_TXE_ID_BITS) - 1) <
-		      EFA_RDM_OPE_ID_INVALID,
+static_assert(((EFA_RDM_TXE_ID_GEN_MASK << EFA_RDM_TXE_ID_INDEX_BITS) |
+	       EFA_RDM_TXE_ID_INDEX_MASK) < EFA_RDM_OPE_ID_INVALID,
 	      "a txe id must never collide with EFA_RDM_OPE_ID_INVALID");
-static_assert(EFA_RDM_DEFAULT_MAX_TXE <= ((uint64_t) 1 << EFA_RDM_TXE_ID_BITS),
+static_assert(EFA_RDM_DEFAULT_MAX_TXE <= EFA_RDM_MAX_TXE_LIMIT,
 	      "the default txe pool cap must fit in a txe id");
+static_assert(EFA_RDM_TXE_ID_GEN_BITS == 8,
+	      "the generation field must match the width of ope::id_gen");
+
+/**
+ * @brief pool index named by a txe id
+ */
+static inline size_t efa_rdm_txe_id_index(uint32_t txe_id)
+{
+	return txe_id & EFA_RDM_TXE_ID_INDEX_MASK;
+}
+
+/**
+ * @brief slot generation named by a txe id
+ */
+static inline uint32_t efa_rdm_txe_id_gen(uint32_t txe_id)
+{
+	return (txe_id >> EFA_RDM_TXE_ID_INDEX_BITS) & EFA_RDM_TXE_ID_GEN_MASK;
+}
 
 /**
  * @brief Initialize the ope id
@@ -247,8 +294,10 @@ static inline uint32_t efa_rdm_ope_id(struct efa_rdm_ope *ope)
 		return EFA_RDM_OPE_ID_RXE | (uint32_t) index;
 
 	assert(ope->type == EFA_RDM_TXE);
-	assert(index < ((size_t) 1 << EFA_RDM_TXE_ID_BITS));
-	return (uint32_t) index;
+	assert(index < EFA_RDM_MAX_TXE_LIMIT);
+	return (((uint32_t) ope->id_gen & EFA_RDM_TXE_ID_GEN_MASK)
+		<< EFA_RDM_TXE_ID_INDEX_BITS) |
+	       ((uint32_t) index & EFA_RDM_TXE_ID_INDEX_MASK);
 }
 
 void efa_rdm_txe_construct(struct efa_rdm_ope *txe,

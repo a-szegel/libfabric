@@ -942,7 +942,8 @@ void test_efa_rdm_ope_txe_pool_cap_rejected(void **state)
 	assert_int_equal(fi_domain(resource->fabric, resource->info,
 				   &resource->domain, NULL), 0);
 
-	efa_env.rdm_max_txe = ((size_t) 1 << EFA_RDM_TXE_ID_BITS) + 1;
+	/* one past the largest cap a txe id can index */
+	efa_env.rdm_max_txe = EFA_RDM_MAX_TXE_LIMIT + 1;
 	assert_int_equal(fi_endpoint(resource->domain, resource->info,
 				     &resource->ep, NULL), -FI_EINVAL);
 
@@ -952,6 +953,113 @@ void test_efa_rdm_ope_txe_pool_cap_rejected(void **state)
 				     &resource->ep, NULL), -FI_EINVAL);
 
 	efa_env.rdm_max_txe = saved;
+}
+
+/**
+ * @brief Verify a txe id splits into a pool index and a slot generation.
+ *
+ * The split is fixed, so the index field is wider than the pool cap needs and
+ * the masks are what keep the two halves out of each other.
+ */
+void test_efa_rdm_txe_id_bits_split(void **state)
+{
+	uint32_t id;
+
+	/* the two halves account for every usable bit of a txe id */
+	assert_int_equal(EFA_RDM_TXE_ID_INDEX_BITS + EFA_RDM_TXE_ID_GEN_BITS,
+			 EFA_RDM_TXE_ID_BITS);
+	assert_int_equal(EFA_RDM_MAX_TXE_LIMIT,
+			 (size_t) 1 << EFA_RDM_TXE_ID_INDEX_BITS);
+
+	/* the default cap uses only part of the index field */
+	assert_true(EFA_RDM_DEFAULT_MAX_TXE <= EFA_RDM_MAX_TXE_LIMIT);
+
+	/* an id round trips through both accessors */
+	id = (7u << EFA_RDM_TXE_ID_INDEX_BITS) | 42u;
+	assert_int_equal(efa_rdm_txe_id_index(id), 42);
+	assert_int_equal(efa_rdm_txe_id_gen(id), 7);
+
+	/* the widest legal pair does not bleed into the other half */
+	id = (EFA_RDM_TXE_ID_GEN_MASK << EFA_RDM_TXE_ID_INDEX_BITS) |
+	     EFA_RDM_TXE_ID_INDEX_MASK;
+	assert_int_equal(efa_rdm_txe_id_index(id), EFA_RDM_TXE_ID_INDEX_MASK);
+	assert_int_equal(efa_rdm_txe_id_gen(id), EFA_RDM_TXE_ID_GEN_MASK);
+	assert_true(id < EFA_RDM_OPE_ID_INVALID);
+	assert_false(id & EFA_RDM_OPE_ID_RXE);
+	assert_false(id & ((uint32_t) 1 << EFA_RDM_TXE_ID_BITS));
+
+	/* a generation never reaches the index, whatever the cap in use */
+	assert_int_equal(efa_rdm_txe_id_index(
+				 EFA_RDM_TXE_ID_GEN_MASK
+				 << EFA_RDM_TXE_ID_INDEX_BITS),
+			 0);
+}
+
+/**
+ * @brief Verify a txe id stops resolving once its txe is released.
+ *
+ * The pool hands the slot straight to the next txe, so an id a peer is still
+ * echoing back -- a CTS for a transfer the sender already gave up on -- must
+ * not resolve to the slot's new occupant.
+ */
+void test_efa_rdm_txe_id_rejects_stale_id(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe, *reused;
+	uint32_t stale_id;
+	uint8_t stale_gen;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	stale_id = txe->tx_id;
+	stale_gen = txe->id_gen;
+	assert_ptr_equal(efa_rdm_ep_live_txe_from_id(ep, stale_id), txe);
+
+	efa_rdm_txe_release(txe);
+	assert_null(efa_rdm_ep_live_txe_from_id(ep, stale_id));
+
+	reused = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(reused);
+	assert_int_equal(efa_rdm_txe_id_index(reused->tx_id),
+			 efa_rdm_txe_id_index(stale_id));
+	assert_int_equal(reused->id_gen, (uint8_t) (stale_gen + 1));
+	assert_int_not_equal(reused->tx_id, stale_id);
+
+	assert_null(efa_rdm_ep_live_txe_from_id(ep, stale_id));
+	assert_ptr_equal(efa_rdm_ep_live_txe_from_id(ep, reused->tx_id), reused);
+
+	efa_rdm_txe_release(reused);
+}
+
+/**
+ * @brief Verify ids that name no live txe are rejected.
+ */
+void test_efa_rdm_txe_id_rejects_bad_ids(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *rxe;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	/* an id the peer never told us */
+	assert_null(efa_rdm_ep_live_txe_from_id(ep, EFA_RDM_OPE_ID_INVALID));
+
+	/* an rxe id: a legal index, but of the other pool */
+	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_msg);
+	assert_non_null(rxe);
+	assert_null(efa_rdm_ep_live_txe_from_id(ep, rxe->rx_id));
+	efa_rdm_rxe_release(rxe);
+
+	/* a slot holding no txe */
+	assert_null(efa_rdm_ep_live_txe_from_id(ep, efa_env.rdm_max_txe - 1));
 }
 
 void test_efa_rdm_rxe_map(void **state)

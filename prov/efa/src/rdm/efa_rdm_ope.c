@@ -111,6 +111,7 @@ void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
 void efa_rdm_txe_release(struct efa_rdm_ope *txe)
 {
 	int i, err = 0;
+	uint8_t id_gen;
 	struct dlist_entry *tmp;
 	struct efa_rdm_pke *pkt_entry;
 
@@ -159,10 +160,15 @@ void efa_rdm_txe_release(struct efa_rdm_ope *txe)
 
 	txe->gen++;
 	txe->gen &= EFA_RDM_GEN_MASK;
+	/* Bump the slot generation so any id this txe handed the peer stops
+	 * resolving, and carry it across the poisoning: it is the only thing
+	 * that tells such an id from one naming the slot's next occupant. */
+	id_gen = txe->id_gen + 1;
 #ifdef ENABLE_EFA_POISONING
 	efa_rdm_poison_mem_region(txe,
 			      sizeof(struct efa_rdm_ope));
 #endif
+	txe->id_gen = id_gen;
 	ofi_buf_free(txe);
 }
 

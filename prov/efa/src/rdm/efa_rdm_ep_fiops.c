@@ -254,10 +254,10 @@ int efa_rdm_ep_create_buffer_pools(struct efa_rdm_ep *ep)
 		goto err_free;
 	}
 
-	if (max_txe > ((size_t) 1 << EFA_RDM_TXE_ID_BITS)) {
+	if (max_txe > EFA_RDM_MAX_TXE_LIMIT) {
 		EFA_WARN(FI_LOG_EP_CTRL,
 			 "FI_EFA_RDM_MAX_TXE %zu exceeds the %zu entries a txe id can index\n",
-			 max_txe, (size_t) 1 << EFA_RDM_TXE_ID_BITS);
+			 max_txe, EFA_RDM_MAX_TXE_LIMIT);
 		ret = -FI_EINVAL;
 		goto err_free;
 	}

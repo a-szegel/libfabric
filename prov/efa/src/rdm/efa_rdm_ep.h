@@ -267,6 +267,50 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep,
 					   struct efa_rdm_peer *peer, uint32_t op);
 
 /**
+ * @brief look up the txe named by a txe id the peer echoed back
+ *
+ * @param[in] ep	endpoint that created @p txe_id
+ * @param[in] txe_id	txe id read out of a received packet
+ * @return the txe occupying the pool slot @p txe_id names
+ */
+static inline struct efa_rdm_ope *
+efa_rdm_ep_txe_from_id(struct efa_rdm_ep *ep, uint32_t txe_id)
+{
+	return ofi_bufpool_get_ibuf(ep->base_ep.txe_pool,
+				    efa_rdm_txe_id_index(txe_id));
+}
+
+/**
+ * @brief resolve a txe id, rejecting one that no longer names its own txe
+ *
+ * A txe id is only a hint until it is checked: the pool slot it names is
+ * handed to an unrelated transfer as soon as the original txe is released, so
+ * an id that outlived its txe must be rejected rather than applied to the
+ * slot's new occupant.
+ *
+ * @param[in] ep	endpoint that created @p txe_id
+ * @param[in] txe_id	txe id read out of a received packet
+ * @return the txe that created @p txe_id, or NULL if it is no longer live
+ */
+static inline struct efa_rdm_ope *
+efa_rdm_ep_live_txe_from_id(struct efa_rdm_ep *ep, uint32_t txe_id)
+{
+	struct efa_rdm_ope *txe;
+
+	if (txe_id == EFA_RDM_OPE_ID_INVALID || (txe_id & EFA_RDM_OPE_ID_RXE) ||
+	    !ofi_bufpool_ibuf_is_valid(ep->base_ep.txe_pool,
+				       efa_rdm_txe_id_index(txe_id)))
+		return NULL;
+
+	txe = efa_rdm_ep_txe_from_id(ep, txe_id);
+	if (txe->type != EFA_RDM_TXE ||
+	    txe->id_gen != efa_rdm_txe_id_gen(txe_id))
+		return NULL;
+
+	return txe;
+}
+
+/**
  * @brief look up the ope named by an ope id the peer echoed back
  *
  * The two pools have independent index spaces, so the pool comes from the
@@ -283,7 +327,7 @@ efa_rdm_ep_ope_from_id(struct efa_rdm_ep *ep, uint32_t ope_id)
 		return ofi_bufpool_get_ibuf(ep->base_ep.rxe_pool,
 					    ope_id & EFA_RDM_OPE_ID_INDEX_MASK);
 
-	return ofi_bufpool_get_ibuf(ep->base_ep.txe_pool, ope_id);
+	return efa_rdm_ep_txe_from_id(ep, ope_id);
 }
 
 void efa_rdm_ep_record_tx_op_submitted(struct efa_rdm_ep *ep, struct efa_rdm_pke *pkt_entry);
