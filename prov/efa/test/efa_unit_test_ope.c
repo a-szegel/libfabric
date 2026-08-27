@@ -769,6 +769,34 @@ void test_efa_rdm_rxe_handle_error_not_write_cq(void **state)
 	efa_rdm_rxe_release(rxe);
 }
 
+/**
+ * @brief Verify a fresh ope names itself, but not yet its peer.
+ *
+ * The id a side creates for itself is always legal. The peer's id is only
+ * learned from the wire, so until a packet carries it the field must read
+ * back as the reserved invalid id rather than as whatever the pool last
+ * left there.
+ */
+void test_efa_rdm_ope_peer_id_invalid_until_learned(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ope *txe, *rxe;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	assert_int_not_equal(txe->tx_id, EFA_RDM_OPE_ID_INVALID);
+	assert_int_equal(txe->rx_id, EFA_RDM_OPE_ID_INVALID);
+	efa_rdm_txe_release(txe);
+
+	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_msg);
+	assert_non_null(rxe);
+	assert_int_not_equal(rxe->rx_id, EFA_RDM_OPE_ID_INVALID);
+	assert_int_equal(rxe->tx_id, EFA_RDM_OPE_ID_INVALID);
+	efa_rdm_rxe_release(rxe);
+}
+
 void test_efa_rdm_rxe_map(void **state)
 {
 	struct efa_resource *resource = *state;

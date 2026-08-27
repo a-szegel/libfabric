@@ -214,6 +214,20 @@ struct efa_rdm_ope {
 	int peer_error_prov_errno;
 };
 
+#define EFA_RDM_OPE_ID_INVALID	((uint32_t) INT32_MAX)
+
+/**
+ * @brief Initialize the ope id
+ */
+static inline uint32_t efa_rdm_ope_id(struct efa_rdm_ope *ope)
+{
+	size_t index = ofi_buf_index(ope);
+
+	/* keeps EFA_RDM_OPE_ID_INVALID out of the legal id space */
+	assert(index < EFA_RDM_OPE_ID_INVALID);
+	return (uint32_t) index;
+}
+
 void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
 			   struct efa_rdm_ep *ep,
 		      	   struct efa_rdm_peer *peer,
