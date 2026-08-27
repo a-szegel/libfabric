@@ -251,7 +251,7 @@ int efa_rdm_ep_create_buffer_pools(struct efa_rdm_ep *ep)
 	/* FI_EFA_RDM_MAX_TXE is a request. The pool still has to back the tx
 	 * size the endpoint advertises, and still cannot outgrow what a txe id
 	 * can index, so adjust a request that does not fit and say so. */
-	max_txe = ((size_t) 1 << EFA_RDM_OPE_ID_BITS);
+	max_txe = EFA_RDM_MAX_TXE_LIMIT;
 	min_txe = MIN(roundup_power_of_two(ep->base_ep.info->tx_attr->size),
 		      max_txe);
 	requested_txe = efa_env.rdm_max_txe;

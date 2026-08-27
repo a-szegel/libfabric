@@ -78,7 +78,16 @@ enum efa_rdm_cuda_copy_method {
  */
 struct efa_rdm_ope {
 	enum efa_rdm_ope_type type;
-	uint8_t gen; /**< generation counter, incremented on release for use-after-free detection */
+	/**
+	 * @brief generation of this pool slot
+	 *
+	 * Bumped on release and preserved across the release-time poisoning,
+	 * so it tells this occupant of the slot from any earlier one. A pke
+	 * snapshots it to catch a stale ope back-pointer, and a txe id carries
+	 * it so a peer's id stops resolving once the slot moves on. That second
+	 * use is not debug only, so this must stay correct in release builds.
+	 */
+	uint8_t gen;
 
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_peer *peer;
@@ -218,6 +227,19 @@ struct efa_rdm_ope {
  * EFA_RDM_OPE_ID_INVALID, leaving every ope id 30 bits. */
 #define EFA_RDM_OPE_ID_BITS		(30)
 
+/* A slot is reused as soon as its txe is released, so a txe id spends its top
+ * bits on the slot generation to tell a live id from one that outlived it. */
+#define EFA_RDM_TXE_ID_GEN_BITS		(8)
+#define EFA_RDM_TXE_ID_INDEX_BITS \
+	(EFA_RDM_OPE_ID_BITS - EFA_RDM_TXE_ID_GEN_BITS)
+#define EFA_RDM_TXE_ID_INDEX_MASK \
+	(((uint32_t) 1 << EFA_RDM_TXE_ID_INDEX_BITS) - 1)
+#define EFA_RDM_TXE_ID_GEN_MASK \
+	(((uint32_t) 1 << EFA_RDM_TXE_ID_GEN_BITS) - 1)
+
+/* Largest txe pool cap a txe id can index, see FI_EFA_RDM_MAX_TXE. */
+#define EFA_RDM_MAX_TXE_LIMIT		((size_t) 1 << EFA_RDM_TXE_ID_INDEX_BITS)
+
 /* Default cap on concurrent tx operations, see FI_EFA_RDM_MAX_TXE. */
 #define EFA_RDM_DEFAULT_TXE_POOL_SIZE	(8192)
 
@@ -233,11 +255,29 @@ struct efa_rdm_ope {
 static_assert(EFA_RDM_OPE_POOL_MAX_CNT - 1 < EFA_RDM_OPE_ID_INVALID,
 	      "an ope pool index must never reach EFA_RDM_OPE_ID_INVALID");
 
-static_assert((((uint64_t) 1 << EFA_RDM_OPE_ID_BITS) - 1) <
-		      EFA_RDM_OPE_ID_INVALID,
+static_assert(((EFA_RDM_TXE_ID_GEN_MASK << EFA_RDM_TXE_ID_INDEX_BITS) |
+	       EFA_RDM_TXE_ID_INDEX_MASK) < EFA_RDM_OPE_ID_INVALID,
 	      "a txe id must never collide with EFA_RDM_OPE_ID_INVALID");
-static_assert(EFA_RDM_DEFAULT_TXE_POOL_SIZE <= ((uint64_t) 1 << EFA_RDM_OPE_ID_BITS),
+static_assert(EFA_RDM_DEFAULT_TXE_POOL_SIZE <= EFA_RDM_MAX_TXE_LIMIT,
 	      "the default txe pool cap must fit in a txe id");
+static_assert(EFA_RDM_TXE_ID_GEN_BITS == 8,
+	      "the generation field must match the width of ope::gen");
+
+/**
+ * @brief pool index named by a txe id
+ */
+static inline size_t efa_rdm_txe_id_index(uint32_t txe_id)
+{
+	return txe_id & EFA_RDM_TXE_ID_INDEX_MASK;
+}
+
+/**
+ * @brief slot generation named by a txe id
+ */
+static inline uint32_t efa_rdm_txe_id_gen(uint32_t txe_id)
+{
+	return (txe_id >> EFA_RDM_TXE_ID_INDEX_BITS) & EFA_RDM_TXE_ID_GEN_MASK;
+}
 
 /**
  * @brief Initialize the ope id
@@ -253,8 +293,10 @@ static inline uint32_t efa_rdm_ope_get_ope_id(struct efa_rdm_ope *ope)
 		return EFA_RDM_OPE_ID_RXE | (uint32_t) index;
 
 	assert(ope->type == EFA_RDM_TXE);
-	assert(index < ((size_t) 1 << EFA_RDM_OPE_ID_BITS));
-	return (uint32_t) index;
+	assert(index < EFA_RDM_MAX_TXE_LIMIT);
+	return (((uint32_t) ope->gen & EFA_RDM_TXE_ID_GEN_MASK)
+		<< EFA_RDM_TXE_ID_INDEX_BITS) |
+	       ((uint32_t) index & EFA_RDM_TXE_ID_INDEX_MASK);
 }
 
 void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
