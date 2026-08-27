@@ -323,6 +323,7 @@ void test_efa_rdm_srx_entry_released_matched_msg(void **state);
 void test_efa_rdm_srx_entry_released_unmatched_msg(void **state);
 void test_efa_rdm_srx_entry_released_matched_tagged(void **state);
 void test_efa_rdm_srx_entry_released_unmatched_tagged(void **state);
+void test_efa_rdm_ope_id_carries_ope_type(void **state);
 void test_efa_rdm_rxe_map(void **state);
 void test_efa_rdm_rxe_list_removal(void **state);
 void test_efa_rdm_txe_list_removal(void **state);

@@ -214,6 +214,10 @@ struct efa_rdm_ope {
 	int peer_error_prov_errno;
 };
 
+/* MSB of an ope id tells a txe id from an rxe id; the rest is the pool index. */
+#define EFA_RDM_OPE_ID_RXE		((uint32_t) 1 << 31)
+#define EFA_RDM_OPE_ID_INDEX_MASK	(~EFA_RDM_OPE_ID_RXE)
+
 #define EFA_RDM_OPE_ID_INVALID	((uint32_t) INT32_MAX)
 
 /* Max entries an ope pool may hold limited by uint32_t pool index - 2 bits */
@@ -231,6 +235,11 @@ static inline uint32_t efa_rdm_ope_get_ope_id(struct efa_rdm_ope *ope)
 
 	/* keeps EFA_RDM_OPE_ID_INVALID out of the legal id space */
 	assert(index < EFA_RDM_OPE_ID_INVALID);
+
+	if (ope->type == EFA_RDM_RXE)
+		return EFA_RDM_OPE_ID_RXE | (uint32_t) index;
+
+	assert(ope->type == EFA_RDM_TXE);
 	return (uint32_t) index;
 }
 
