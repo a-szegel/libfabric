@@ -214,6 +214,13 @@ struct efa_rdm_ope {
 	int peer_error_prov_errno;
 };
 
+/* Bit 31 tags an id txe or rxe and bit 30 stays zero to keep a txe id out of
+ * EFA_RDM_OPE_ID_INVALID, leaving every ope id 30 bits. */
+#define EFA_RDM_OPE_ID_BITS		(30)
+
+/* Default cap on concurrent tx operations, see FI_EFA_RDM_MAX_TXE. */
+#define EFA_RDM_DEFAULT_TXE_POOL_SIZE	(8192)
+
 /* MSB of an ope id tells a txe id from an rxe id; the rest is the pool index. */
 #define EFA_RDM_OPE_ID_RXE		((uint32_t) 1 << 31)
 #define EFA_RDM_OPE_ID_INDEX_MASK	(~EFA_RDM_OPE_ID_RXE)
@@ -225,6 +232,12 @@ struct efa_rdm_ope {
 
 static_assert(EFA_RDM_OPE_POOL_MAX_CNT - 1 < EFA_RDM_OPE_ID_INVALID,
 	      "an ope pool index must never reach EFA_RDM_OPE_ID_INVALID");
+
+static_assert((((uint64_t) 1 << EFA_RDM_OPE_ID_BITS) - 1) <
+		      EFA_RDM_OPE_ID_INVALID,
+	      "a txe id must never collide with EFA_RDM_OPE_ID_INVALID");
+static_assert(EFA_RDM_DEFAULT_TXE_POOL_SIZE <= ((uint64_t) 1 << EFA_RDM_OPE_ID_BITS),
+	      "the default txe pool cap must fit in a txe id");
 
 /**
  * @brief Initialize the ope id
@@ -240,6 +253,7 @@ static inline uint32_t efa_rdm_ope_get_ope_id(struct efa_rdm_ope *ope)
 		return EFA_RDM_OPE_ID_RXE | (uint32_t) index;
 
 	assert(ope->type == EFA_RDM_TXE);
+	assert(index < ((size_t) 1 << EFA_RDM_OPE_ID_BITS));
 	return (uint32_t) index;
 }
 
