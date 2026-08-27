@@ -656,6 +656,10 @@ err_close_shm_ep:
 				fi_strerror(-retv));
 	}
 err_destroy_base_ep:
+	if (efa_rdm_ep->shm_info) {
+		fi_freeinfo(efa_rdm_ep->shm_info);
+		efa_rdm_ep->shm_info = NULL;
+	}
 	efa_base_ep_destruct(&efa_rdm_ep->base_ep);
 err_free_ep:
 	if (efa_rdm_ep)
