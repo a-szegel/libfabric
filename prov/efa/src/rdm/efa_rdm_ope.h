@@ -214,15 +214,50 @@ struct efa_rdm_ope {
 	int peer_error_prov_errno;
 };
 
-/* Every bit set is reserved as an ope id that is never legal. */
+/* Bit 31 of an ope id tags the kind, set for a txe id and clear for an rxe id,
+ * and the 31 bits below it carry the pool index. */
+#define EFA_RDM_OPE_ID_TAG		((uint32_t) 1 << 31)
+#define EFA_RDM_OPE_ID_MASK		(~EFA_RDM_OPE_ID_TAG)
+
+/* Every bit set is reserved as an ope id that is never legal. An rxe id never
+ * sets the tag, so it can never reach it, and the pool cap below stops a txe
+ * index one short of the one that would produce it. */
 #define EFA_RDM_OPE_ID_INVALID		UINT32_MAX
 
-/* An ope id is a pool index, so a pool is capped to keep every index it hands
- * out clear of the sentinel. */
-#define EFA_RDM_OPE_POOL_MAX_CNT	((size_t) EFA_RDM_OPE_ID_INVALID)
+/* An ope id is a pool index beside the tag, so a pool holds at most as many
+ * entries as that payload can name, less the one index a txe id would turn
+ * into the sentinel. */
+#define EFA_RDM_OPE_POOL_MAX_CNT	((size_t) EFA_RDM_OPE_ID_MASK)
 
-static_assert(EFA_RDM_OPE_POOL_MAX_CNT - 1 < EFA_RDM_OPE_ID_INVALID,
-	      "an ope pool index must never reach EFA_RDM_OPE_ID_INVALID");
+static_assert((EFA_RDM_OPE_ID_INVALID & EFA_RDM_OPE_ID_TAG) != 0,
+	      "the sentinel must be txe tagged so no rxe id can reach it");
+static_assert((EFA_RDM_OPE_ID_TAG | (EFA_RDM_OPE_POOL_MAX_CNT - 1)) <
+		      EFA_RDM_OPE_ID_INVALID,
+	      "the largest txe id must stop short of the sentinel");
+
+/**
+ * @brief whether an ope id names an rxe, which is to say its tag is clear
+ */
+static inline bool efa_rdm_ope_id_is_rxe(uint32_t ope_id)
+{
+	return !(ope_id & EFA_RDM_OPE_ID_TAG);
+}
+
+/**
+ * @brief pool index named by an rxe id
+ */
+static inline size_t efa_rdm_rxe_id_index(uint32_t rxe_id)
+{
+	return rxe_id & EFA_RDM_OPE_ID_MASK;
+}
+
+/**
+ * @brief pool index named by a txe id
+ */
+static inline size_t efa_rdm_txe_id_index(uint32_t txe_id)
+{
+	return txe_id & EFA_RDM_OPE_ID_MASK;
+}
 
 /**
  * @brief Initialize the ope id
@@ -233,7 +268,12 @@ static inline uint32_t efa_rdm_ope_get_ope_id(struct efa_rdm_ope *ope)
 
 	/* the pool cap is what keeps EFA_RDM_OPE_ID_INVALID out of the id space */
 	assert(index < EFA_RDM_OPE_POOL_MAX_CNT);
-	return (uint32_t) index;
+
+	if (ope->type == EFA_RDM_RXE)
+		return (uint32_t) index;	/* the clear tag marks it rxe */
+
+	assert(ope->type == EFA_RDM_TXE);
+	return EFA_RDM_OPE_ID_TAG | (uint32_t) index;
 }
 
 void efa_rdm_txe_construct(struct efa_rdm_ope *txe,

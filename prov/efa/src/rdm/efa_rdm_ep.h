@@ -270,6 +270,27 @@ struct efa_rdm_peer *efa_rdm_ep_peer_map_remove(struct efa_av_array *arr, fi_add
 struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep,
 					   struct efa_rdm_peer *peer, uint32_t op);
 
+/**
+ * @brief look up the ope named by an ope id the peer echoed back
+ *
+ * @param[in] ep	endpoint that minted @p ope_id
+ * @param[in] ope_id	ope id read out of a received packet
+ * @return the ope named by @p ope_id
+ */
+static inline struct efa_rdm_ope *
+efa_rdm_ep_get_ope_from_ope_id(struct efa_rdm_ep *ep, uint32_t ope_id)
+{
+	struct efa_rdm_ope *ope;
+	size_t index = ope_id & EFA_RDM_OPE_ID_MASK;
+
+	assert(ofi_bufpool_ibuf_is_valid(ep->base_ep.ope_pool, index));
+	ope = ofi_bufpool_get_ibuf(ep->base_ep.ope_pool, index);
+	assert(ope->type == (efa_rdm_ope_id_is_rxe(ope_id) ? EFA_RDM_RXE
+							  : EFA_RDM_TXE));
+
+	return ope;
+}
+
 void efa_rdm_ep_record_tx_op_submitted(struct efa_rdm_ep *ep, struct efa_rdm_pke *pkt_entry);
 
 void efa_rdm_ep_record_tx_op_completed(struct efa_rdm_ep *ep, struct efa_rdm_pke *pkt_entry);
