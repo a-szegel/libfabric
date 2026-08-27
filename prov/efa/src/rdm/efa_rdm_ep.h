@@ -269,6 +269,9 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep,
 /**
  * @brief look up the ope named by an ope id the peer echoed back
  *
+ * The two pools have independent index spaces, so the pool comes from the
+ * id's own tag.
+ *
  * @param[in] ep	endpoint that minted @p ope_id
  * @param[in] ope_id	ope id read out of a received packet
  * @return the ope named by @p ope_id
@@ -276,14 +279,11 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep,
 static inline struct efa_rdm_ope *
 efa_rdm_ep_ope_from_id(struct efa_rdm_ep *ep, uint32_t ope_id)
 {
-	struct efa_rdm_ope *ope;
+	if (ope_id & EFA_RDM_OPE_ID_RXE)
+		return ofi_bufpool_get_ibuf(ep->base_ep.rxe_pool,
+					    ope_id & EFA_RDM_OPE_ID_INDEX_MASK);
 
-	ope = ofi_bufpool_get_ibuf(ep->base_ep.ope_pool,
-				   ope_id & EFA_RDM_OPE_ID_INDEX_MASK);
-	assert(ope->type == ((ope_id & EFA_RDM_OPE_ID_RXE) ? EFA_RDM_RXE
-							   : EFA_RDM_TXE));
-
-	return ope;
+	return ofi_bufpool_get_ibuf(ep->base_ep.txe_pool, ope_id);
 }
 
 void efa_rdm_ep_record_tx_op_submitted(struct efa_rdm_ep *ep, struct efa_rdm_pke *pkt_entry);

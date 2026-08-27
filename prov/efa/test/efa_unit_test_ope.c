@@ -806,12 +806,9 @@ void test_efa_rdm_ope_peer_id_invalid_until_learned(void **state)
 void test_efa_rdm_ope_id_carries_ope_type(void **state)
 {
 	struct efa_resource *resource = *state;
-	struct efa_rdm_ep *ep;
 	struct efa_rdm_ope *txe, *rxe;
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
-	ep = container_of(resource->ep, struct efa_rdm_ep,
-			  base_ep.util_ep.ep_fid);
 
 	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
 	assert_non_null(txe);
@@ -826,11 +823,135 @@ void test_efa_rdm_ope_id_carries_ope_type(void **state)
 	assert_int_equal(rxe->rx_id & EFA_RDM_OPE_ID_INDEX_MASK,
 			 ofi_buf_index(rxe));
 
+	efa_rdm_txe_release(txe);
+	efa_rdm_rxe_release(rxe);
+}
+
+/**
+ * @brief Verify an ope id resolves to the pool it was minted from.
+ *
+ * txes and rxes come from separate pools with independent index spaces, so
+ * the two can share a pool index and only the tag in the id tells them
+ * apart.
+ */
+void test_efa_rdm_ope_id_selects_pool(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe, *rxe;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
+	assert_non_null(txe);
+	rxe = efa_unit_test_alloc_rxe(resource, ofi_op_msg);
+	assert_non_null(rxe);
+
+	assert_int_equal(ofi_buf_index(txe), ofi_buf_index(rxe));
+	assert_int_not_equal(txe->tx_id, rxe->rx_id);
+
 	assert_ptr_equal(efa_rdm_ep_ope_from_id(ep, txe->tx_id), txe);
 	assert_ptr_equal(efa_rdm_ep_ope_from_id(ep, rxe->rx_id), rxe);
 
 	efa_rdm_txe_release(txe);
 	efa_rdm_rxe_release(rxe);
+}
+
+/**
+ * @brief Verify the txe pool never hands out an index past its cap.
+ *
+ * A txe id has room for a pool index only because the pool is capped.
+ */
+void test_efa_rdm_ope_txe_pool_capped(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope **txe;
+	size_t i, allocated, max_txe = efa_env.rdm_max_txe;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	txe = calloc(max_txe + 1, sizeof(*txe));
+	assert_non_null(txe);
+
+	for (allocated = 0; allocated < max_txe + 1; allocated++) {
+		txe[allocated] = ofi_buf_alloc(ep->base_ep.txe_pool);
+		if (!txe[allocated])
+			break;
+		assert_true(ofi_buf_index(txe[allocated]) < max_txe);
+	}
+	assert_int_equal(allocated, max_txe);
+
+	for (i = 0; i < allocated; i++)
+		ofi_buf_free(txe[i]);
+	free(txe);
+}
+
+/**
+ * @brief Verify FI_EFA_RDM_MAX_TXE sets the txe pool cap.
+ */
+void test_efa_rdm_ope_txe_pool_cap_from_env(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope *txe[513];
+	size_t i, allocated;
+	size_t saved = efa_env.rdm_max_txe;
+
+	efa_env.rdm_max_txe = 512;
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	ep = container_of(resource->ep, struct efa_rdm_ep,
+			  base_ep.util_ep.ep_fid);
+
+	for (allocated = 0; allocated < 513; allocated++) {
+		txe[allocated] = ofi_buf_alloc(ep->base_ep.txe_pool);
+		if (!txe[allocated])
+			break;
+	}
+	assert_int_equal(allocated, 512);
+
+	for (i = 0; i < allocated; i++)
+		ofi_buf_free(txe[i]);
+
+	efa_env.rdm_max_txe = saved;
+	assert_int_equal(efa_env.rdm_max_txe, EFA_RDM_DEFAULT_MAX_TXE);
+}
+
+/**
+ * @brief Verify a txe pool cap no txe id can serve fails endpoint creation.
+ *
+ * Accepting a cap larger than the id space would let two live txes end up
+ * with the same id.
+ */
+void test_efa_rdm_ope_txe_pool_cap_rejected(void **state)
+{
+	struct efa_resource *resource = *state;
+	size_t saved = efa_env.rdm_max_txe;
+
+	resource->hints = efa_unit_test_alloc_hints(FI_EP_RDM, EFA_FABRIC_NAME);
+	assert_non_null(resource->hints);
+	assert_int_equal(fi_getinfo(FI_VERSION(2, 0), NULL, NULL, 0ULL,
+				    resource->hints, &resource->info), 0);
+	assert_int_equal(fi_fabric(resource->info->fabric_attr,
+				   &resource->fabric, NULL), 0);
+	assert_int_equal(fi_domain(resource->fabric, resource->info,
+				   &resource->domain, NULL), 0);
+
+	efa_env.rdm_max_txe = ((size_t) 1 << EFA_RDM_TXE_ID_BITS) + 1;
+	assert_int_equal(fi_endpoint(resource->domain, resource->info,
+				     &resource->ep, NULL), -FI_EINVAL);
+
+	/* a cap of 0 could back no txe at all */
+	efa_env.rdm_max_txe = 0;
+	assert_int_equal(fi_endpoint(resource->domain, resource->info,
+				     &resource->ep, NULL), -FI_EINVAL);
+
+	efa_env.rdm_max_txe = saved;
 }
 
 void test_efa_rdm_rxe_map(void **state)
@@ -945,7 +1066,7 @@ void test_efa_rdm_txe_prepare_local_read_pkt_entry(void **state)
 	assert_int_equal(fi_endpoint(resource->domain, resource->info, &ep, NULL), 0);
 	efa_rdm_ep = container_of(ep, struct efa_rdm_ep, base_ep.util_ep.ep_fid);
 
-	txe = ofi_buf_alloc(efa_rdm_ep->base_ep.ope_pool);
+	txe = ofi_buf_alloc(efa_rdm_ep->base_ep.txe_pool);
 	assert_non_null(txe);
 	efa_rdm_txe_construct(txe, efa_rdm_ep, NULL, &msg, ofi_op_msg, 0, 0);
 
