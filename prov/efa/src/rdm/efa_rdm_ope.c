@@ -27,7 +27,9 @@ void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
 	txe->ep = ep;
 	txe->type = EFA_RDM_TXE;
 	txe->op = op;
-	txe->tx_id = ofi_buf_index(txe);
+	txe->tx_id = efa_rdm_ope_id(txe);
+	/* the receiver's id is only learned from its first CTS */
+	txe->rx_id = EFA_RDM_OPE_ID_INVALID;
 	txe->state = EFA_RDM_TXE_REQ;
 	txe->peer = peer;
 	/* peer would be NULL for local read operation */
@@ -109,6 +111,7 @@ void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
 void efa_rdm_txe_release(struct efa_rdm_ope *txe)
 {
 	int i, err = 0;
+	uint8_t id_gen;
 	struct dlist_entry *tmp;
 	struct efa_rdm_pke *pkt_entry;
 
@@ -157,10 +160,15 @@ void efa_rdm_txe_release(struct efa_rdm_ope *txe)
 
 	txe->gen++;
 	txe->gen &= EFA_RDM_GEN_MASK;
+	/* Bump the slot generation so any id this txe handed the peer stops
+	 * resolving, and carry it across the poisoning: it is the only thing
+	 * that tells such an id from one naming the slot's next occupant. */
+	id_gen = txe->id_gen + 1;
 #ifdef ENABLE_EFA_POISONING
 	efa_rdm_poison_mem_region(txe,
 			      sizeof(struct efa_rdm_ope));
 #endif
+	txe->id_gen = id_gen;
 	ofi_buf_free(txe);
 }
 
