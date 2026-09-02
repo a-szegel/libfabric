@@ -773,6 +773,10 @@ efa_rdm_msg_alloc_rxe_for_msgrtm(struct efa_rdm_ep *ep,
 	if (ret == FI_SUCCESS) { /* A matched rxe is found */
 		rxe = efa_rdm_msg_alloc_matched_rxe_for_rtm(ep, *pkt_entry_ptr, peer_rxe, ofi_op_msg);
 		if (OFI_UNLIKELY(!rxe)) {
+			/* This entry is ours to release: get_msg() handed it over
+			 * and nothing else tracks it. It is marked matched, so
+			 * free_entry() just returns it to the srx pool. */
+			peer_srx->owner_ops->free_entry(peer_rxe);
 			efa_base_ep_write_eq_error(&ep->base_ep, FI_ENOBUFS, FI_EFA_ERR_RXE_POOL_EXHAUSTED);
 			return NULL;
 		}
@@ -792,6 +796,14 @@ efa_rdm_msg_alloc_rxe_for_msgrtm(struct efa_rdm_ep *ep,
 		 */
 		rxe = efa_rdm_msg_alloc_unexp_rxe_for_rtm(ep, pkt_entry_ptr, ofi_op_msg);
 		if (OFI_UNLIKELY(!rxe)) {
+			/* This entry is ours to release, but get_msg() marked it
+			 * unexpected without queueing it, and free_entry()
+			 * decrements the peer's unexpected count for anything
+			 * carrying that mark. Freeing it now would take that
+			 * count negative and trip the check in util_srx_close(),
+			 * so queue_msg() first and let the two cancel out. */
+			peer_srx->owner_ops->queue_msg(peer_rxe);
+			peer_srx->owner_ops->free_entry(peer_rxe);
 			efa_base_ep_write_eq_error(&ep->base_ep, FI_ENOBUFS, FI_EFA_ERR_RXE_POOL_EXHAUSTED);
 			return NULL;
 		}
@@ -862,6 +874,10 @@ efa_rdm_msg_alloc_rxe_for_tagrtm(struct efa_rdm_ep *ep,
 	if (ret == FI_SUCCESS) { /* A matched rxe is found */
 		rxe = efa_rdm_msg_alloc_matched_rxe_for_rtm(ep, *pkt_entry_ptr, peer_rxe, ofi_op_tagged);
 		if (OFI_UNLIKELY(!rxe)) {
+			/* This entry is ours to release: get_tag() handed it over
+			 * and nothing else tracks it. It is marked matched, so
+			 * free_entry() just returns it to the srx pool. */
+			peer_srx->owner_ops->free_entry(peer_rxe);
 			efa_base_ep_write_eq_error(&ep->base_ep, FI_ENOBUFS, FI_EFA_ERR_RXE_POOL_EXHAUSTED);
 			return NULL;
 		}
@@ -880,6 +896,14 @@ efa_rdm_msg_alloc_rxe_for_tagrtm(struct efa_rdm_ep *ep,
 		 */
 		rxe = efa_rdm_msg_alloc_unexp_rxe_for_rtm(ep, pkt_entry_ptr, ofi_op_tagged);
 		if (OFI_UNLIKELY(!rxe)) {
+			/* This entry is ours to release, but get_tag() marked it
+			 * unexpected without queueing it, and free_entry()
+			 * decrements the peer's unexpected count for anything
+			 * carrying that mark. Freeing it now would take that
+			 * count negative and trip the check in util_srx_close(),
+			 * so queue_tag() first and let the two cancel out. */
+			peer_srx->owner_ops->queue_tag(peer_rxe);
+			peer_srx->owner_ops->free_entry(peer_rxe);
 			efa_base_ep_write_eq_error(&ep->base_ep, FI_ENOBUFS, FI_EFA_ERR_RXE_POOL_EXHAUSTED);
 			return NULL;
 		}
