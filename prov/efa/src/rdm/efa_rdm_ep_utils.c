@@ -227,7 +227,7 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_p
 {
 	struct efa_rdm_ope *rxe;
 
-	rxe = ofi_buf_alloc(ep->base_ep.ope_pool);
+	rxe = ofi_buf_alloc(ep->base_ep.rxe_pool);
 	if (OFI_UNLIKELY(!rxe)) {
 		EFA_WARN(FI_LOG_EP_CTRL, "RX entries exhausted\n");
 		return NULL;
@@ -241,7 +241,9 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_p
 	rxe->internal_flags = 0;
 	rxe->protocol = 0;
 	rxe->fi_flags = 0;
-	rxe->rx_id = ofi_buf_index(rxe);
+	rxe->rx_id = efa_rdm_ope_get_ope_id(rxe);
+	/* the sender's id is only learned from its REQ packet */
+	rxe->tx_id = EFA_RDM_OPE_ID_INVALID;
 	rxe->iov_count = 0;
 	memset(rxe->mr, 0, sizeof(*rxe->mr) * EFA_RDM_IOV_LIMIT);
 
@@ -646,7 +648,7 @@ static ssize_t efa_rdm_ep_handshake_common(struct efa_rdm_ep *ep, struct efa_rdm
 
 	msg.addr = peer->conn->fi_addr;
 
-	txe = ofi_buf_alloc(ep->base_ep.ope_pool);
+	txe = ofi_buf_alloc(ep->base_ep.txe_pool);
 	if (OFI_UNLIKELY(!txe)) {
 		EFA_WARN(FI_LOG_EP_CTRL, "TX entries exhausted.\n");
 		return -FI_EAGAIN;
