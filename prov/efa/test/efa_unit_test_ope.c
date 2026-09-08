@@ -6,6 +6,7 @@
 #include "rdm/efa_rdm_pke_nonreq.h"
 #include "rdm/efa_rdm_mr.h"
 #include "rdm/efa_rdm_srx.h"
+#include "rdm/efa_rdm_rma.h"
 #include "ofi_util.h"
 
 typedef void (*efa_rdm_ope_handle_error_func_t)(struct efa_rdm_ope *ope, int err, int prov_errno);
@@ -6984,4 +6985,217 @@ void test_efa_rdm_srx_entry_released_matched_tagged(void **state)
 void test_efa_rdm_srx_entry_released_unmatched_tagged(void **state)
 {
 	test_efa_rdm_srx_entry_released_common(*state, true, false);
+}
+
+/**
+ * @brief Build a matched rxe that owns a peer_rxe, ready for the abort path.
+ *
+ * Mirrors the setup in
+ * test_efa_rdm_rxe_peer_abort_writes_error_completion_at_drain(): insert a
+ * peer, post a recv, match it through the SRX and hand the resulting
+ * peer_rxe to a fresh rxe. Caller must hold no locks; the SRX lock is taken
+ * and released internally around the match.
+ */
+static struct efa_rdm_ope *
+efa_unit_test_alloc_matched_rxe(struct efa_resource *resource,
+				struct efa_rdm_ep **ep_out,
+				struct util_srx_ctx **srx_ctx_out,
+				char *buf, size_t buf_len)
+{
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct util_srx_ctx *srx_ctx;
+	struct fid_peer_srx *peer_srx;
+	struct fi_peer_match_attr match_attr = {0};
+	struct fi_peer_rx_entry *peer_rxe = NULL;
+	struct efa_rdm_ope *rxe;
+	struct efa_rdm_peer *peer;
+	struct efa_ep_addr raw_addr = {0};
+	size_t raw_addr_len = sizeof(raw_addr);
+	fi_addr_t peer_addr = 0;
+	struct iovec iov;
+	void *desc = NULL;
+
+	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
+				  base_ep.util_ep.ep_fid);
+	srx_ctx = efa_rdm_ep_get_peer_srx_ctx(efa_rdm_ep);
+	peer_srx = util_get_peer_srx(efa_rdm_ep->peer_srx_ep);
+
+	assert_int_equal(fi_getname(&resource->ep->fid, &raw_addr, &raw_addr_len), 0);
+	raw_addr.qpn = 1;
+	raw_addr.qkey = 0x1234;
+	assert_int_equal(fi_av_insert(resource->av, &raw_addr, 1, &peer_addr, 0, NULL), 1);
+	peer = efa_rdm_ep_get_peer_explicit(efa_rdm_ep, peer_addr);
+	assert_non_null(peer);
+
+	iov.iov_base = buf;
+	iov.iov_len = buf_len;
+	assert_int_equal(util_srx_generic_recv(efa_rdm_ep->peer_srx_ep, &iov, &desc, 1,
+					       FI_ADDR_UNSPEC, (void *) 0xa1, 0),
+			 FI_SUCCESS);
+
+	match_attr.addr = FI_ADDR_UNSPEC;
+	match_attr.tag = 0;
+	match_attr.msg_size = buf_len;
+	ofi_genlock_lock(srx_ctx->lock);
+	assert_int_equal(peer_srx->owner_ops->get_msg(peer_srx, &match_attr, &peer_rxe),
+			 FI_SUCCESS);
+	assert_non_null(peer_rxe);
+
+	rxe = efa_rdm_ep_alloc_rxe(efa_rdm_ep, peer, ofi_op_msg);
+	assert_non_null(rxe);
+	rxe->state = EFA_RDM_RXE_MATCHED;
+	rxe->peer_rxe = peer_rxe;
+	rxe->cq_entry.op_context = peer_rxe->context;
+	rxe->cq_entry.flags = FI_RECV | FI_MSG;
+	rxe->cq_entry.len = buf_len;
+	rxe->total_len = buf_len;
+	rxe->iov_count = 1;
+	rxe->iov[0].iov_base = buf;
+	rxe->iov[0].iov_len = buf_len;
+	rxe->bytes_received = 0;
+	rxe->bytes_copied = 0;
+	ofi_genlock_unlock(srx_ctx->lock);
+
+	*ep_out = efa_rdm_ep;
+	*srx_ctx_out = srx_ctx;
+	return rxe;
+}
+
+/**
+ * @brief A peer abort must wait for an in-flight local-read payload copy.
+ *
+ * The read DMAs into the receive buffer, so the rxe cannot be freed while it
+ * is outstanding. Verify the drain is a no-op until the copy retires, and
+ * that the retiring copy yields one peer-abort error and no success.
+ */
+void test_efa_rdm_rxe_peer_abort_waits_for_local_read_copy(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct util_srx_ctx *srx_ctx;
+	struct efa_rdm_ope *rxe, *read_txe;
+	struct efa_rdm_pke *data_pkt_entry, *ctx_pkt_entry;
+	struct efa_rdm_rma_context_pkt *ctx_pkt;
+	struct fi_cq_err_entry err_entry;
+	struct fi_msg_rma msg_rma = {0};
+	struct fi_rma_iov rma_iov = {0};
+	struct iovec read_iov;
+	char buf[16];
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	rxe = efa_unit_test_alloc_matched_rxe(resource, &efa_rdm_ep, &srx_ctx,
+					      buf, sizeof(buf));
+
+	/*
+	 * Reproduce what efa_rdm_rxe_post_local_read_or_queue() leaves behind.
+	 * The payload packet comes from the ooo pool because it carries no RQ
+	 * accounting for the test to emulate.
+	 */
+	data_pkt_entry = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->rx_ooo_pkt_pool,
+					   EFA_RDM_PKE_FROM_OOO_POOL);
+	assert_non_null(data_pkt_entry);
+	data_pkt_entry->payload = data_pkt_entry->wiredata;
+	data_pkt_entry->payload_size = sizeof(buf);
+	efa_rdm_pke_set_ope(data_pkt_entry, rxe);
+
+	read_iov.iov_base = buf;
+	read_iov.iov_len = sizeof(buf);
+	rma_iov.addr = (uint64_t) data_pkt_entry->payload;
+	rma_iov.len = sizeof(buf);
+	msg_rma.msg_iov = &read_iov;
+	msg_rma.iov_count = 1;
+	msg_rma.rma_iov = &rma_iov;
+	msg_rma.rma_iov_count = 1;
+	msg_rma.addr = FI_ADDR_NOTAVAIL;
+
+	read_txe = efa_rdm_rma_alloc_txe(efa_rdm_ep, NULL, &msg_rma,
+					 ofi_op_read_req, 0, 0);
+	assert_non_null(read_txe);
+	read_txe->local_read_pkt_entry = data_pkt_entry;
+	read_txe->internal_flags |= EFA_RDM_OPE_INTERNAL;
+	read_txe->bytes_read_total_len = sizeof(buf);
+	read_txe->bytes_read_submitted = sizeof(buf);
+	rxe->efa_outstanding_tx_ops++;
+	efa_rdm_pke_mark_held(data_pkt_entry);
+
+	/* The abort decision is taken while the copy is still in flight. */
+	ofi_genlock_lock(srx_ctx->lock);
+	assert_true(efa_rdm_rxe_mark_peer_aborted_if_needed(rxe,
+			EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS));
+	assert_true(rxe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
+
+	/* Not drained: the copy read still references the rxe. */
+	efa_rdm_rxe_release_peer_abort_if_drained(rxe);
+	assert_non_null(rxe->peer_rxe);
+	assert_true(rxe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
+	ofi_genlock_unlock(srx_ctx->lock);
+
+	/* The abort's only user-visible output is an error entry; none yet. */
+	memset(&err_entry, 0, sizeof(err_entry));
+	assert_int_equal(fi_cq_readerr(resource->cq, &err_entry, 0), -FI_EAGAIN);
+
+	/* The copy lands: the completion handler drops the reference and
+	 * re-drives the drain. */
+	ctx_pkt_entry = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->efa_tx_pkt_pool,
+					  EFA_RDM_PKE_FROM_EFA_TX_POOL);
+	assert_non_null(ctx_pkt_entry);
+	efa_rdm_pke_set_ope(ctx_pkt_entry, read_txe);
+	ctx_pkt_entry->flags |= EFA_RDM_PKE_LOCAL_READ;
+	ctx_pkt = (struct efa_rdm_rma_context_pkt *) ctx_pkt_entry->wiredata;
+	ctx_pkt->type = EFA_RDM_RMA_CONTEXT_PKT;
+	ctx_pkt->version = EFA_RDM_PROTOCOL_VERSION;
+	ctx_pkt->flags = 0;
+	ctx_pkt->context_type = EFA_RDM_RDMA_READ_CONTEXT;
+	ctx_pkt->seg_size = sizeof(buf);
+
+	ofi_genlock_lock(srx_ctx->lock);
+	efa_rdm_pke_handle_rma_completion(ctx_pkt_entry);
+	ofi_genlock_unlock(srx_ctx->lock);
+
+	/* peer_rxe went back to the SRX, so nothing is left posted. */
+	assert_true(slist_empty(&srx_ctx->msg_queue));
+
+	/* Exactly one terminal completion, and it is the peer abort. */
+	memset(&err_entry, 0, sizeof(err_entry));
+	assert_int_equal(fi_cq_readerr(resource->cq, &err_entry, 0), 1);
+	assert_int_equal(err_entry.err, FI_ECANCELED);
+	assert_int_equal(err_entry.prov_errno, FI_EFA_ERR_PEER_ABORTED);
+	memset(&err_entry, 0, sizeof(err_entry));
+	assert_int_equal(fi_cq_readerr(resource->cq, &err_entry, 0), -FI_EAGAIN);
+}
+
+/**
+ * @brief With no copy in flight, a peer abort completes immediately.
+ *
+ * The counterpart of the test above: a receive whose payload copy was never
+ * initiated holds no reference, so the first drain call must write the error
+ * completion rather than deferring it (deferring with nothing left to retire
+ * it would hang the receive forever).
+ */
+void test_efa_rdm_rxe_peer_abort_with_no_local_read_copy_completes_now(void **state)
+{
+	struct efa_resource *resource = *state;
+	struct efa_rdm_ep *efa_rdm_ep;
+	struct util_srx_ctx *srx_ctx;
+	struct efa_rdm_ope *rxe;
+	struct fi_cq_err_entry err_entry;
+	char buf[16];
+
+	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
+	rxe = efa_unit_test_alloc_matched_rxe(resource, &efa_rdm_ep, &srx_ctx,
+					      buf, sizeof(buf));
+	assert_int_equal(rxe->efa_outstanding_tx_ops, 0);
+
+	ofi_genlock_lock(srx_ctx->lock);
+	assert_true(efa_rdm_rxe_mark_peer_aborted_if_needed(rxe,
+			EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS));
+	efa_rdm_rxe_release_peer_abort_if_drained(rxe);
+	ofi_genlock_unlock(srx_ctx->lock);
+
+	assert_true(slist_empty(&srx_ctx->msg_queue));
+
+	memset(&err_entry, 0, sizeof(err_entry));
+	assert_int_equal(fi_cq_readerr(resource->cq, &err_entry, 0), 1);
+	assert_int_equal(err_entry.err, FI_ECANCELED);
+	assert_int_equal(err_entry.prov_errno, FI_EFA_ERR_PEER_ABORTED);
 }

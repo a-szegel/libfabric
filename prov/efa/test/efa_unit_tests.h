@@ -355,6 +355,8 @@ void test_efa_rdm_ope_eor_packet_failed_posting(void **state);
 void test_efa_rdm_ope_eor_packet_tracking_unresponsive_wait_send(void **state);
 void test_efa_rdm_rxe_peer_abort_writes_error_completion_at_drain(void **state);
 void test_efa_rdm_rxe_mark_peer_aborted_multi_recv_writes_err(void **state);
+void test_efa_rdm_rxe_peer_abort_waits_for_local_read_copy(void **state);
+void test_efa_rdm_rxe_peer_abort_with_no_local_read_copy_completes_now(void **state);
 void test_efa_rdm_pke_handle_tx_error_longread_bad_address_peer_aborts(void **state);
 void test_efa_rdm_pke_handle_tx_error_longread_abort_peer_aborts(void **state);
 void test_efa_rdm_pke_handle_tx_error_longread_bad_length_writes_cq_err(void **state);
