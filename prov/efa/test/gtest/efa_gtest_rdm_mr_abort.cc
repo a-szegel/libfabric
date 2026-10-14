@@ -178,4 +178,58 @@ TEST_F(EfaRdmMrAbortTest, rnr_on_peer_error_pkt_requeues)
 	expect_cq_empty();
 }
 
+TEST_F(EfaRdmMrAbortTest, pre_handshake_abort_resends_handshake)
+{
+	struct efa_test_mr_abort_state before = {}, st = {};
+	uintptr_t wr_id = 0;
+
+	ASSERT_NO_FATAL_FAILURE(
+		setup_txe(EFA_TEST_MR_ABORT_PKT_LONGCTS_TAGRTM, false));
+	efa_test_mr_abort_set_peer_flags(true, true, false);
+	efa_test_mr_abort_snapshot(&before);
+
+	EFA_EXPECT_CALL(mock_efa, efa_qp_post_send)
+		.WillOnce(DoAll(SaveArg<5>(&wr_id), Return(0)));
+
+	efa_test_mr_abort_txe_handle_error();
+	efa_test_mr_abort_snapshot(&st);
+	ASSERT_TRUE(st.alive);
+	EXPECT_TRUE(st.peer_abort_pending);
+	EXPECT_FALSE(st.peer_error_emitted);
+	EXPECT_TRUE(st.peer_handshake_sent);
+	EXPECT_FALSE(st.peer_handshake_queued);
+	EXPECT_EQ(st.ep_outstanding, before.ep_outstanding + 1);
+	ASSERT_NE(wr_id, 0u);
+	EXPECT_EQ(efa_test_wire_pkt_type_from_wr_id(wr_id),
+		  efa_test_mr_abort_wire_type(EFA_TEST_MR_ABORT_PKT_HANDSHAKE));
+	expect_cq_empty();
+
+	efa_test_mr_abort_complete_send(wr_id);
+	efa_test_mr_abort_snapshot(&st);
+	EXPECT_EQ(st.ep_outstanding, before.ep_outstanding);
+	EXPECT_TRUE(st.alive);
+}
+
+TEST_F(EfaRdmMrAbortTest, pre_handshake_abort_skips_handshake_when_queued)
+{
+	struct efa_test_mr_abort_state before = {}, st = {};
+
+	ASSERT_NO_FATAL_FAILURE(
+		setup_txe(EFA_TEST_MR_ABORT_PKT_LONGCTS_TAGRTM, false));
+	efa_test_mr_abort_set_peer_flags(true, false, true);
+	efa_test_mr_abort_snapshot(&before);
+
+	EFA_EXPECT_CALL(mock_efa, efa_qp_post_send).Times(0);
+
+	efa_test_mr_abort_txe_handle_error();
+	efa_test_mr_abort_snapshot(&st);
+	ASSERT_TRUE(st.alive);
+	EXPECT_TRUE(st.peer_abort_pending);
+	EXPECT_FALSE(st.peer_error_emitted);
+	EXPECT_TRUE(st.peer_handshake_queued);
+	EXPECT_EQ(st.handshake_queued_peers, 1u);
+	EXPECT_EQ(st.ep_outstanding, before.ep_outstanding);
+	expect_cq_empty();
+}
+
 } // namespace

@@ -984,6 +984,27 @@ void efa_rdm_txe_progress_peer_abort_if_drained(struct efa_rdm_ope *txe)
 			 "Sender-side abort of msg_id %u decided before the "
 			 "peer's handshake; deferring PEER_ERROR emit until "
 			 "the handshake arrives.\n", txe->msg_id);
+		/*
+		 * Always send another HANDSHAKE while an abort is parked on
+		 * one. RTMs that do not wait for the handshake are never
+		 * guaranteed to complete.
+		 */
+		if (!(txe->peer->flags & EFA_RDM_PEER_HANDSHAKE_QUEUED)) {
+			err = efa_rdm_ep_post_handshake(txe->ep, txe->peer);
+			if (err == -FI_EAGAIN) {
+				txe->peer->flags |= EFA_RDM_PEER_HANDSHAKE_QUEUED;
+				dlist_insert_tail(&txe->peer->handshake_queued_entry,
+						  &txe->ep->handshake_queued_peer_list);
+				efa_rdm_ep_enqueue_progress_list(txe->ep);
+			} else if (OFI_UNLIKELY(err)) {
+				EFA_WARN(FI_LOG_CQ,
+					 "Failed to post HANDSHAKE for deferred "
+					 "peer abort of msg_id %u: %s\n",
+					 txe->msg_id, fi_strerror(-err));
+			} else {
+				txe->peer->flags |= EFA_RDM_PEER_HANDSHAKE_SENT;
+			}
+		}
 		return;
 	}
 
