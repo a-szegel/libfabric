@@ -1843,8 +1843,8 @@ void test_efa_rdm_atomic_compare_desc_persistence(void **state)
 	txe = efa_unit_test_get_first_ope(efa_rdm_ep, EFA_RDM_TXE);
 
 	/* Verify compare_desc was copied, not just pointer stored */
-	assert_ptr_equal(txe->atomic_ex.compare_desc[0], original_desc_value);
-	assert_ptr_equal(txe->atomic_ex.result_desc[0],
+	assert_ptr_equal(efa_rdm_txe_atomic(txe)->atomic_ex.compare_desc[0], original_desc_value);
+	assert_ptr_equal(efa_rdm_txe_atomic(txe)->atomic_ex.result_desc[0],
 			 original_result_desc_value);
 	efa_rdm_pke_handle_send_completion(efa_rdm_ep->send_pkt_entry_vec[0]);
 	efa_rdm_txe_release(txe);
@@ -4217,7 +4217,7 @@ void test_efa_rdm_pke_handle_peer_error_recv_atomic_txe_dropped(void **state)
 	txe = efa_unit_test_alloc_txe(resource, ofi_op_atomic_fetch);
 	assert_non_null(txe);
 	txe->msg_id = 0x1234;
-	txe->atomic_proto = &efa_rdm_atomic_fetch_proto;
+	efa_rdm_txe_atomic(txe)->atomic_proto = &efa_rdm_atomic_fetch_proto;
 	tx_id = txe->tx_id;
 
 	request_pke = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
@@ -6753,12 +6753,13 @@ void test_efa_rdm_txe_handle_error_emulated_canceled_not_peer_aborted(void **sta
  * is that a cap exists, not what it is, so a pool with the same entry size and
  * a cap of two exercises the same exhaustion path.
  */
-static void efa_unit_test_shrink_ope_pool(struct ofi_bufpool **pool)
+static void efa_unit_test_shrink_ope_pool(struct ofi_bufpool **pool,
+					  size_t entry_size)
 {
 	ofi_bufpool_destroy(*pool);
 	/* a test leaves entries held on purpose, so opt out of the tracking
 	 * that would make destroying the pool complain about them */
-	assert_int_equal(ofi_bufpool_create(pool, sizeof(struct efa_rdm_ope),
+	assert_int_equal(ofi_bufpool_create(pool, entry_size,
 					    EFA_RDM_BUFPOOL_ALIGNMENT, 2, 2,
 					    OFI_BUFPOOL_NO_TRACK),
 			 0);
@@ -6825,7 +6826,8 @@ void test_efa_rdm_ope_txe_pool_cap_fails_send(void **state)
 	/* the endpoint's own pool is bounded, which is what the id space
 	 * relies on; the value of the bound is checked elsewhere */
 	assert_true(ep->base_ep.txe_pool->attr.max_cnt > 0);
-	efa_unit_test_shrink_ope_pool(&ep->base_ep.txe_pool);
+	efa_unit_test_shrink_ope_pool(&ep->base_ep.txe_pool,
+				      sizeof(union efa_rdm_txe_slot));
 
 	/* neither send completes, so each one holds its txe */
 	assert_int_equal(fi_send(resource->ep, NULL, 0, NULL, addr, NULL), 0);
@@ -6865,7 +6867,8 @@ void test_efa_rdm_ope_rxe_pool_cap_fails_recv(void **state)
 
 	assert_int_equal(ep->base_ep.rxe_pool->attr.max_cnt,
 			 EFA_RDM_RXE_POOL_MAX_CNT);
-	efa_unit_test_shrink_ope_pool(&ep->base_ep.rxe_pool);
+	efa_unit_test_shrink_ope_pool(&ep->base_ep.rxe_pool,
+				      sizeof(union efa_rdm_rxe_slot));
 
 	/* the one posted receive takes the first arrival, and the arrivals
 	 * behind it go unexpected, so each one holds an rxe */
@@ -6930,7 +6933,8 @@ static void test_efa_rdm_srx_entry_released_common(struct efa_resource *resource
 	}
 
 	/* drain the pool so the arrival cannot get an rxe at all */
-	efa_unit_test_shrink_ope_pool(&ep->base_ep.rxe_pool);
+	efa_unit_test_shrink_ope_pool(&ep->base_ep.rxe_pool,
+				      sizeof(union efa_rdm_rxe_slot));
 	while (n < ARRAY_SIZE(held) &&
 	       (held[n] = ofi_buf_alloc(ep->base_ep.rxe_pool)))
 		n++;

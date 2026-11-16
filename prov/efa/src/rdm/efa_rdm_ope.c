@@ -36,7 +36,6 @@ void efa_rdm_txe_construct_common(struct efa_rdm_ope *txe,
 	txe->rx_id = EFA_RDM_OPE_ID_INVALID;
 	txe->state = EFA_RDM_TXE_REQ;
 	txe->peer = peer;
-	txe->atomic_proto = NULL;
 	/* peer would be NULL for local read operation */
 	if (txe->peer) {
 		dlist_insert_tail(&txe->peer_entry, &txe->peer->txe_list);
@@ -178,7 +177,7 @@ void efa_rdm_txe_release(struct efa_rdm_ope *txe)
 	gen = txe->gen + 1;
 #ifdef ENABLE_EFA_POISONING
 	efa_rdm_poison_mem_region(txe,
-			      sizeof(struct efa_rdm_ope));
+			      sizeof(union efa_rdm_txe_slot));
 #endif
 	txe->gen = gen;
 	ofi_buf_free(txe);
@@ -335,9 +334,10 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe)
 	if (rxe->rxe_map)
 		efa_rdm_rxe_map_remove(rxe->rxe_map, rxe->msg_id, rxe);
 
-	if (rxe->atomrsp_data) {
-		ofi_buf_free(rxe->atomrsp_data);
-		rxe->atomrsp_data = NULL;
+	if (rxe->kind == EFA_RDM_RXE_KIND_ATOMIC &&
+	    efa_rdm_rxe_atomic(rxe)->atomrsp_data) {
+		ofi_buf_free(efa_rdm_rxe_atomic(rxe)->atomrsp_data);
+		efa_rdm_rxe_atomic(rxe)->atomrsp_data = NULL;
 	}
 
 	/*
@@ -374,7 +374,7 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe)
 	gen = rxe->gen + 1;
 #ifdef ENABLE_EFA_POISONING
 	efa_rdm_poison_mem_region(rxe,
-			      sizeof(struct efa_rdm_ope));
+			      sizeof(union efa_rdm_rxe_slot));
 #endif
 	rxe->gen = gen;
 	ofi_buf_free(rxe);
@@ -2674,7 +2674,7 @@ int efa_rdm_ope_process_queued_ope(struct efa_rdm_ope *ope)
 		 * An atomic-protocol TXE has no outstanding WR left to retire it
 		 * after a non-FI_EAGAIN repost failure, so release it below.
 		 */
-		release_atomic_txe = (ope->type == EFA_RDM_TXE && ope->atomic_proto);
+		release_atomic_txe = (ope->kind == EFA_RDM_TXE_KIND_ATOMIC);
 		release_atomic_response =
 			efa_rdm_ope_is_internal_atomic_response(ope, queued_response_pkt_type);
 		if (ope->type == EFA_RDM_TXE)

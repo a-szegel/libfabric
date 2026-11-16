@@ -1254,8 +1254,8 @@ static void test_proto_atomic_assert_response_rxe(struct efa_rdm_ope *rxe,
 	assert_int_equal(rxe->op, op);
 	assert_int_equal(rxe->efa_outstanding_tx_ops, outstanding);
 	if (has_atomrsp_data) {
-		assert_non_null(rxe->atomrsp_data);
-		assert_int_equal(((uint8_t *) rxe->atomrsp_data)[0], 1);
+		assert_non_null(efa_rdm_rxe_atomic(rxe)->atomrsp_data);
+		assert_int_equal(((uint8_t *) efa_rdm_rxe_atomic(rxe)->atomrsp_data)[0], 1);
 	}
 }
 
@@ -1579,10 +1579,10 @@ void test_proto_atomic_write_post_and_complete(void **state)
 	hdr = efa_rdm_pke_get_rta_hdr(pke);
 	hdr_size = efa_rdm_pke_get_req_hdr_size(pke);
 	assert_int_equal(efa_rdm_pkt_type_of(pke), EFA_RDM_WRITE_RTA_PKT);
-	assert_ptr_equal(txe->atomic_proto, &efa_rdm_atomic_write_proto);
+	assert_ptr_equal(efa_rdm_txe_atomic(txe)->atomic_proto, &efa_rdm_atomic_write_proto);
 	assert_null(txe->proto);
 	assert_ptr_equal(pke->handle_pke,
-			 txe->atomic_proto->handle_send_completion);
+			 efa_rdm_txe_atomic(txe)->atomic_proto->handle_send_completion);
 	assert_int_equal(hdr->atomic_datatype, FI_UINT8);
 	assert_int_equal(hdr->atomic_op, FI_ATOMIC_WRITE);
 	assert_memory_equal(pke->wiredata + hdr_size,
@@ -1613,9 +1613,9 @@ void test_proto_atomic_write_post_and_complete(void **state)
 	txe = pke->ope;
 	hdr_size = efa_rdm_pke_get_req_hdr_size(pke);
 	assert_true(txe->internal_flags & EFA_RDM_TXE_NO_COMPLETION);
-	assert_ptr_equal(txe->atomic_proto, &efa_rdm_atomic_write_proto);
+	assert_ptr_equal(efa_rdm_txe_atomic(txe)->atomic_proto, &efa_rdm_atomic_write_proto);
 	assert_ptr_equal(pke->handle_pke,
-			 txe->atomic_proto->handle_send_completion);
+			 efa_rdm_txe_atomic(txe)->atomic_proto->handle_send_completion);
 	memset(ctx.send_buff.buff, 0, sizeof(expected));
 	assert_memory_equal(pke->wiredata + hdr_size,
 			    expected, sizeof(expected));
@@ -1654,7 +1654,7 @@ void test_proto_atomic_dc_write_completion_orders(void **state)
 		assert_int_equal(efa_rdm_pke_get_rta_hdr(req_pke)->send_id,
 				 txe->tx_id);
 		assert_ptr_equal(req_pke->handle_pke,
-				 txe->atomic_proto->handle_send_completion);
+				 efa_rdm_txe_atomic(txe)->atomic_proto->handle_send_completion);
 		receipt_pke = test_proto_atomic_receipt(&ctx, txe->tx_id);
 
 		if (send_first) {
@@ -1993,11 +1993,11 @@ void test_proto_atomic_fetch_compare_request(void **state) {
 		hdr = efa_rdm_pke_get_rta_hdr(pke);
 		hdr_size = efa_rdm_pke_get_req_hdr_size(pke);
 		assert_int_equal(efa_rdm_pkt_type_of(pke), pkt_types[i]);
-		assert_ptr_equal(pke->ope->atomic_proto, protos[i]);
+		assert_ptr_equal(efa_rdm_txe_atomic(pke->ope)->atomic_proto, protos[i]);
 		assert_null(pke->ope->proto);
 		assert_ptr_equal(
 			pke->handle_pke,
-			pke->ope->atomic_proto->handle_send_completion);
+			efa_rdm_txe_atomic(pke->ope)->atomic_proto->handle_send_completion);
 		assert_int_equal(hdr->recv_id, pke->ope->tx_id);
 		assert_int_equal(hdr->rma_iov[0].len, count);
 		assert_memory_equal(pke->wiredata + hdr_size, source, count);
@@ -2403,7 +2403,7 @@ void test_proto_atomic_read_null_source(void **state) {
 		pke = test_proto_atomic_posted_pke(&ctx);
 		txe = pke->ope;
 		hdr_size = efa_rdm_pke_get_req_hdr_size(pke);
-		assert_ptr_equal(txe->atomic_proto,
+		assert_ptr_equal(efa_rdm_txe_atomic(txe)->atomic_proto,
 				 &efa_rdm_atomic_fetch_proto);
 		assert_int_equal(txe->total_len, sizeof(old));
 		assert_int_equal(txe->cq_entry.len, sizeof(old));

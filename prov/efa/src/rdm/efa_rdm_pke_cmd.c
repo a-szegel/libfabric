@@ -453,10 +453,11 @@ void efa_rdm_pke_handle_tx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 			}
 		} else {
 			/*
-			 * Read atomic_proto first: efa_rdm_txe_handle_error()
+			 * Read the kind first: efa_rdm_txe_handle_error()
 			 * can release a peer-aborting txe.
 			 */
-			bool release_atomic_txe = (txe->atomic_proto != NULL);
+			bool release_atomic_txe =
+				(txe->kind == EFA_RDM_TXE_KIND_ATOMIC);
 
 			efa_rdm_txe_handle_error(txe, err, prov_errno);
 			efa_rdm_pke_release_tx(pkt_entry);

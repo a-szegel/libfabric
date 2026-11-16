@@ -175,10 +175,10 @@ static int efa_test_ctrl_build_ope(int which, struct efa_test_ctrl_result *out)
 	case EFA_TEST_CTRL_ATOMRSP:
 		len = EFA_TEST_CTRL_SOURCE_LEN;
 		efa_test_ctrl_set_source(ope, len);
-		ope->atomrsp_data = ofi_buf_alloc(ep->rx_atomrsp_pool);
-		if (!ope->atomrsp_data)
+		efa_rdm_rxe_atomic(ope)->atomrsp_data = ofi_buf_alloc(ep->rx_atomrsp_pool);
+		if (!efa_rdm_rxe_atomic(ope)->atomrsp_data)
 			return -FI_ENOMEM;
-		memcpy(ope->atomrsp_data, g_ctrl.source, len);
+		memcpy(efa_rdm_rxe_atomic(ope)->atomrsp_data, g_ctrl.source, len);
 		out->source_len = len;
 		memcpy(out->source_bytes, g_ctrl.source, len);
 		break;
@@ -421,9 +421,10 @@ void efa_test_ctrl_cleanup(void)
 		dlist_remove(&ope->queued_entry);
 	}
 
-	if (ope->atomrsp_data) {
-		ofi_buf_free(ope->atomrsp_data);
-		ope->atomrsp_data = NULL;
+	if (ope->kind == EFA_RDM_RXE_KIND_ATOMIC &&
+	    efa_rdm_rxe_atomic(ope)->atomrsp_data) {
+		ofi_buf_free(efa_rdm_rxe_atomic(ope)->atomrsp_data);
+		efa_rdm_rxe_atomic(ope)->atomrsp_data = NULL;
 	}
 
 	if (ope->type == EFA_RDM_TXE)

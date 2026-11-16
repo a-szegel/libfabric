@@ -291,7 +291,8 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_p
 	rxe->peer_rxe = NULL;
 	rxe->unexp_pkt = NULL;
 	rxe->rxe_map = NULL;
-	rxe->atomrsp_data = NULL;
+	if (rxe->kind == EFA_RDM_RXE_KIND_ATOMIC)
+		efa_rdm_rxe_atomic(rxe)->atomrsp_data = NULL;
 	rxe->bytes_read_total_len = 0;
 
 	switch (op) {

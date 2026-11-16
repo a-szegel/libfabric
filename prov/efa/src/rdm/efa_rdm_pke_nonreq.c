@@ -1130,7 +1130,7 @@ int efa_rdm_pke_init_atomrsp(struct efa_rdm_pke *pkt_entry, struct efa_rdm_ope *
 	struct efa_rdm_atomrsp_pkt *atomrsp_pkt;
 	struct efa_rdm_atomrsp_hdr *atomrsp_hdr;
 
-	assert(rxe->atomrsp_data);
+	assert(efa_rdm_rxe_atomic(rxe)->atomrsp_data);
 	pkt_entry->peer = rxe->peer;
 	efa_rdm_pke_set_ope(pkt_entry, rxe);
 
@@ -1144,8 +1144,8 @@ int efa_rdm_pke_init_atomrsp(struct efa_rdm_pke *pkt_entry, struct efa_rdm_ope *
 	atomrsp_hdr->flags |= EFA_RDM_PKT_CONNID_HDR;
 	atomrsp_hdr->connid = efa_rdm_ep_raw_addr(rxe->ep)->qkey;
 	assert(sizeof(struct efa_rdm_atomrsp_hdr) + atomrsp_hdr->seg_length <= rxe->ep->mtu_size);
-	/* rxe->atomrsp_data was filled in efa_rdm_pke_handle_req_recv() */
-	memcpy(atomrsp_pkt->data, rxe->atomrsp_data, atomrsp_hdr->seg_length);
+	/* atomrsp_data was filled in efa_rdm_pke_handle_req_recv() */
+	memcpy(atomrsp_pkt->data, efa_rdm_rxe_atomic(rxe)->atomrsp_data, atomrsp_hdr->seg_length);
 	pkt_entry->pkt_size = sizeof(struct efa_rdm_atomrsp_hdr) + atomrsp_hdr->seg_length;
 	pkt_entry->handle_pke = &efa_rdm_pke_handle_atomrsp_send_completion;
 	return 0;
@@ -1167,6 +1167,7 @@ void efa_rdm_pke_handle_atomrsp_recv(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_atomrsp_pkt *atomrsp_pkt = NULL;
 	struct efa_rdm_atomrsp_hdr *atomrsp_hdr = NULL;
+	struct efa_rdm_atomic_ex *atomic_ex;
 	struct efa_rdm_ope *txe = NULL;
 	ssize_t ret;
 
@@ -1196,12 +1197,13 @@ void efa_rdm_pke_handle_atomrsp_recv(struct efa_rdm_pke *pkt_entry)
 		return;
 	}
 
+	atomic_ex = &efa_rdm_txe_atomic(txe)->atomic_ex;
 	if (pkt_entry->pkt_size - sizeof(*atomrsp_hdr) != atomrsp_hdr->seg_length ||
-	    ofi_total_iov_len(txe->atomic_ex.resp_iov, txe->atomic_ex.resp_iov_count) != atomrsp_hdr->seg_length)
+	    ofi_total_iov_len(atomic_ex->resp_iov, atomic_ex->resp_iov_count) != atomrsp_hdr->seg_length)
 		ret = -FI_ETRUNC;
 	else
-		ret = efa_copy_to_hmem_iov(txe->atomic_ex.result_desc, txe->atomic_ex.resp_iov,
-	                           txe->atomic_ex.resp_iov_count, atomrsp_pkt->data,
+		ret = efa_copy_to_hmem_iov(atomic_ex->result_desc, atomic_ex->resp_iov,
+	                           atomic_ex->resp_iov_count, atomrsp_pkt->data,
 	                           atomrsp_hdr->seg_length);
 	if (OFI_UNLIKELY(ret < 0)) {
 		efa_rdm_txe_handle_error(txe, -ret,ret == -FI_ETRUNC ? EFA_IO_COMP_STATUS_LOCAL_ERROR_BAD_LENGTH : FI_EFA_ERR_RXE_COPY);

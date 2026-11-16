@@ -119,14 +119,10 @@ struct efa_rdm_ope {
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_peer *peer;
 	struct efa_rdm_proto *proto; /**< protocol selected for the operation; NULL when it uses none */
-	const struct efa_rdm_atomic_proto *atomic_proto;
 
 	uint32_t tx_id;
 	uint32_t rx_id;
 	uint32_t op;
-
-	struct efa_rdm_atomic_hdr atomic_hdr;
-	struct efa_rdm_atomic_ex atomic_ex;
 
 	uint32_t msg_id;
 
@@ -203,7 +199,6 @@ struct efa_rdm_ope {
 	size_t efa_outstanding_tx_ops;
 
 	struct efa_rdm_pke *unexp_pkt;
-	char *atomrsp_data;
 	enum efa_rdm_cuda_copy_method cuda_copy_method;
 	/* the rxe_map that the rxe is ever inserted */
 	struct efa_rdm_rxe_map *rxe_map;
@@ -244,6 +239,54 @@ struct efa_rdm_ope {
 	 */
 	int peer_error_prov_errno;
 };
+
+/**
+ * @brief txe of an atomic operation (EFA_RDM_TXE_KIND_ATOMIC)
+ */
+struct efa_rdm_txe_atomic {
+	struct efa_rdm_ope base;
+	struct efa_rdm_atomic_hdr atomic_hdr;
+	const struct efa_rdm_atomic_proto *atomic_proto;
+	/** only fetch and compare atomics use this */
+	struct efa_rdm_atomic_ex atomic_ex;
+};
+
+/**
+ * @brief rxe of an atomic responder (EFA_RDM_RXE_KIND_ATOMIC)
+ */
+struct efa_rdm_rxe_atomic {
+	struct efa_rdm_ope base;
+	struct efa_rdm_atomic_hdr atomic_hdr;
+	char *atomrsp_data;
+};
+
+/**
+ * @brief An entry of the txe pool, which holds a txe of any kind.
+ */
+union efa_rdm_txe_slot {
+	struct efa_rdm_ope base;
+	struct efa_rdm_txe_atomic atomic;
+};
+
+/**
+ * @brief An entry of the rxe pool, which holds an rxe of any kind.
+ */
+union efa_rdm_rxe_slot {
+	struct efa_rdm_ope base;
+	struct efa_rdm_rxe_atomic atomic;
+};
+
+static inline struct efa_rdm_txe_atomic *efa_rdm_txe_atomic(struct efa_rdm_ope *txe)
+{
+	assert(txe->kind == EFA_RDM_TXE_KIND_ATOMIC);
+	return container_of(txe, struct efa_rdm_txe_atomic, base);
+}
+
+static inline struct efa_rdm_rxe_atomic *efa_rdm_rxe_atomic(struct efa_rdm_ope *rxe)
+{
+	assert(rxe->kind == EFA_RDM_RXE_KIND_ATOMIC);
+	return container_of(rxe, struct efa_rdm_rxe_atomic, base);
+}
 
 /* Every bit set is reserved as an ope id that is never legal, so a peer-owned
  * id that has not been learned yet cannot be mistaken for a pool index. */
