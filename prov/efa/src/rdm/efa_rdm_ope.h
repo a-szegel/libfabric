@@ -6,6 +6,7 @@
 
 #include <assert.h>
 
+#include "efa_cacheline.h"
 #include "efa_rdm_pke.h"
 
 #define EFA_RDM_IOV_LIMIT		(4)
@@ -101,7 +102,12 @@ enum efa_rdm_cuda_copy_method {
  *
  */
 struct efa_rdm_ope {
-	enum efa_rdm_ope_type type;
+	/* Line 0: fields every operation reads or writes. */
+
+	/** @brief enum efa_rdm_ope_type */
+	uint8_t type;
+	/** @brief enum efa_rdm_ope_kind */
+	uint8_t kind;
 	/**
 	 * @brief generation of this pool slot
 	 *
@@ -112,28 +118,13 @@ struct efa_rdm_ope {
 	 * use is not debug only, so this must stay correct in release builds.
 	 */
 	uint8_t gen;
-
-	/** @brief enum efa_rdm_ope_kind */
-	uint8_t kind;
-
-	struct efa_rdm_ep *ep;
-	struct efa_rdm_peer *peer;
-	struct efa_rdm_proto *proto; /**< protocol selected for the operation; NULL when it uses none */
-
-	uint32_t tx_id;
-	uint32_t rx_id;
-	uint32_t op;
-
-	uint32_t msg_id;
-
-	uint64_t tag;
-
-	uint64_t total_len;
-
-	enum efa_rdm_ope_state state;
-	int queued_ctrl_type;
-
-	uint64_t fi_flags;
+	/** @brief enum efa_rdm_ope_state */
+	uint8_t state;
+	/** @brief the ofi_op_* operation */
+	uint8_t op;
+	/** @brief The REQ packet type selected for this ope. */
+	uint8_t req_pkt_type;
+	/* 2 bytes free */
 
 	/**
 	 * @brief used by EFA provider to check status of an operation entry
@@ -145,8 +136,30 @@ struct efa_rdm_ope {
 	 * applied to CQ entry's returned to user.
 	 */
 	uint32_t internal_flags;
+	uint32_t tx_id;
+	uint32_t rx_id;
+	uint32_t msg_id;
 
+	struct efa_rdm_ep *ep;
+	struct efa_rdm_peer *peer;
+	struct efa_rdm_proto *proto; /**< protocol selected for the operation; NULL when it uses none */
+	uint64_t fi_flags;
+	uint64_t total_len;
+
+	/* Lines 1 to 4: the operation's buffers and completion. */
+
+	size_t efa_outstanding_tx_ops;
 	size_t iov_count;
+	int queued_ctrl_type;
+	/**
+	 * @brief Provider errno to attach when emitting an EFA_RDM_PEER_ERROR_PKT
+	 *
+	 * Set by efa_rdm_rxe_emit_peer_error (LONGREAD direction), by the LONGCTS
+	 * sender-side abort path, and read by efa_rdm_pke_init_peer_error to
+	 * populate the wire header's prov_errno field. Has no meaning if no
+	 * PEER_ERROR_PKT is being emitted from this ope.
+	 */
+	int peer_error_prov_errno;
 	struct iovec iov[EFA_RDM_IOV_LIMIT];
 	void *desc[EFA_RDM_IOV_LIMIT];
 	/**
@@ -157,49 +170,68 @@ struct efa_rdm_ope {
 	uint32_t desc_gen[EFA_RDM_IOV_LIMIT];
 	struct fid_mr *mr[EFA_RDM_IOV_LIMIT];
 
-	struct fi_cq_tagged_entry cq_entry;
+	/** @brief tag of a tagged message, sent in its RTM header */
+	uint64_t tag;
 
-	/* entry is linked with ope_longcts_send_list in efa_rdm_ep */
-	struct dlist_entry entry;
+	struct fi_cq_tagged_entry cq_entry;
 
 	/* ep_entry is linked to base_ep.ope_list */
 	struct dlist_entry ep_entry;
 
-	/* ack_list_entry is linked to ope_posted_ack_list in efa_rdm_ep */
-	struct dlist_entry ack_list_entry;
+	/* linked with tx/rxe_list in rdm_peer */
+	struct dlist_entry peer_entry;
+
+	/* Line 5: the lists an ope is on only while it is queued, acked or
+	 * sending long CTS data. */
 
 	/* queued_entry is linked with ope_queued_list in efa_rdm_ep */
-	struct dlist_entry queued_entry;
+	struct dlist_entry queued_entry __attribute__((aligned(EFA_CACHE_LINE_SIZE)));
 
 	/* Queued packets due to TX queue full or RNR backoff */
 	struct dlist_entry queued_pkts;
 
+	/* entry is linked with ope_longcts_send_list in efa_rdm_ep */
+	struct dlist_entry entry;
 
-	/* linked with tx/rxe_list in rdm_peer */
-	struct dlist_entry peer_entry;
+	/* ack_list_entry is linked to ope_posted_ack_list in efa_rdm_ep */
+	struct dlist_entry ack_list_entry;
 
 #if ENABLE_DEBUG
 	/* linked with ope_recv_list in efa_rdm_ep */
 	struct dlist_entry pending_recv_entry;
 #endif
-
-	size_t efa_outstanding_tx_ops;
-
-	/**
-	 * @brief The REQ packet type selected for this ope.
-	 */
-	uint32_t req_pkt_type;
-
-	/**
-	 * @brief Provider errno to attach when emitting an EFA_RDM_PEER_ERROR_PKT
-	 *
-	 * Set by efa_rdm_rxe_emit_peer_error (LONGREAD direction), by the LONGCTS
-	 * sender-side abort path, and read by efa_rdm_pke_init_peer_error to
-	 * populate the wire header's prov_errno field. Has no meaning if no
-	 * PEER_ERROR_PKT is being emitted from this ope.
-	 */
-	int peer_error_prov_errno;
 };
+
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, type, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, kind, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, gen, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, state, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, op, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, req_pkt_type, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, internal_flags, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, tx_id, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, rx_id, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, msg_id, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, ep, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, peer, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, proto, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, fi_flags, 0);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, total_len, 0);
+EFA_ASSERT_CL_START(struct efa_rdm_ope, efa_outstanding_tx_ops);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, tag, 3);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, peer_entry, 4);
+EFA_ASSERT_CL_START(struct efa_rdm_ope, queued_entry);
+EFA_ASSERT_IN_CL(struct efa_rdm_ope, ack_list_entry, 5);
+#if !ENABLE_DEBUG
+EFA_ASSERT_MAX_CL(struct efa_rdm_ope, 6);
+#endif
+
+static_assert(ofi_op_max <= UINT8_MAX + 1,
+	      "every ofi_op_* value must fit in efa_rdm_ope::op");
+static_assert(EFA_RDM_EXTRA_REQ_PKT_END <= UINT8_MAX + 1,
+	      "every REQ packet type must fit in efa_rdm_ope::req_pkt_type");
+static_assert(EFA_RDM_OPE_ERR <= UINT8_MAX,
+	      "every ope state must fit in efa_rdm_ope::state");
 
 /**
  * @brief progress of an ope that sends the data of a transfer
@@ -345,6 +377,16 @@ struct efa_rdm_rxe_atomic {
 	struct efa_rdm_atomic_hdr atomic_hdr;
 	char *atomrsp_data;
 };
+
+EFA_ASSERT_CL_START(struct efa_rdm_txe_msg, sender);
+EFA_ASSERT_CL_START(struct efa_rdm_txe_rma, rma);
+EFA_ASSERT_SPAN_CL(struct efa_rdm_txe_rma, rma, u.write, 2);
+EFA_ASSERT_CL_START(struct efa_rdm_txe_atomic, rma);
+EFA_ASSERT_CL_START(struct efa_rdm_rxe_msg, receiver);
+EFA_ASSERT_SPAN_CL(struct efa_rdm_rxe_msg, receiver, rxe_map, 2);
+EFA_ASSERT_CL_START(struct efa_rdm_rxe_write, receiver);
+EFA_ASSERT_CL_START(struct efa_rdm_rxe_read_rsp, sender);
+EFA_ASSERT_CL_START(struct efa_rdm_rxe_atomic, atomic_hdr);
 
 /**
  * @brief An entry of the txe pool, which holds a txe of any kind.
