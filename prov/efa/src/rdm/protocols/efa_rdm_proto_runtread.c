@@ -145,6 +145,7 @@ static bool efa_rdm_proto_runtread_set_bounds(struct efa_rdm_proto *proto, enum 
 }
 
 EFA_RDM_PROTO_DEF(runtread,
+	.txe_kind = EFA_RDM_TXE_KIND_MSG,
 	.wants_mr = true,
 	.min_param_name = "inter_min_read_message_size",
 	.set_bounds = &efa_rdm_proto_runtread_set_bounds,

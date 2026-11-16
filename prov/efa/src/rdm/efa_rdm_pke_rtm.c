@@ -142,8 +142,15 @@ void efa_rdm_pke_rtm_update_rxe(struct efa_rdm_pke *pkt_entry,
 				struct efa_rdm_ope *rxe)
 {
 	struct efa_rdm_base_hdr *base_hdr;
+	int pkt_type;
 
 	base_hdr = efa_rdm_pke_get_base_hdr(pkt_entry);
+	pkt_type = base_hdr->type;
+	rxe->kind = (efa_rdm_pkt_type_is_runtread(pkt_type) ||
+		     pkt_type == EFA_RDM_LONGREAD_MSGRTM_PKT ||
+		     pkt_type == EFA_RDM_LONGREAD_TAGRTM_PKT) ?
+			    EFA_RDM_RXE_KIND_MSG_READ :
+			    EFA_RDM_RXE_KIND_MSG;
 	if (base_hdr->flags & EFA_RDM_REQ_OPT_CQ_DATA_HDR) {
 		rxe->cq_entry.flags |= FI_REMOTE_CQ_DATA;
 		rxe->cq_entry.data = efa_rdm_pke_get_req_cq_data(pkt_entry);

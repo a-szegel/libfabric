@@ -138,6 +138,8 @@ err:
 
 struct efa_rdm_proto efa_rdm_proto_longcts_rtr = {
 	.name = "longcts_rtr",
+	.txe_kind = EFA_RDM_TXE_KIND_RMA_RECV,
+	.rxe_kind = EFA_RDM_RXE_KIND_READ_RSP,
 	.can_use_protocol = &efa_rdm_proto_longcts_rtr_can_use,
 	.construct_tx_pkes = &efa_rdm_proto_longcts_rtr_construct_tx_pkes,
 	.post_continuation = &efa_rdm_proto_post_ctsdata,

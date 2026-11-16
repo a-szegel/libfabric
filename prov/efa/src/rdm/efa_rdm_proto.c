@@ -503,7 +503,7 @@ void efa_rdm_proto_select_emulated_write_protocol(struct efa_rdm_ep *ep,
 						     header_flags, iface,
 						     use_p2p)) {
 			*proto = selected_proto;
-			txe->proto = selected_proto;
+			efa_rdm_txe_set_proto(txe, selected_proto);
 			txe->req_pkt_type = req_pkt_type;
 			return;
 		}
@@ -543,7 +543,7 @@ void efa_rdm_proto_select_emulated_read_protocol(struct efa_rdm_ep *ep,
 						     header_flags, iface,
 						     false /* use_p2p */)) {
 			*proto = selected_proto;
-			txe->proto = selected_proto;
+			efa_rdm_txe_set_proto(txe, selected_proto);
 			txe->req_pkt_type = req_pkt_type;
 			return;
 		}

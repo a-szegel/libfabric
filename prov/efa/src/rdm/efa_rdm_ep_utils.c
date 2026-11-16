@@ -251,6 +251,7 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_p
 	dlist_insert_tail(&rxe->ep_entry, &ep->base_ep.ope_list);
 	efa_rdm_domain_ope_list_unlock(efa_rdm_ep_rdm_domain(ep));
 	rxe->type = EFA_RDM_RXE;
+	rxe->kind = efa_rdm_rxe_kind_of_op(op);
 	rxe->internal_flags = 0;
 	rxe->req_pkt_type = 0;
 	rxe->proto = NULL;

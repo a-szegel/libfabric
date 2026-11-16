@@ -149,6 +149,7 @@ static bool efa_rdm_proto_longcts_set_bounds(struct efa_rdm_proto *proto,
 }
 
 EFA_RDM_PROTO_DEF(longcts,
+	.txe_kind = EFA_RDM_TXE_KIND_MSG,
 	.wants_mr = true,
 	.set_bounds = &efa_rdm_proto_longcts_set_bounds,
 	.can_use_protocol = &efa_rdm_proto_longcts_can_use_for_send,

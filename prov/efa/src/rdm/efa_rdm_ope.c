@@ -28,6 +28,8 @@ void efa_rdm_txe_construct_common(struct efa_rdm_ope *txe,
 {
 	txe->ep = ep;
 	txe->type = EFA_RDM_TXE;
+	txe->kind = txe->proto ? txe->proto->txe_kind :
+				 efa_rdm_txe_kind_of_op(op);
 	txe->op = op;
 	txe->tx_id = efa_rdm_ope_get_ope_id(txe);
 	/* the receiver's id is only learned from its first CTS */
@@ -104,11 +106,11 @@ void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
 			   uint32_t op, uint64_t fi_flags,
 			   uint32_t internal_flags)
 {
+	txe->proto = NULL;
 	efa_rdm_txe_construct_common(txe, ep, peer, msg, op, fi_flags,
 				     internal_flags);
 
 	txe->req_pkt_type = 0;
-	txe->proto = NULL;
 
 	memset(txe->mr, 0, sizeof(*txe->mr) * msg->iov_count);
 	efa_rdm_mr_gen_init_ope_desc(txe);
@@ -227,6 +229,7 @@ efa_rdm_txe_switch_protocol(struct efa_rdm_ope *txe,
 	msg.iov_count = old.iov_count;
 	msg.context = old.cq_entry.op_context;
 	msg.data = old.cq_entry.data;
+	new_txe->proto = proto;
 	efa_rdm_txe_construct_common(new_txe, ep, old.peer, &msg, old.op,
 				     old.fi_flags, old.internal_flags);
 
@@ -245,7 +248,6 @@ efa_rdm_txe_switch_protocol(struct efa_rdm_ope *txe,
 	new_txe->bytes_acked = old.bytes_acked;
 	new_txe->bytes_runt = old.bytes_runt;
 	new_txe->peer_error_prov_errno = old.peer_error_prov_errno;
-	new_txe->proto = proto;
 	new_txe->req_pkt_type = req_pkt_type;
 
 	return new_txe;
@@ -1759,6 +1761,9 @@ int efa_rdm_ope_prepare_to_post_read(struct efa_rdm_ope *ope)
 	total_rma_iov_len = ofi_total_rma_iov_len(ope->rma_iov, ope->rma_iov_count);
 
 	if (ope->type == EFA_RDM_TXE)
+		ope->kind = EFA_RDM_TXE_KIND_DEVICE_READ;
+
+	if (ope->type == EFA_RDM_TXE)
 		ope->bytes_read_offset = 0;
 	else
 		ope->bytes_read_offset = ope->bytes_runt;
@@ -1846,6 +1851,7 @@ void efa_rdm_ope_prepare_to_post_write(struct efa_rdm_ope *ope)
 	size_t local_iov_len;
 
 	assert(ope->type == EFA_RDM_TXE);
+	ope->kind = EFA_RDM_TXE_KIND_DEVICE_WRITE;
 
 	local_iov_len = ofi_total_iov_len(ope->iov, ope->iov_count);
 #ifndef NDEBUG
@@ -2278,6 +2284,7 @@ int efa_rdm_rxe_post_local_read_or_queue(struct efa_rdm_ope *rxe,
 		return -FI_ENOBUFS;
 	}
 
+	txe->kind = EFA_RDM_TXE_KIND_DEVICE_READ;
 	txe->local_read_pkt_entry = pkt_entry;
 	txe->internal_flags |= EFA_RDM_OPE_INTERNAL;
 	err = efa_rdm_ope_post_remote_read_or_queue(txe);

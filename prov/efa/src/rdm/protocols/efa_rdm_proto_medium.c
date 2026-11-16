@@ -72,6 +72,7 @@ static bool efa_rdm_proto_medium_set_bounds(struct efa_rdm_proto *proto, enum fi
 }
 
 EFA_RDM_PROTO_DEF(medium,
+	.txe_kind = EFA_RDM_TXE_KIND_MSG,
 	.wants_mr = true,
 	.max_param_name = "inter_max_medium_message_size",
 	.set_bounds = &efa_rdm_proto_medium_set_bounds,

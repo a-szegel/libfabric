@@ -72,6 +72,10 @@ struct efa_rdm_proto {
 	 * being registered */
 	bool wants_mr;
 
+	/* enum efa_rdm_ope_kind of a txe, and of an rxe, using this protocol */
+	uint8_t txe_kind;
+	uint8_t rxe_kind;
+
 	/* Inclusive message size window for each HMEM interface. */
 	size_t min_size[OFI_HMEM_MAX];
 	size_t max_size[OFI_HMEM_MAX];
@@ -163,6 +167,16 @@ void efa_rdm_proto_configure_force_send(const char *proto_name);
 static inline bool efa_rdm_proto_msg_size_in_bounds(const struct efa_rdm_proto *proto, enum fi_hmem_iface iface, size_t len)
 {
 	return len >= proto->min_size[iface] && len <= proto->max_size[iface];
+}
+
+/**
+ * @brief Set the protocol of a constructed txe, and the kind it implies.
+ */
+static inline void efa_rdm_txe_set_proto(struct efa_rdm_ope *txe,
+					 struct efa_rdm_proto *proto)
+{
+	txe->proto = proto;
+	txe->kind = proto->txe_kind;
 }
 
 /**

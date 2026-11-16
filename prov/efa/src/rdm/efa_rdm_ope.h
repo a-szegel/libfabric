@@ -28,6 +28,28 @@ static_assert(EFA_RDM_TXE == 1 && EFA_RDM_RXE == 2,
 	      "efa_rdm_ope_type values are serialized in efa_rdm_peer_error_hdr");
 
 /**
+ * @brief Which set of fields an ope uses, set by the protocol that owns it.
+ *
+ * Protocols that use the same fields share a kind.
+ */
+enum efa_rdm_ope_kind {
+	EFA_RDM_TXE_KIND_MSG_EAGER = 1,	/**< eager, zero copy */
+	EFA_RDM_TXE_KIND_MSG,		/**< medium, long CTS, long read, runt read */
+	EFA_RDM_TXE_KIND_RMA,		/**< eager write, long read write, handshake, RMA before the handshake */
+	EFA_RDM_TXE_KIND_RMA_SEND,	/**< long CTS write */
+	EFA_RDM_TXE_KIND_RMA_RECV,	/**< short RTR, long CTS RTR */
+	EFA_RDM_TXE_KIND_DEVICE_WRITE,	/**< RDMA write */
+	EFA_RDM_TXE_KIND_DEVICE_READ,	/**< RDMA read, local read */
+	EFA_RDM_TXE_KIND_ATOMIC,	/**< write, fetch and compare atomic */
+	EFA_RDM_RXE_KIND_MSG,		/**< eager, medium, long CTS */
+	EFA_RDM_RXE_KIND_MSG_READ,	/**< long read, runt read */
+	EFA_RDM_RXE_KIND_WRITE,		/**< eager write, long CTS write */
+	EFA_RDM_RXE_KIND_WRITE_READ,	/**< long read write */
+	EFA_RDM_RXE_KIND_READ_RSP,	/**< short RTR, long CTS RTR responder */
+	EFA_RDM_RXE_KIND_ATOMIC,	/**< atomic responder */
+};
+
+/**
  * @brief EFA RDM operation entry (ope)'s state
  */
 enum efa_rdm_ope_state {
@@ -90,6 +112,9 @@ struct efa_rdm_ope {
 	 * use is not debug only, so this must stay correct in release builds.
 	 */
 	uint8_t gen;
+
+	/** @brief enum efa_rdm_ope_kind */
+	uint8_t kind;
 
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_peer *peer;
@@ -320,12 +345,49 @@ static inline uint32_t efa_rdm_ope_get_ope_id(struct efa_rdm_ope *ope)
 	       (uint32_t) index;
 }
 /**
+ * @brief The kind of a txe whose protocol is not chosen yet.
+ */
+static inline uint8_t efa_rdm_txe_kind_of_op(uint32_t op)
+{
+	switch (op) {
+	case ofi_op_msg:
+	case ofi_op_tagged:
+		return EFA_RDM_TXE_KIND_MSG;
+	case ofi_op_write:
+	case ofi_op_read_req:
+		return EFA_RDM_TXE_KIND_RMA;
+	default:
+		return EFA_RDM_TXE_KIND_ATOMIC;
+	}
+}
+
+/**
+ * @brief The kind of an rxe allocated for an op, before its protocol narrows it.
+ */
+static inline uint8_t efa_rdm_rxe_kind_of_op(uint32_t op)
+{
+	switch (op) {
+	case ofi_op_msg:
+	case ofi_op_tagged:
+		return EFA_RDM_RXE_KIND_MSG_READ;
+	case ofi_op_write:
+		return EFA_RDM_RXE_KIND_WRITE_READ;
+	case ofi_op_read_rsp:
+		return EFA_RDM_RXE_KIND_READ_RSP;
+	default:
+		return EFA_RDM_RXE_KIND_ATOMIC;
+	}
+}
+
+/**
  * @brief Initialize the txe fields that every TX path needs.
  *
  * Does not touch txe->mr, txe->desc or the MR generation snapshot: the
  * refactored protocol path populates those before the txe is filled, so that
  * protocol selection can attempt memory registration. Callers that have not
  * already populated them must use efa_rdm_txe_construct() instead.
+ *
+ * Sets txe->kind from txe->proto, which the caller sets first.
  */
 void efa_rdm_txe_construct_common(struct efa_rdm_ope *txe,
 				  struct efa_rdm_ep *ep,

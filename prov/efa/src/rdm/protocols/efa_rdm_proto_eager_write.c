@@ -260,6 +260,7 @@ static bool efa_rdm_proto_eager_write_can_use(struct efa_rdm_proto *proto,
 }
 
 EFA_RDM_PROTO_DEF(eager_write,
+	.txe_kind = EFA_RDM_TXE_KIND_RMA,
 	.wants_mr = false,
 	.max_param_name = "inter_max_eager_write_size",
 	.can_use_protocol = &efa_rdm_proto_eager_write_can_use,

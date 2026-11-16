@@ -180,6 +180,7 @@ static bool efa_rdm_proto_longread_write_set_bounds(struct efa_rdm_proto *proto,
 }
 
 EFA_RDM_PROTO_DEF(longread_write,
+	.txe_kind = EFA_RDM_TXE_KIND_RMA,
 	.wants_mr = true,
 	.min_param_name = "inter_min_read_write_size",
 	.set_bounds = &efa_rdm_proto_longread_write_set_bounds,
