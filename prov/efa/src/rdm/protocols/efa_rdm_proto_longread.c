@@ -134,7 +134,8 @@ void efa_rdm_proto_longread_handle_tx_pkes_posted(struct efa_rdm_ep *ep,
  *
  * The user completion is written when the receiver's EOR arrives, and the txe
  * is released by whichever of this completion and the EOR comes last. After a
- * read NACK, the txe completes here if this is its last packet to finish.
+ * read NACK, the operation continues on the long CTS protocol once this
+ * completion has arrived.
  */
 ssize_t efa_rdm_proto_longread_handle_rtm_send_completion(
 	struct efa_rdm_pke *pkt_entry)
@@ -149,8 +150,8 @@ ssize_t efa_rdm_proto_longread_handle_rtm_send_completion(
 	else if (txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
 		efa_rdm_txe_progress_peer_abort_if_drained(txe);
 	else if ((txe->internal_flags & EFA_RDM_OPE_READ_NACK) &&
-		 efa_rdm_ope_send_done(txe))
-		efa_rdm_ope_handle_send_completed(txe);
+		 efa_rdm_ope_drained(txe))
+		efa_rdm_txe_continue_after_read_nack(txe);
 
 	efa_rdm_pke_release_tx(pkt_entry);
 	return 0;

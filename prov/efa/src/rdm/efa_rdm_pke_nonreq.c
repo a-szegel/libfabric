@@ -764,8 +764,6 @@ void efa_rdm_pke_handle_read_nack_recv(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_read_nack_hdr *nack_hdr;
 	struct efa_rdm_ope *txe;
-	bool delivery_complete_requested;
-	ssize_t err;
 
 	nack_hdr = (struct efa_rdm_read_nack_hdr *) pkt_entry->wiredata;
 
@@ -782,36 +780,9 @@ void efa_rdm_pke_handle_read_nack_recv(struct efa_rdm_pke *pkt_entry)
 	efa_rdm_pke_release_rx(pkt_entry);
 	txe->internal_flags |= EFA_RDM_OPE_READ_NACK;
 
-	delivery_complete_requested = txe->fi_flags & FI_DELIVERY_COMPLETE;
-
-	if (txe->op == ofi_op_write) {
-		EFA_INFO(FI_LOG_EP_CTRL,
-			 "Sender fallback to emulated long CTS write "
-			 "protocol because p2p is not available\n");
-		txe->req_pkt_type = delivery_complete_requested ?
-				EFA_RDM_DC_LONGCTS_RTW_PKT :
-				EFA_RDM_LONGCTS_RTW_PKT;
-		txe->proto = &efa_rdm_proto_longcts_write;
-		err = efa_rdm_ope_post_send_or_queue(txe, txe->req_pkt_type);
-		if (OFI_UNLIKELY(err))
-			efa_rdm_txe_handle_error(txe, -err, FI_EFA_ERR_PKT_POST);
-	} else {
-		EFA_INFO(FI_LOG_EP_CTRL,
-			 "Sender fallback to long CTS %s "
-			 "protocol because memory registration limit "
-			 "was reached on the receiver\n",
-			 (txe->op == ofi_op_tagged) ? "tagged" : "untagged");
-		/* Continue the message with the long CTS protocol. */
-		txe->req_pkt_type =
-			(delivery_complete_requested ?
-				 efa_rdm_proto_longcts.req_pkt_type_dc :
-				 efa_rdm_proto_longcts.req_pkt_type) +
-			efa_rdm_proto_get_tagged(txe);
-		txe->proto = &efa_rdm_proto_longcts;
-		err = efa_rdm_ope_post_send_or_queue(txe, txe->req_pkt_type);
-		if (OFI_UNLIKELY(err))
-			efa_rdm_txe_handle_error(txe, -err, FI_EFA_ERR_PKT_POST);
-	}
+	/* Otherwise the read protocol's last send completion continues it. */
+	if (efa_rdm_ope_drained(txe))
+		efa_rdm_txe_continue_after_read_nack(txe);
 }
 
 /* PEER_ERROR packet related functions */

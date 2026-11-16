@@ -5,6 +5,7 @@
 #include "efa.h"
 #include "efa_rdm_domain.h"
 #include "efa_rdm_ope.h"
+#include "efa_rdm_pke_nonreq.h"
 #include "efa_rdm_pke_req.h"
 #include "efa_rdm_pke_rtm.h"
 #include "efa_rdm_pke_utils.h"
@@ -247,6 +248,9 @@ ssize_t efa_rdm_proto_runtread_handle_rtm_send_completion(
 		efa_rdm_txe_progress_peer_abort_if_drained(txe);
 	else if (efa_rdm_ope_send_done(txe))
 		efa_rdm_ope_handle_send_completed(txe);
+	else if ((txe->internal_flags & EFA_RDM_OPE_READ_NACK) &&
+		 efa_rdm_ope_drained(txe))
+		efa_rdm_txe_continue_after_read_nack(txe);
 
 	efa_rdm_pke_release_tx(pkt_entry);
 	return 0;

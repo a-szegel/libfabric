@@ -1378,7 +1378,8 @@ out:
 
 int efa_test_longcts_read_nack_continues_in_api_path(
 	struct fid_ep *ep, struct fid_av *av, struct fid_cq *cq,
-	struct fid_domain *domain, struct efa_test_proto_read_nack_result *out)
+	struct fid_domain *domain, bool nack_after_runt_completions,
+	struct efa_test_proto_read_nack_result *out)
 {
 	struct efa_test_proto_ctx ctx = {0};
 	struct fi_cq_data_entry cq_entry;
@@ -1435,11 +1436,31 @@ int efa_test_longcts_read_nack_continues_in_api_path(
 	nack_hdr = (struct efa_rdm_read_nack_hdr *) nack_pke->wiredata;
 	nack_hdr->type = EFA_RDM_READ_NACK_PKT;
 	nack_hdr->send_id = txe->tx_id;
+	out->old_tx_id = txe->tx_id;
+
+	if (nack_after_runt_completions) {
+		for (i = 0; i < out->runt_pke_cnt; ++i) {
+			efa_rdm_ep_record_tx_op_completed(ctx.ep, runt_pkes[i]);
+			runt_pkes[i]->handle_pke(runt_pkes[i]);
+		}
+	}
 
 	rx_pkts_to_post = ctx.ep->efa_rx_pkts_to_post;
 	efa_rdm_pke_handle_read_nack_recv(nack_pke);
 	ctx.ep->efa_rx_pkts_to_post = rx_pkts_to_post;
+	out->switched_on_nack = txe->proto == &efa_rdm_proto_longcts;
 
+	if (!nack_after_runt_completions) {
+		for (i = 0; i < out->runt_pke_cnt; ++i) {
+			efa_rdm_ep_record_tx_op_completed(ctx.ep, runt_pkes[i]);
+			runt_pkes[i]->handle_pke(runt_pkes[i]);
+		}
+	}
+
+	out->old_tx_id_live =
+		efa_rdm_ep_live_txe_from_id(ctx.ep, out->old_tx_id) != NULL;
+	out->new_tx_id_live =
+		efa_rdm_ep_live_txe_from_id(ctx.ep, txe->tx_id) == txe;
 	out->read_nack_flag = !!(txe->internal_flags & EFA_RDM_OPE_READ_NACK);
 	out->proto_is_longcts = txe->proto == &efa_rdm_proto_longcts;
 	out->req_pkt_type = txe->req_pkt_type;
@@ -1472,10 +1493,6 @@ int efa_test_longcts_read_nack_continues_in_api_path(
 	out->hdr_send_id = longcts_hdr->send_id;
 	out->tx_id = txe->tx_id;
 
-	for (i = 0; i < out->runt_pke_cnt; ++i) {
-		efa_rdm_ep_record_tx_op_completed(ctx.ep, runt_pkes[i]);
-		runt_pkes[i]->handle_pke(runt_pkes[i]);
-	}
 	efa_rdm_ep_record_tx_op_completed(ctx.ep, req_pke);
 	req_pke->handle_pke(req_pke);
 

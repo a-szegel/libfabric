@@ -343,6 +343,8 @@ void efa_rdm_txe_construct(struct efa_rdm_ope *txe,
 
 void efa_rdm_txe_release(struct efa_rdm_ope *txe);
 
+void efa_rdm_txe_continue_after_read_nack(struct efa_rdm_ope *txe);
+
 void efa_rdm_rxe_release(struct efa_rdm_ope *rxe);
 
 void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe);
@@ -594,6 +596,16 @@ static inline bool efa_rdm_txe_with_remote_ack_ready_for_release(struct efa_rdm_
 {
 	return (txe->efa_outstanding_tx_ops == 0 &&
 	       (txe->internal_flags & EFA_RDM_TXE_REMOTE_ACK_RECEIVED));
+}
+
+/**
+ * @brief Whether none of an ope's packets are in flight and none of its work
+ * is queued to be sent.
+ */
+static inline bool efa_rdm_ope_drained(struct efa_rdm_ope *ope)
+{
+	return ope->efa_outstanding_tx_ops == 0 &&
+	       !(ope->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS);
 }
 
 /**

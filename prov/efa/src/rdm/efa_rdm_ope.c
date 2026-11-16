@@ -16,6 +16,8 @@
 #include "efa_rdm_cq.h"
 #include "efa_rdm_proto.h"
 #include "protocols/efa_rdm_proto_atomic.h"
+#include "protocols/efa_rdm_proto_longcts.h"
+#include "protocols/efa_rdm_proto_longcts_write.h"
 
 void efa_rdm_txe_construct_common(struct efa_rdm_ope *txe,
 				  struct efa_rdm_ep *ep,
@@ -178,6 +180,127 @@ void efa_rdm_txe_release(struct efa_rdm_ope *txe)
 #endif
 	txe->gen = gen;
 	ofi_buf_free(txe);
+}
+
+/**
+ * @brief Continue a drained txe's operation on a new txe of another protocol.
+ *
+ * Releases the txe, which bumps its slot generation so its id stops
+ * resolving, and constructs a new txe in the same pool slot. The new
+ * txe takes over the operation: its buffers, MRs, completion context, tag,
+ * msg_id, flags and send progress. It has a new tx_id, which the peer learns
+ * from the new protocol's REQ packet.
+ *
+ * @param[in]	txe		txe with no packet in flight or queued
+ * @param[in]	proto		protocol the operation continues with
+ * @param[in]	req_pkt_type	REQ packet type the new txe sends
+ * @return the new txe
+ */
+static struct efa_rdm_ope *
+efa_rdm_txe_switch_protocol(struct efa_rdm_ope *txe,
+			    struct efa_rdm_proto *proto,
+			    uint32_t req_pkt_type)
+{
+	struct efa_rdm_ep *ep = txe->ep;
+	struct efa_rdm_ope *new_txe;
+	struct efa_rdm_ope old;
+	struct fi_msg msg = {0};
+	size_t i;
+
+	assert(txe->type == EFA_RDM_TXE);
+	assert(efa_rdm_ope_drained(txe));
+	assert(dlist_empty(&txe->queued_pkts));
+
+	old = *txe;
+
+	/* the new txe owns the MRs, so release must not close them */
+	for (i = 0; i < txe->iov_count; i++)
+		txe->mr[i] = NULL;
+
+	efa_rdm_txe_release(txe);
+
+	/* the free list is LIFO, so this gets back the slot just released */
+	new_txe = ofi_buf_alloc(ep->base_ep.txe_pool);
+	assert(new_txe == txe);
+
+	msg.msg_iov = old.iov;
+	msg.iov_count = old.iov_count;
+	msg.context = old.cq_entry.op_context;
+	msg.data = old.cq_entry.data;
+	efa_rdm_txe_construct_common(new_txe, ep, old.peer, &msg, old.op,
+				     old.fi_flags, old.internal_flags);
+
+	new_txe->fi_flags = old.fi_flags;
+	new_txe->tag = old.tag;
+	new_txe->cq_entry.tag = old.tag;
+	new_txe->state = old.state;
+	new_txe->msg_id = old.msg_id;
+	new_txe->rx_id = old.rx_id;
+	memcpy(new_txe->desc, old.desc, sizeof(old.desc));
+	memcpy(new_txe->desc_gen, old.desc_gen, sizeof(old.desc_gen));
+	memcpy(new_txe->mr, old.mr, sizeof(old.mr));
+	new_txe->rma_iov_count = old.rma_iov_count;
+	memcpy(new_txe->rma_iov, old.rma_iov, sizeof(old.rma_iov));
+	new_txe->bytes_sent = old.bytes_sent;
+	new_txe->bytes_acked = old.bytes_acked;
+	new_txe->bytes_runt = old.bytes_runt;
+	new_txe->peer_error_prov_errno = old.peer_error_prov_errno;
+	new_txe->proto = proto;
+	new_txe->req_pkt_type = req_pkt_type;
+
+	return new_txe;
+}
+
+/**
+ * @brief Continue a txe that received a READ_NACK on the long CTS protocol.
+ *
+ * Moves the operation to a new txe of the long CTS (or long CTS write)
+ * protocol and posts its REQ. The txe must have drained, so no packet of the
+ * read protocol still refers to it.
+ *
+ * @param[in]	txe	drained txe with EFA_RDM_OPE_READ_NACK set
+ */
+void efa_rdm_txe_continue_after_read_nack(struct efa_rdm_ope *txe)
+{
+	struct efa_rdm_proto *proto;
+	uint32_t req_pkt_type;
+	bool delivery_complete_requested;
+	ssize_t err;
+
+	assert(txe->internal_flags & EFA_RDM_OPE_READ_NACK);
+	assert(efa_rdm_ope_drained(txe));
+
+	delivery_complete_requested = txe->fi_flags & FI_DELIVERY_COMPLETE;
+
+	if (txe->op == ofi_op_write) {
+		EFA_INFO(FI_LOG_EP_CTRL,
+			 "Sender fallback to emulated long CTS write "
+			 "protocol because p2p is not available\n");
+		proto = &efa_rdm_proto_longcts_write;
+		req_pkt_type = delivery_complete_requested ?
+				EFA_RDM_DC_LONGCTS_RTW_PKT :
+				EFA_RDM_LONGCTS_RTW_PKT;
+	} else {
+		EFA_INFO(FI_LOG_EP_CTRL,
+			 "Sender fallback to long CTS %s "
+			 "protocol because memory registration limit "
+			 "was reached on the receiver\n",
+			 (txe->op == ofi_op_tagged) ? "tagged" : "untagged");
+		proto = &efa_rdm_proto_longcts;
+		req_pkt_type = (delivery_complete_requested ?
+					proto->req_pkt_type_dc :
+					proto->req_pkt_type) +
+			       efa_rdm_proto_get_tagged(txe);
+	}
+
+	txe = efa_rdm_txe_switch_protocol(txe, proto, req_pkt_type);
+	err = efa_rdm_ope_post_send_or_queue(txe, txe->req_pkt_type);
+	if (OFI_UNLIKELY(err)) {
+		EFA_WARN(FI_LOG_EP_CTRL,
+			 "READ_NACK fallback: posting pkt type %u failed, msg_id %u: %s\n",
+			 txe->req_pkt_type, txe->msg_id, fi_strerror(-err));
+		efa_rdm_txe_handle_error(txe, -err, FI_EFA_ERR_PKT_POST);
+	}
 }
 
 /**

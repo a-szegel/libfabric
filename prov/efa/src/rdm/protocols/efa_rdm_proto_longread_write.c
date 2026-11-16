@@ -81,8 +81,9 @@ static ssize_t efa_rdm_proto_longread_write_init_rtw(struct efa_rdm_pke *pkt_ent
  * @brief Handle the send completion of a LONGREAD RTW packet.
  *
  * For long read write, the txe is released either here or in
- * efa_rdm_proto_handle_eor_recv(), whichever happens last. After a read NACK, the
- * txe completes here if this is its last packet to finish.
+ * efa_rdm_proto_handle_eor_recv(), whichever happens last. After a read NACK,
+ * the write continues on the long CTS write protocol once this completion has
+ * arrived.
  */
 ssize_t efa_rdm_proto_longread_write_handle_rtw_send_completion(struct efa_rdm_pke *pkt_entry)
 {
@@ -93,8 +94,8 @@ ssize_t efa_rdm_proto_longread_write_handle_rtw_send_completion(struct efa_rdm_p
 	else if (pkt_entry->ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
 		efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
 	else if ((pkt_entry->ope->internal_flags & EFA_RDM_OPE_READ_NACK) &&
-		 efa_rdm_ope_send_done(pkt_entry->ope))
-		efa_rdm_ope_handle_send_completed(pkt_entry->ope);
+		 efa_rdm_ope_drained(pkt_entry->ope))
+		efa_rdm_txe_continue_after_read_nack(pkt_entry->ope);
 
 	efa_rdm_pke_release_tx(pkt_entry);
 	return 0;
