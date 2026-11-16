@@ -106,7 +106,6 @@ struct efa_rdm_ope {
 	uint32_t msg_id;
 
 	uint64_t tag;
-	uint64_t ignore;
 
 	int64_t window;
 
