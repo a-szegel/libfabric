@@ -536,6 +536,7 @@ static
 void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entry)
 {
 	enum efa_rdm_ope_type x_entry_type;
+	struct efa_rdm_ope_read *read;
 	struct efa_rdm_ope *txe;
 	struct efa_rdm_ope *rxe;
 	struct efa_rdm_pke *data_pkt_entry;
@@ -550,8 +551,9 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 	if (x_entry_type == EFA_RDM_TXE) {
 		txe = context_pkt_entry->ope;
 		assert(txe->op == ofi_op_read_req);
-		txe->bytes_read_completed += rma_context_pkt->seg_size;
-		if (txe->bytes_read_total_len == txe->bytes_read_completed) {
+		read = efa_rdm_ope_read(txe);
+		read->bytes_read_completed += rma_context_pkt->seg_size;
+		if (read->bytes_read_total_len == read->bytes_read_completed) {
 			if (txe->peer == NULL) {
 				data_pkt_entry = txe->local_read_pkt_entry;
 				assert(data_pkt_entry->payload_size > 0);
@@ -606,9 +608,10 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 			return;
 		}
 
-		rxe->bytes_read_completed += rma_context_pkt->seg_size;
-		assert(rxe->bytes_read_completed <= rxe->bytes_read_total_len);
-		if (rxe->bytes_read_completed == rxe->bytes_read_total_len) {
+		read = efa_rdm_ope_read(rxe);
+		read->bytes_read_completed += rma_context_pkt->seg_size;
+		assert(read->bytes_read_completed <= read->bytes_read_total_len);
+		if (read->bytes_read_completed == read->bytes_read_total_len) {
 			efa_rdm_tracepoint(read_completed,
 				    rxe->msg_id, (size_t) rxe->cq_entry.op_context,
 				    rxe->total_len, (size_t) rxe);
@@ -622,8 +625,8 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 			}
 
 			rxe->internal_flags |= EFA_RDM_RXE_ACK_IN_FLIGHT;
-			rxe->bytes_received += rxe->bytes_read_completed;
-			rxe->bytes_copied += rxe->bytes_read_completed;
+			rxe->bytes_received += read->bytes_read_completed;
+			rxe->bytes_copied += read->bytes_read_completed;
 			if (rxe->bytes_copied == rxe->total_len) {
 				efa_rdm_ope_handle_recv_completed(rxe);
 			} else if(rxe->bytes_copied + rxe->bytes_queued_blocking_copy == rxe->total_len) {
@@ -647,6 +650,7 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 ssize_t efa_rdm_pke_handle_rma_completion(struct efa_rdm_pke *context_pkt_entry)
 {
 	struct efa_rdm_ope *txe = NULL;
+	struct efa_rdm_ope_write *write;
 	struct efa_rdm_rma_context_pkt *rma_context_pkt;
 
 	assert(efa_rdm_pke_get_base_hdr(context_pkt_entry)->version == EFA_RDM_PROTOCOL_VERSION);
@@ -667,8 +671,9 @@ ssize_t efa_rdm_pke_handle_rma_completion(struct efa_rdm_pke *context_pkt_entry)
 	switch (rma_context_pkt->context_type) {
 	case EFA_RDM_RDMA_WRITE_CONTEXT:
 		txe = context_pkt_entry->ope;
-		txe->bytes_write_completed += rma_context_pkt->seg_size;
-		if (txe->bytes_write_completed == txe->bytes_write_total_len) {
+		write = efa_rdm_txe_write(txe);
+		write->bytes_write_completed += rma_context_pkt->seg_size;
+		if (write->bytes_write_completed == write->bytes_write_total_len) {
 			if (txe->fi_flags & FI_COMPLETION)
 				efa_rdm_txe_report_completion(txe);
 			else if (!(txe->internal_flags & EFA_RDM_TXE_NO_COUNTER))

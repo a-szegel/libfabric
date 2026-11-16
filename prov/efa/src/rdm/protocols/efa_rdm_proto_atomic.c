@@ -202,7 +202,7 @@ static ssize_t efa_rdm_proto_atomic_construct_tx_pke(struct efa_rdm_ope *txe){
 		ep, efa_rdm_pkt_type_get_req_hdr_size(
 			    txe->req_pkt_type,
 			    efa_rdm_proto_req_header_flags(txe->peer, txe->fi_flags),
-			    txe->rma_iov_count));
+			    efa_rdm_ope_rma(txe)->rma_iov_count));
 	if (OFI_UNLIKELY(req_data_size > max_payload))
 		return -FI_EMSGSIZE;
 	if (txe->op != ofi_op_atomic &&

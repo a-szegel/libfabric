@@ -301,7 +301,7 @@ void test_efa_rdm_ope_post_write_0_byte(void **state)
 	struct efa_resource *resource = *state;
 	struct efa_unit_test_buff local_buff;
 	struct efa_ep_addr raw_addr;
-	struct efa_rdm_ope mock_txe;
+	struct efa_rdm_txe_rma mock_txe;
 	size_t raw_addr_len = sizeof(raw_addr);
 	fi_addr_t addr;
 	uint64_t wr_id;
@@ -322,25 +322,26 @@ void test_efa_rdm_ope_post_write_0_byte(void **state)
 
 	efa_unit_test_buff_construct(&local_buff, resource, 4096 /* buff_size */);
 	memset(&mock_txe, 0, sizeof(mock_txe));
-	mock_txe.total_len = 0;
-	mock_txe.peer = peer;
-	mock_txe.iov_count = 1;
-	mock_txe.iov[0].iov_base = local_buff.buff;
-	mock_txe.iov[0].iov_len = 0;
-	mock_txe.desc[0] = fi_mr_desc(local_buff.mr);
-	mock_txe.rma_iov_count = 1;
-	mock_txe.rma_iov[0].addr = 0x87654321;
-	mock_txe.rma_iov[0].key = 123456;
-	mock_txe.rma_iov[0].len = 0;
+	mock_txe.base.kind = EFA_RDM_TXE_KIND_DEVICE_WRITE;
+	mock_txe.base.total_len = 0;
+	mock_txe.base.peer = peer;
+	mock_txe.base.iov_count = 1;
+	mock_txe.base.iov[0].iov_base = local_buff.buff;
+	mock_txe.base.iov[0].iov_len = 0;
+	mock_txe.base.desc[0] = fi_mr_desc(local_buff.mr);
+	mock_txe.rma.rma_iov_count = 1;
+	mock_txe.rma.rma_iov[0].addr = 0x87654321;
+	mock_txe.rma.rma_iov[0].key = 123456;
+	mock_txe.rma.rma_iov[0].len = 0;
 
-	mock_txe.ep = efa_rdm_ep;
+	mock_txe.base.ep = efa_rdm_ep;
 
 	/* Mock general QP post write function to save work request IDs */
 	g_efa_unit_test_mocks.efa_qp_post_write = &efa_mock_efa_qp_post_write_return_mock;
 	will_return(efa_mock_efa_qp_post_write_return_mock, 0);
 
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 0);
-	err = efa_rdm_ope_post_remote_write(&mock_txe);
+	err = efa_rdm_ope_post_remote_write(&mock_txe.base);
 	assert_int_equal(err, 0);
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 1);
 
@@ -348,7 +349,7 @@ void test_efa_rdm_ope_post_write_0_byte(void **state)
 	pkt_entry = efa_rdm_cq_get_pke_from_wr_id_solicited(wr_id);
 
 	efa_rdm_pke_release_tx(pkt_entry);
-	mock_txe.ep->efa_outstanding_tx_ops = 0;
+	mock_txe.base.ep->efa_outstanding_tx_ops = 0;
 	efa_unit_test_buff_destruct(&local_buff);
 }
 
@@ -1257,7 +1258,8 @@ void test_efa_rdm_txe_prepare_local_read_pkt_entry(void **state)
 
 	txe = ofi_buf_alloc(efa_rdm_ep->base_ep.txe_pool);
 	assert_non_null(txe);
-	efa_rdm_txe_construct(txe, efa_rdm_ep, NULL, &msg, ofi_op_msg, 0, 0);
+	efa_rdm_txe_construct(txe, efa_rdm_ep, NULL, &msg, ofi_op_read_req, 0, 0);
+	txe->kind = EFA_RDM_TXE_KIND_DEVICE_READ;
 
 	/* Use ooo rx pkt because it doesn't have mr so a read_copy pkt clone is enforced. */
 	pkt_entry = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->rx_ooo_pkt_pool, EFA_RDM_PKE_FROM_OOO_POOL);
@@ -1266,7 +1268,7 @@ void test_efa_rdm_txe_prepare_local_read_pkt_entry(void **state)
 	pkt_entry->pkt_size = 32;
 	assert_non_null(pkt_entry);
 	txe->local_read_pkt_entry = pkt_entry;
-	txe->rma_iov_count = 1;
+	efa_rdm_ope_rma(txe)->rma_iov_count = 1;
 
 	assert_int_equal(efa_rdm_txe_prepare_local_read_pkt_entry(txe), 0);
 
@@ -5362,7 +5364,7 @@ void test_efa_rdm_pke_handle_rma_read_completion_drains_recovered_rxe(
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
 	rxe->peer_rxe = peer_rxe;
-	rxe->bytes_read_total_len = 32;	/* two 16-byte READ WRs */
+	efa_rdm_ope_read(rxe)->bytes_read_total_len = 32;	/* two 16-byte READ WRs */
 
 	ep->efa_outstanding_tx_ops += 2;
 	peer->efa_outstanding_tx_ops += 2;

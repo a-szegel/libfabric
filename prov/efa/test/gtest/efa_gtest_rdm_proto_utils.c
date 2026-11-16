@@ -874,8 +874,8 @@ int efa_test_proto_bounds_select(struct fid_ep *ep, struct fid_av *av, struct fi
 	if (write) {
 		/* As efa_rdm_rma_post_write() has the txe when it picks an emulated write protocol */
 		efa_rdm_txe_construct(txe, ctx.ep, ctx.peer, &msg, ofi_op_write, flags, 0);
-		txe->rma_iov_count = 1;
-		txe->rma_iov[0].len = len;
+		efa_rdm_ope_rma(txe)->rma_iov_count = 1;
+		efa_rdm_ope_rma(txe)->rma_iov[0].len = len;
 		efa_rdm_proto_select_emulated_write_protocol(ctx.ep, ctx.peer, txe, false, &proto);
 		out->ret = proto ? 0 : -FI_EOPNOTSUPP;
 	} else {

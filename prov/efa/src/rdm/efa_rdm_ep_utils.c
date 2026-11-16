@@ -293,7 +293,8 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_p
 	rxe->rxe_map = NULL;
 	if (rxe->kind == EFA_RDM_RXE_KIND_ATOMIC)
 		efa_rdm_rxe_atomic(rxe)->atomrsp_data = NULL;
-	rxe->bytes_read_total_len = 0;
+	if (efa_rdm_ope_kind_has_rma(rxe->kind))
+		efa_rdm_ope_read(rxe)->bytes_read_total_len = 0;
 
 	switch (op) {
 	case ofi_op_tagged:

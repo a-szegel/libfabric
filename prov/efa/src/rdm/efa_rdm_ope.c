@@ -48,7 +48,8 @@ void efa_rdm_txe_construct_common(struct efa_rdm_ope *txe,
 	txe->bytes_sent = 0;
 	txe->window = 0;
 	txe->iov_count = msg->iov_count;
-	txe->rma_iov_count = 0;
+	if (efa_rdm_ope_kind_has_rma(txe->kind))
+		efa_rdm_ope_rma(txe)->rma_iov_count = 0;
 	txe->msg_id = 0;
 	txe->efa_outstanding_tx_ops = 0;
 	dlist_init(&txe->queued_pkts);
@@ -204,6 +205,7 @@ efa_rdm_txe_switch_protocol(struct efa_rdm_ope *txe,
 {
 	struct efa_rdm_ep *ep = txe->ep;
 	struct efa_rdm_ope *new_txe;
+	struct efa_rdm_ope_rma old_rma;
 	struct efa_rdm_ope old;
 	struct fi_msg msg = {0};
 	size_t i;
@@ -213,6 +215,8 @@ efa_rdm_txe_switch_protocol(struct efa_rdm_ope *txe,
 	assert(dlist_empty(&txe->queued_pkts));
 
 	old = *txe;
+	if (efa_rdm_ope_kind_has_rma(txe->kind))
+		old_rma = *efa_rdm_ope_rma(txe);
 
 	/* the new txe owns the MRs, so release must not close them */
 	for (i = 0; i < txe->iov_count; i++)
@@ -241,8 +245,10 @@ efa_rdm_txe_switch_protocol(struct efa_rdm_ope *txe,
 	memcpy(new_txe->desc, old.desc, sizeof(old.desc));
 	memcpy(new_txe->desc_gen, old.desc_gen, sizeof(old.desc_gen));
 	memcpy(new_txe->mr, old.mr, sizeof(old.mr));
-	new_txe->rma_iov_count = old.rma_iov_count;
-	memcpy(new_txe->rma_iov, old.rma_iov, sizeof(old.rma_iov));
+	if (efa_rdm_ope_kind_has_rma(new_txe->kind)) {
+		assert(efa_rdm_ope_kind_has_rma(old.kind));
+		*efa_rdm_ope_rma(new_txe) = old_rma;
+	}
 	new_txe->bytes_sent = old.bytes_sent;
 	new_txe->bytes_acked = old.bytes_acked;
 	new_txe->bytes_runt = old.bytes_runt;
@@ -586,7 +592,8 @@ ssize_t efa_rdm_ope_prepare_to_post_send(struct efa_rdm_ope *ope, int pkt_type,
 			ep, efa_rdm_pkt_type_get_req_hdr_size(
 				    pkt_type,
 				    efa_rdm_proto_req_header_flags(ope->peer, ope->fi_flags),
-				    ope->rma_iov_count));
+				    efa_rdm_ope_kind_has_rma(ope->kind) ?
+					    efa_rdm_ope_rma(ope)->rma_iov_count : 0));
 		assert(single_pkt_entry_max_data_size);
 
 		iface = ope->desc[0] ? ((struct efa_mr*) ope->desc[0])->iface : FI_HMEM_SYSTEM;
@@ -1738,6 +1745,8 @@ void efa_rdm_ope_handle_recv_completed(struct efa_rdm_ope *ope)
  */
 int efa_rdm_ope_prepare_to_post_read(struct efa_rdm_ope *ope)
 {
+	struct efa_rdm_ope_rma *rma;
+	struct efa_rdm_ope_read *read;
 	int err;
 	size_t total_iov_len, total_rma_iov_len;
 
@@ -1757,20 +1766,22 @@ int efa_rdm_ope_prepare_to_post_read(struct efa_rdm_ope *ope)
 		}
 	}
 
-	total_iov_len = ofi_total_iov_len(ope->iov, ope->iov_count);
-	total_rma_iov_len = ofi_total_rma_iov_len(ope->rma_iov, ope->rma_iov_count);
-
 	if (ope->type == EFA_RDM_TXE)
 		ope->kind = EFA_RDM_TXE_KIND_DEVICE_READ;
 
-	if (ope->type == EFA_RDM_TXE)
-		ope->bytes_read_offset = 0;
-	else
-		ope->bytes_read_offset = ope->bytes_runt;
+	rma = efa_rdm_ope_rma(ope);
+	read = efa_rdm_ope_read(ope);
+	total_iov_len = ofi_total_iov_len(ope->iov, ope->iov_count);
+	total_rma_iov_len = ofi_total_rma_iov_len(rma->rma_iov, rma->rma_iov_count);
 
-	ope->bytes_read_total_len = MIN(total_iov_len, total_rma_iov_len) - ope->bytes_read_offset;
-	ope->bytes_read_submitted = 0;
-	ope->bytes_read_completed = 0;
+	if (ope->type == EFA_RDM_TXE)
+		read->bytes_read_offset = 0;
+	else
+		read->bytes_read_offset = ope->bytes_runt;
+
+	read->bytes_read_total_len = MIN(total_iov_len, total_rma_iov_len) - read->bytes_read_offset;
+	read->bytes_read_submitted = 0;
+	read->bytes_read_completed = 0;
 	return 0;
 }
 
@@ -1786,7 +1797,7 @@ int efa_rdm_ope_prepare_to_post_read(struct efa_rdm_ope *ope)
  * packet is from OOO or unexp packet pool), we need to clone this pkt entry to one
  * from read copy pool which is registered.
  * 2. If application requests sendrecv_in_order_aligned_128_bytes, which requires
- * the staging data in txe->rma_iov to be 128 byte aligned. To achive that, we need to
+ * the staging data in the txe's rma_iov to be 128 byte aligned. To achive that, we need to
  * clone this pkt entry to one from read-copy pool, which is 128 byte aligned, and stores
  * application data at the beginning of pkt_entry->wiredata, which is also 128 byte aligned.
  *
@@ -1801,7 +1812,7 @@ ssize_t efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe)
 	struct efa_rdm_pke *pkt_entry_copy;
 
 	assert(txe->type == EFA_RDM_TXE);
-	assert(txe->rma_iov_count > 0 && txe->rma_iov_count <= efa_rdm_ep_domain(txe->ep)->info->tx_attr->rma_iov_limit);
+	assert(efa_rdm_ope_rma(txe)->rma_iov_count > 0 && efa_rdm_ope_rma(txe)->rma_iov_count <= efa_rdm_ep_domain(txe->ep)->info->tx_attr->rma_iov_limit);
 
 	pkt_entry = txe->local_read_pkt_entry;
 	if (pkt_entry->mr && !(txe->ep->sendrecv_in_order_aligned_128_bytes))
@@ -1831,8 +1842,8 @@ ssize_t efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe)
 	txe->local_read_pkt_entry = pkt_entry_copy;
 	/* pkt from read-copy pool only stores actual application data in wiredata */
 	assert(ofi_is_addr_aligned((void *)pkt_entry_copy->wiredata, EFA_RDM_EP_IN_ORDER_ALIGNMENT));
-	txe->rma_iov[0].addr = (uint64_t)pkt_entry_copy->wiredata;
-	txe->rma_iov[0].key = fi_mr_key(pkt_entry_copy->mr);
+	efa_rdm_ope_rma(txe)->rma_iov[0].addr = (uint64_t)pkt_entry_copy->wiredata;
+	efa_rdm_ope_rma(txe)->rma_iov[0].key = fi_mr_key(pkt_entry_copy->mr);
 	return 0;
 }
 
@@ -1848,40 +1859,45 @@ ssize_t efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe)
  */
 void efa_rdm_ope_prepare_to_post_write(struct efa_rdm_ope *ope)
 {
+	struct efa_rdm_ope_write *write;
 	size_t local_iov_len;
 
 	assert(ope->type == EFA_RDM_TXE);
 	ope->kind = EFA_RDM_TXE_KIND_DEVICE_WRITE;
+	write = efa_rdm_txe_write(ope);
 
 	local_iov_len = ofi_total_iov_len(ope->iov, ope->iov_count);
 #ifndef NDEBUG
 	{
+		struct efa_rdm_ope_rma *rma = efa_rdm_ope_rma(ope);
 		size_t remote_iov_len;
-		remote_iov_len = ofi_total_rma_iov_len(ope->rma_iov, ope->rma_iov_count);
+		remote_iov_len = ofi_total_rma_iov_len(rma->rma_iov, rma->rma_iov_count);
 		assert(local_iov_len == 0 || local_iov_len == remote_iov_len);
 	}
 #endif
 
-	ope->bytes_write_total_len = local_iov_len;
-	ope->bytes_write_submitted = 0;
-	ope->bytes_write_completed = 0;
+	write->bytes_write_total_len = local_iov_len;
+	write->bytes_write_submitted = 0;
+	write->bytes_write_completed = 0;
 }
 
 /**
  * @brief post read request(s)
  *
  * This function posts read request(s) according to information in ope.
- * Depend on ope->bytes_read_total_len and max read size of device. This function
+ * Depend on bytes_read_total_len and max read size of device. This function
  * might issue multiple read requdsts.
  *
  * @param[in,out]	ope	ope that has information of the read request.
  * 					If read request is successfully submitted,
- * 					ope->bytes_read_submitted will be updated.
+ * 					bytes_read_submitted will be updated.
  * @return	On success, return 0
  * 		On failure, return a negative error code.
  */
 int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
 {
+	struct efa_rdm_ope_rma *rma = efa_rdm_ope_rma(ope);
+	struct efa_rdm_ope_read *read = efa_rdm_ope_read(ope);
 	int err;
 	int iov_idx = 0, rma_iov_idx = 0;
 	size_t iov_offset = 0, rma_iov_offset = 0;
@@ -1895,10 +1911,10 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
 	 * Allow local iov count to be equal to 0 b/c bounce buffer's pre-registered buff/desc
 	 * will be passed to rdma-core
 	 */
-	assert((ope->iov_count == 0 && ope->bytes_read_total_len == 0) || ope->iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->iov_limit);
-	assert(ope->rma_iov_count > 0 && ope->rma_iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->rma_iov_limit);
+	assert((ope->iov_count == 0 && read->bytes_read_total_len == 0) || ope->iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->iov_limit);
+	assert(rma->rma_iov_count > 0 && rma->rma_iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->rma_iov_limit);
 
-	if (ope->bytes_read_total_len == 0) {
+	if (read->bytes_read_total_len == 0) {
 
 		/* According to libfabric document
 		 *     https://ofiwg.github.io/libfabric/main/man/fi_rma.3.html
@@ -1917,14 +1933,14 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
 					 pkt_entry->wiredata,
 					 0,
 					 fi_mr_desc(pkt_entry->mr),
-					 ope->rma_iov[0].addr,
-					 ope->rma_iov[0].key);
+					 rma->rma_iov[0].addr,
+					 rma->rma_iov[0].key);
 		if (err)
 			efa_rdm_pke_release_tx(pkt_entry);
 		return err;
 	}
 
-	assert(ope->bytes_read_submitted < ope->bytes_read_total_len);
+	assert(read->bytes_read_submitted < read->bytes_read_total_len);
 
 	if (ope->type == EFA_RDM_TXE &&
 	    ope->op == ofi_op_read_req &&
@@ -1940,27 +1956,27 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
 	assert(max_read_once_len > 0);
 
 	err = ofi_iov_locate(ope->iov, ope->iov_count,
-			     ope->bytes_read_offset + ope->bytes_read_submitted + ep->msg_prefix_size,
+			     read->bytes_read_offset + read->bytes_read_submitted + ep->msg_prefix_size,
 			     &iov_idx, &iov_offset);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ, "ofi_iov_locate failed! err: %d\n", err);
 		return err;
 	}
 
-	err = ofi_rma_iov_locate(ope->rma_iov, ope->rma_iov_count,
-				 ope->bytes_read_offset + ope->bytes_read_submitted,
+	err = ofi_rma_iov_locate(rma->rma_iov, rma->rma_iov_count,
+				 read->bytes_read_offset + read->bytes_read_submitted,
 				 &rma_iov_idx, &rma_iov_offset);
 	if (err) {
 		EFA_WARN(FI_LOG_CQ, "ofi_rma_iov_locate failed! err: %d\n", err);
 		return err;
 	}
 
-	while (ope->bytes_read_submitted < ope->bytes_read_total_len) {
+	while (read->bytes_read_submitted < read->bytes_read_total_len) {
 
 		assert(iov_idx < ope->iov_count);
 		assert(iov_offset < ope->iov[iov_idx].iov_len);
-		assert(rma_iov_idx < ope->rma_iov_count);
-		assert(rma_iov_offset < ope->rma_iov[rma_iov_idx].len);
+		assert(rma_iov_idx < rma->rma_iov_count);
+		assert(rma_iov_offset < rma->rma_iov[rma_iov_idx].len);
 
 			if (ep->efa_outstanding_tx_ops == ep->efa_max_outstanding_tx_ops)
 				return -FI_EAGAIN;
@@ -1979,7 +1995,7 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
 			return -FI_EAGAIN;
 
 		read_once_len = MIN(ope->iov[iov_idx].iov_len - iov_offset,
-				    ope->rma_iov[rma_iov_idx].len - rma_iov_offset);
+				    rma->rma_iov[rma_iov_idx].len - rma_iov_offset);
 		read_once_len = MIN(read_once_len, max_read_once_len);
 
 		efa_rdm_pke_init_read_context(pkt_entry, ope, ofi_buf_index(ope), read_once_len);
@@ -1987,15 +2003,15 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
 					 (char *)ope->iov[iov_idx].iov_base + iov_offset,
 					 read_once_len,
 					 ope->desc[iov_idx],
-					 ope->rma_iov[rma_iov_idx].addr + rma_iov_offset,
-					 ope->rma_iov[rma_iov_idx].key);
+					 rma->rma_iov[rma_iov_idx].addr + rma_iov_offset,
+					 rma->rma_iov[rma_iov_idx].key);
 		if (err) {
 			EFA_WARN(FI_LOG_CQ, "efa_rdm_pke_read failed! err: %d\n", err);
 			efa_rdm_pke_release_tx(pkt_entry);
 			return err;
 		}
 
-		ope->bytes_read_submitted += read_once_len;
+		read->bytes_read_submitted += read_once_len;
 
 		iov_offset += read_once_len;
 		assert(iov_offset <= ope->iov[iov_idx].iov_len);
@@ -2005,8 +2021,8 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
 		}
 
 		rma_iov_offset += read_once_len;
-		assert(rma_iov_offset <= ope->rma_iov[rma_iov_idx].len);
-		if (rma_iov_offset == ope->rma_iov[rma_iov_idx].len) {
+		assert(rma_iov_offset <= rma->rma_iov[rma_iov_idx].len);
+		if (rma_iov_offset == rma->rma_iov[rma_iov_idx].len) {
 			rma_iov_idx += 1;
 			rma_iov_offset = 0;
 		}
@@ -2019,17 +2035,19 @@ int efa_rdm_ope_post_read(struct efa_rdm_ope *ope)
  * @brief post RDMA write request(s)
  *
  * This function posts write request(s) according to information in ope.
- * Depending on ope->bytes_write_total_len and max write size of device,
+ * Depending on bytes_write_total_len and max write size of device,
  * this function might issue multiple write requests.
  *
  * @param[in,out]	ope	ope that has information of the read request.
  * 					If write request is successfully submitted,
- * 					ope->bytes_write_submitted will be updated.
+ * 					bytes_write_submitted will be updated.
  * @return	On success, return 0
  * 		On failure, return a negative error code.
  */
 int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 {
+	struct efa_rdm_ope_rma *rma = efa_rdm_ope_rma(ope);
+	struct efa_rdm_ope_write *write = efa_rdm_txe_write(ope);
 	int err;
 	int iov_idx = 0, rma_iov_idx = 0;
 	ssize_t copied;
@@ -2044,10 +2062,10 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 	 * Allow local iov count to be equal to 0 b/c bounce buffer's pre-registered buff/desc
 	 * will be passed to rdma-core
 	 */
-	assert((ope->iov_count == 0 && ope->bytes_write_total_len == 0) || ope->iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->iov_limit);
-	assert(ope->rma_iov_count > 0 && ope->rma_iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->rma_iov_limit);
+	assert((ope->iov_count == 0 && write->bytes_write_total_len == 0) || ope->iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->iov_limit);
+	assert(rma->rma_iov_count > 0 && rma->rma_iov_count <= efa_rdm_ep_domain(ep)->info->tx_attr->rma_iov_limit);
 
-	if (ope->bytes_write_total_len == 0) {
+	if (write->bytes_write_total_len == 0) {
 		/* According to libfabric document
 		 *     https://ofiwg.github.io/libfabric/main/man/fi_rma.3.html
 		 * write with 0 byte is allowed.
@@ -2066,7 +2084,7 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 		 */
 		efa_rdm_pke_init_write_context(
 			pkt_entry, ope, pkt_entry->wiredata, 0, fi_mr_desc(pkt_entry->mr),
-			ope->rma_iov[0].addr, ope->rma_iov[0].key);
+			rma->rma_iov[0].addr, rma->rma_iov[0].key);
 		err = efa_rdm_pke_write(pkt_entry);
 		if (err)
 			efa_rdm_pke_release_tx(pkt_entry);
@@ -2076,33 +2094,33 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 	if (!(ope->fi_flags & FI_INJECT))
 		efa_rdm_ope_try_fill_desc(ope, 0, FI_WRITE);
 
-	assert(ope->bytes_write_submitted < ope->bytes_write_total_len);
+	assert(write->bytes_write_submitted < write->bytes_write_total_len);
 	max_write_once_len = MIN(efa_env.efa_write_segment_size, efa_rdm_ep_domain(ep)->device->max_rdma_size);
 
 	assert(max_write_once_len > 0);
 
 	err = ofi_iov_locate(ope->iov, ope->iov_count,
-				 ope->bytes_write_submitted,
+				 write->bytes_write_submitted,
 				 &iov_idx, &iov_offset);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ, "ofi_iov_locate failed! err: %d\n", err);
 		return err;
 	}
 
-	err = ofi_rma_iov_locate(ope->rma_iov, ope->rma_iov_count,
-				 ope->bytes_write_submitted,
+	err = ofi_rma_iov_locate(rma->rma_iov, rma->rma_iov_count,
+				 write->bytes_write_submitted,
 				 &rma_iov_idx, &rma_iov_offset);
 	if (OFI_UNLIKELY(err)) {
 		EFA_WARN(FI_LOG_CQ, "ofi_rma_iov_locate failed! err: %d\n", err);
 		return err;
 	}
 
-	while (ope->bytes_write_submitted < ope->bytes_write_total_len) {
+	while (write->bytes_write_submitted < write->bytes_write_total_len) {
 
 		assert(iov_idx < ope->iov_count);
 		assert(iov_offset < ope->iov[iov_idx].iov_len);
-		assert(rma_iov_idx < ope->rma_iov_count);
-		assert(rma_iov_offset < ope->rma_iov[rma_iov_idx].len);
+		assert(rma_iov_idx < rma->rma_iov_count);
+		assert(rma_iov_offset < rma->rma_iov[rma_iov_idx].len);
 
 		if (ep->efa_outstanding_tx_ops == ep->efa_max_outstanding_tx_ops)
 			return -FI_EAGAIN;
@@ -2140,15 +2158,15 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 		}
 
 		write_once_len = MIN(ope->iov[iov_idx].iov_len - iov_offset,
-				    ope->rma_iov[rma_iov_idx].len - rma_iov_offset);
+				    rma->rma_iov[rma_iov_idx].len - rma_iov_offset);
 		write_once_len = MIN(write_once_len, max_write_once_len);
 
 		efa_rdm_pke_init_write_context(
 			pkt_entry, ope,
 			(char *) ope->iov[iov_idx].iov_base + iov_offset,
 			write_once_len, ope->desc[iov_idx],
-			ope->rma_iov[rma_iov_idx].addr + rma_iov_offset,
-			ope->rma_iov[rma_iov_idx].key);
+			rma->rma_iov[rma_iov_idx].addr + rma_iov_offset,
+			rma->rma_iov[rma_iov_idx].key);
 		err = efa_rdm_pke_write(pkt_entry);
 		if (err) {
 			EFA_WARN(FI_LOG_CQ, "efa_rdm_pke_write failed! err: %d\n", err);
@@ -2156,7 +2174,7 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 			return err;
 		}
 
-		ope->bytes_write_submitted += write_once_len;
+		write->bytes_write_submitted += write_once_len;
 
 		iov_offset += write_once_len;
 		assert(iov_offset <= ope->iov[iov_idx].iov_len);
@@ -2166,8 +2184,8 @@ int efa_rdm_ope_post_remote_write(struct efa_rdm_ope *ope)
 		}
 
 		rma_iov_offset += write_once_len;
-		assert(rma_iov_offset <= ope->rma_iov[rma_iov_idx].len);
-		if (rma_iov_offset == ope->rma_iov[rma_iov_idx].len) {
+		assert(rma_iov_offset <= rma->rma_iov[rma_iov_idx].len);
+		if (rma_iov_offset == rma->rma_iov[rma_iov_idx].len) {
 			rma_iov_idx += 1;
 			rma_iov_offset = 0;
 		}

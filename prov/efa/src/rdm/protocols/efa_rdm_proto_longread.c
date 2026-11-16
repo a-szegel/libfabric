@@ -43,9 +43,9 @@ efa_rdm_proto_longread_handle_matched_rtm(struct efa_rdm_pke *pkt_entry)
 	efa_rdm_pke_prepare_matched_rtm(pkt_entry);
 
 	rxe->tx_id = rtm_hdr->send_id;
-	rxe->rma_iov_count = rtm_hdr->read_iov_count;
-	memcpy(rxe->rma_iov, read_iov,
-	       rxe->rma_iov_count * sizeof (struct fi_rma_iov));
+	efa_rdm_ope_rma(rxe)->rma_iov_count = rtm_hdr->read_iov_count;
+	memcpy(efa_rdm_ope_rma(rxe)->rma_iov, read_iov,
+	       efa_rdm_ope_rma(rxe)->rma_iov_count * sizeof (struct fi_rma_iov));
 
 	efa_rdm_tracepoint(longread_read_posted, rxe->msg_id,
 			   (size_t) rxe->cq_entry.op_context, rxe->total_len);

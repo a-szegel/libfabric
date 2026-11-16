@@ -725,7 +725,7 @@ int efa_rdm_pke_write(struct efa_rdm_pke *pkt_entry)
 	if (txe->fi_flags & FI_REMOTE_CQ_DATA) {
 		/* assert that we are sending the entire buffer as a
 			   single IOV when immediate data is also included. */
-		assert(len == txe->bytes_write_total_len);
+		assert(len == efa_rdm_txe_write(txe)->bytes_write_total_len);
 		cq_data = txe->cq_entry.data;
 	}
 

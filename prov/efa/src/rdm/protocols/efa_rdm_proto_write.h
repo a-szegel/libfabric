@@ -30,10 +30,10 @@ ssize_t efa_rdm_proto_write_rtw_pke_init_common(struct efa_rdm_pke *pkt_entry,
 	size_t data_size;
 	int i;
 
-	for (i = 0; i < txe->rma_iov_count; ++i) {
-		rma_iov[i].addr = txe->rma_iov[i].addr;
-		rma_iov[i].len = txe->rma_iov[i].len;
-		rma_iov[i].key = txe->rma_iov[i].key;
+	for (i = 0; i < efa_rdm_ope_rma(txe)->rma_iov_count; ++i) {
+		rma_iov[i].addr = efa_rdm_ope_rma(txe)->rma_iov[i].addr;
+		rma_iov[i].len = efa_rdm_ope_rma(txe)->rma_iov[i].len;
+		rma_iov[i].key = efa_rdm_ope_rma(txe)->rma_iov[i].key;
 	}
 
 	hdr_size = efa_rdm_pke_get_req_hdr_size(pkt_entry);

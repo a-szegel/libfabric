@@ -52,7 +52,7 @@ void efa_rdm_proto_longcts_write_init_rtw_hdr(struct efa_rdm_pke *pkt_entry,
 	struct efa_rdm_longcts_rtw_hdr *rtw_hdr;
 
 	rtw_hdr = (struct efa_rdm_longcts_rtw_hdr *)pkt_entry->wiredata;
-	rtw_hdr->rma_iov_count = txe->rma_iov_count;
+	rtw_hdr->rma_iov_count = efa_rdm_ope_rma(txe)->rma_iov_count;
 	rtw_hdr->msg_length = txe->total_len;
 	rtw_hdr->send_id = txe->tx_id;
 	rtw_hdr->credit_request = efa_env.tx_min_credits;
@@ -236,7 +236,7 @@ static bool efa_rdm_proto_longcts_write_can_use(struct efa_rdm_proto *proto,
 		return false;
 
 	max_data_offset = efa_rdm_pkt_type_get_req_hdr_size(
-		req_pkt_type, header_flags, txe->rma_iov_count);
+		req_pkt_type, header_flags, efa_rdm_ope_rma(txe)->rma_iov_count);
 	return txe->total_len > txe->ep->mtu_size - max_data_offset;
 }
 

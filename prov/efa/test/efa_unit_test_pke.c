@@ -722,7 +722,7 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_runtread_trunc_chain(void **state)
 	rxe->desc[0] = NULL;
 	rxe->cq_entry.len = sizeof buf;
 	rxe->total_len = 1024;
-	rxe->bytes_read_total_len = 0;
+	efa_rdm_ope_read(rxe)->bytes_read_total_len = 0;
 	rxe->bytes_received = 0;
 	rxe->bytes_received_via_mulreq = 0;
 	dlist_init(&peer.rxe_list);

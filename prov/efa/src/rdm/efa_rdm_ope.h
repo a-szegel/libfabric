@@ -159,9 +159,6 @@ struct efa_rdm_ope {
 	uint32_t desc_gen[EFA_RDM_IOV_LIMIT];
 	struct fid_mr *mr[EFA_RDM_IOV_LIMIT];
 
-	size_t rma_iov_count;
-	struct fi_rma_iov rma_iov[EFA_RDM_IOV_LIMIT];
-
 	struct fi_cq_tagged_entry cq_entry;
 
 	/* entry is linked with ope_longcts_send_list in efa_rdm_ep */
@@ -208,16 +205,6 @@ struct efa_rdm_ope {
 	uint64_t bytes_sent;
 	/* end of TX only variables */
 
-	uint64_t bytes_read_completed;
-	uint64_t bytes_read_submitted;
-	uint64_t bytes_read_total_len;
-	uint64_t bytes_read_offset;
-
-	/* counters for rma writes */
-	uint64_t bytes_write_completed;
-	uint64_t bytes_write_submitted;
-	uint64_t bytes_write_total_len;
-
 	/* used by peer SRX ops */
 	struct fi_peer_rx_entry *peer_rxe;
 
@@ -241,14 +228,82 @@ struct efa_rdm_ope {
 };
 
 /**
+ * @brief the remote memory an ope writes, reads or applies an atomic to
+ */
+struct efa_rdm_ope_rma {
+	size_t rma_iov_count;
+	struct fi_rma_iov rma_iov[EFA_RDM_IOV_LIMIT];
+};
+
+/**
+ * @brief progress of the RDMA reads an ope posts
+ */
+struct efa_rdm_ope_read {
+	uint64_t bytes_read_completed;
+	uint64_t bytes_read_submitted;
+	uint64_t bytes_read_total_len;
+	uint64_t bytes_read_offset;
+};
+
+/**
+ * @brief progress of the RDMA writes a txe posts
+ */
+struct efa_rdm_ope_write {
+	uint64_t bytes_write_completed;
+	uint64_t bytes_write_submitted;
+	uint64_t bytes_write_total_len;
+};
+
+/**
+ * @brief txe of an RMA operation (EFA_RDM_TXE_KIND_RMA to
+ * EFA_RDM_TXE_KIND_DEVICE_READ)
+ *
+ * Every RMA kind starts with the rma group, so a txe can take its kind once
+ * the protocol is chosen, after the rma group is filled.
+ */
+struct efa_rdm_txe_rma {
+	struct efa_rdm_ope base;
+	struct efa_rdm_ope_rma rma;
+	union {
+		struct efa_rdm_ope_write write;	/**< EFA_RDM_TXE_KIND_DEVICE_WRITE */
+		struct efa_rdm_ope_read read;	/**< EFA_RDM_TXE_KIND_DEVICE_READ */
+	} u;
+};
+
+/**
  * @brief txe of an atomic operation (EFA_RDM_TXE_KIND_ATOMIC)
  */
 struct efa_rdm_txe_atomic {
 	struct efa_rdm_ope base;
+	struct efa_rdm_ope_rma rma;
 	struct efa_rdm_atomic_hdr atomic_hdr;
 	const struct efa_rdm_atomic_proto *atomic_proto;
 	/** only fetch and compare atomics use this */
 	struct efa_rdm_atomic_ex atomic_ex;
+};
+
+/**
+ * @brief rxe of a message (EFA_RDM_RXE_KIND_MSG and
+ * EFA_RDM_RXE_KIND_MSG_READ)
+ *
+ * Only EFA_RDM_RXE_KIND_MSG_READ uses the rma and read groups.
+ */
+struct efa_rdm_rxe_msg {
+	struct efa_rdm_ope base;
+	struct efa_rdm_ope_rma rma;
+	struct efa_rdm_ope_read read;
+};
+
+/**
+ * @brief rxe of an emulated write (EFA_RDM_RXE_KIND_WRITE and
+ * EFA_RDM_RXE_KIND_WRITE_READ)
+ *
+ * Only EFA_RDM_RXE_KIND_WRITE_READ uses the rma and read groups.
+ */
+struct efa_rdm_rxe_write {
+	struct efa_rdm_ope base;
+	struct efa_rdm_ope_rma rma;
+	struct efa_rdm_ope_read read;
 };
 
 /**
@@ -265,6 +320,7 @@ struct efa_rdm_rxe_atomic {
  */
 union efa_rdm_txe_slot {
 	struct efa_rdm_ope base;
+	struct efa_rdm_txe_rma rma;
 	struct efa_rdm_txe_atomic atomic;
 };
 
@@ -273,6 +329,8 @@ union efa_rdm_txe_slot {
  */
 union efa_rdm_rxe_slot {
 	struct efa_rdm_ope base;
+	struct efa_rdm_rxe_msg msg;
+	struct efa_rdm_rxe_write write;
 	struct efa_rdm_rxe_atomic atomic;
 };
 
@@ -286,6 +344,87 @@ static inline struct efa_rdm_rxe_atomic *efa_rdm_rxe_atomic(struct efa_rdm_ope *
 {
 	assert(rxe->kind == EFA_RDM_RXE_KIND_ATOMIC);
 	return container_of(rxe, struct efa_rdm_rxe_atomic, base);
+}
+
+static inline bool efa_rdm_txe_kind_is_rma(uint8_t kind)
+{
+	return kind >= EFA_RDM_TXE_KIND_RMA &&
+	       kind <= EFA_RDM_TXE_KIND_DEVICE_READ;
+}
+
+static inline struct efa_rdm_txe_rma *efa_rdm_txe_rma(struct efa_rdm_ope *txe)
+{
+	assert(efa_rdm_txe_kind_is_rma(txe->kind));
+	return container_of(txe, struct efa_rdm_txe_rma, base);
+}
+
+static inline struct efa_rdm_rxe_msg *efa_rdm_rxe_msg(struct efa_rdm_ope *rxe)
+{
+	assert(rxe->kind == EFA_RDM_RXE_KIND_MSG ||
+	       rxe->kind == EFA_RDM_RXE_KIND_MSG_READ);
+	return container_of(rxe, struct efa_rdm_rxe_msg, base);
+}
+
+static inline struct efa_rdm_rxe_write *efa_rdm_rxe_write(struct efa_rdm_ope *rxe)
+{
+	assert(rxe->kind == EFA_RDM_RXE_KIND_WRITE ||
+	       rxe->kind == EFA_RDM_RXE_KIND_WRITE_READ);
+	return container_of(rxe, struct efa_rdm_rxe_write, base);
+}
+
+/**
+ * @brief Whether an ope of this kind has the rma group.
+ */
+static inline bool efa_rdm_ope_kind_has_rma(uint8_t kind)
+{
+	return efa_rdm_txe_kind_is_rma(kind) ||
+	       kind == EFA_RDM_TXE_KIND_ATOMIC ||
+	       kind == EFA_RDM_RXE_KIND_MSG_READ ||
+	       kind == EFA_RDM_RXE_KIND_WRITE_READ;
+}
+
+/**
+ * @brief The remote memory of an RMA or atomic txe, or of an rxe that reads
+ * its data from the sender.
+ */
+static inline struct efa_rdm_ope_rma *efa_rdm_ope_rma(struct efa_rdm_ope *ope)
+{
+	switch (ope->kind) {
+	case EFA_RDM_TXE_KIND_ATOMIC:
+		return &efa_rdm_txe_atomic(ope)->rma;
+	case EFA_RDM_RXE_KIND_MSG_READ:
+		return &efa_rdm_rxe_msg(ope)->rma;
+	case EFA_RDM_RXE_KIND_WRITE_READ:
+		return &efa_rdm_rxe_write(ope)->rma;
+	default:
+		return &efa_rdm_txe_rma(ope)->rma;
+	}
+}
+
+/**
+ * @brief The RDMA read progress of a device read txe, or of an rxe that reads
+ * its data from the sender.
+ */
+static inline struct efa_rdm_ope_read *efa_rdm_ope_read(struct efa_rdm_ope *ope)
+{
+	switch (ope->kind) {
+	case EFA_RDM_RXE_KIND_MSG_READ:
+		return &efa_rdm_rxe_msg(ope)->read;
+	case EFA_RDM_RXE_KIND_WRITE_READ:
+		return &efa_rdm_rxe_write(ope)->read;
+	default:
+		assert(ope->kind == EFA_RDM_TXE_KIND_DEVICE_READ);
+		return &efa_rdm_txe_rma(ope)->u.read;
+	}
+}
+
+/**
+ * @brief The RDMA write progress of a device write txe.
+ */
+static inline struct efa_rdm_ope_write *efa_rdm_txe_write(struct efa_rdm_ope *txe)
+{
+	assert(txe->kind == EFA_RDM_TXE_KIND_DEVICE_WRITE);
+	return &efa_rdm_txe_rma(txe)->u.write;
 }
 
 /* Every bit set is reserved as an ope id that is never legal, so a peer-owned

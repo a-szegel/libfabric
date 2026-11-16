@@ -112,9 +112,9 @@ efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 	efa_rdm_txe_construct(txe, efa_rdm_ep, peer, &msg, op, fi_flags, internal_flags);
 
 	assert(msg_atomic->rma_iov_count > 0);
-	txe->rma_iov_count = msg_atomic->rma_iov_count;
+	efa_rdm_ope_rma(txe)->rma_iov_count = msg_atomic->rma_iov_count;
 	ofi_rma_ioc_to_iov(msg_atomic->rma_iov,
-			   txe->rma_iov,
+			   efa_rdm_ope_rma(txe)->rma_iov,
 			   msg_atomic->rma_iov_count,
 			   datatype_size);
 

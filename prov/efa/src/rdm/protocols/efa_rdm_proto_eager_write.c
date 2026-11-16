@@ -48,7 +48,7 @@ ssize_t efa_rdm_proto_eager_write_init_rtw(struct efa_rdm_pke *pkt_entry,
 	assert(txe->op == ofi_op_write);
 
 	rtw_hdr = (struct efa_rdm_eager_rtw_hdr *)pkt_entry->wiredata;
-	rtw_hdr->rma_iov_count = txe->rma_iov_count;
+	rtw_hdr->rma_iov_count = efa_rdm_ope_rma(txe)->rma_iov_count;
 	efa_rdm_pke_init_req_hdr_common(pkt_entry, EFA_RDM_EAGER_RTW_PKT, txe);
 	pkt_entry->handle_pke =
 		&efa_rdm_proto_eager_write_handle_rtw_send_completion;
@@ -78,7 +78,7 @@ static ssize_t efa_rdm_proto_eager_write_init_dc_rtw(struct efa_rdm_pke *pkt_ent
 
 	txe->internal_flags |= EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
 	dc_eager_rtw_hdr = (struct efa_rdm_dc_eager_rtw_hdr *)pkt_entry->wiredata;
-	dc_eager_rtw_hdr->rma_iov_count = txe->rma_iov_count;
+	dc_eager_rtw_hdr->rma_iov_count = efa_rdm_ope_rma(txe)->rma_iov_count;
 	efa_rdm_pke_init_req_hdr_common(pkt_entry, EFA_RDM_DC_EAGER_RTW_PKT, txe);
 	pkt_entry->handle_pke =
 		&efa_rdm_proto_eager_write_handle_rtw_send_completion;
@@ -253,7 +253,7 @@ static bool efa_rdm_proto_eager_write_can_use(struct efa_rdm_proto *proto,
 		return false;
 
 	max_data_offset = efa_rdm_pkt_type_get_req_hdr_size(
-		req_pkt_type, header_flags, txe->rma_iov_count);
+		req_pkt_type, header_flags, efa_rdm_ope_rma(txe)->rma_iov_count);
 	max_rtw_data_capacity = txe->ep->mtu_size - max_data_offset;
 
 	return txe->total_len <= max_rtw_data_capacity;

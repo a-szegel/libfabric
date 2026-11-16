@@ -45,16 +45,16 @@ ssize_t efa_rdm_pke_init_rta_common(struct efa_rdm_pke *pkt_entry,
 
 	rta_hdr = (struct efa_rdm_rta_hdr *)pkt_entry->wiredata;
 	rta_hdr->msg_id = txe->msg_id;
-	rta_hdr->rma_iov_count = txe->rma_iov_count;
+	rta_hdr->rma_iov_count = efa_rdm_ope_rma(txe)->rma_iov_count;
 	rta_hdr->atomic_datatype = efa_rdm_txe_atomic(txe)->atomic_hdr.datatype;
 	rta_hdr->atomic_op = efa_rdm_txe_atomic(txe)->atomic_hdr.atomic_op;
 	efa_rdm_pke_init_req_hdr_common(pkt_entry, pkt_type, txe);
 	rta_hdr->flags |= EFA_RDM_REQ_ATOMIC;
 	rma_iov = rta_hdr->rma_iov;
-	for (i=0; i < txe->rma_iov_count; ++i) {
-		rma_iov[i].addr = txe->rma_iov[i].addr;
-		rma_iov[i].len = txe->rma_iov[i].len;
-		rma_iov[i].key = txe->rma_iov[i].key;
+	for (i=0; i < efa_rdm_ope_rma(txe)->rma_iov_count; ++i) {
+		rma_iov[i].addr = efa_rdm_ope_rma(txe)->rma_iov[i].addr;
+		rma_iov[i].len = efa_rdm_ope_rma(txe)->rma_iov[i].len;
+		rma_iov[i].key = efa_rdm_ope_rma(txe)->rma_iov[i].key;
 	}
 
 	hdr_size = efa_rdm_pke_get_req_hdr_size(pkt_entry);

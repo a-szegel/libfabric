@@ -297,10 +297,13 @@ int efa_test_queue_ope_with_flag(struct fid_ep *ep_fid, struct fid_av *av_fid,
 		 * efa_rdm_ope_post_read() asserts a non-empty rma_iov, and
 		 * takes its zero-byte branch while bytes_read_total_len is 0.
 		 */
-		qop->txe->rma_iov_count = 1;
-		qop->txe->rma_iov[0].addr = (uint64_t) qop->buf;
-		qop->txe->rma_iov[0].len = sizeof(qop->buf);
-		qop->txe->rma_iov[0].key = 0x1234;
+		qop->txe->kind = EFA_RDM_TXE_KIND_DEVICE_READ;
+		memset(efa_rdm_ope_read(qop->txe), 0,
+		       sizeof(struct efa_rdm_ope_read));
+		efa_rdm_ope_rma(qop->txe)->rma_iov_count = 1;
+		efa_rdm_ope_rma(qop->txe)->rma_iov[0].addr = (uint64_t) qop->buf;
+		efa_rdm_ope_rma(qop->txe)->rma_iov[0].len = sizeof(qop->buf);
+		efa_rdm_ope_rma(qop->txe)->rma_iov[0].key = 0x1234;
 		qop->txe->internal_flags |= EFA_RDM_OPE_QUEUED_READ;
 		dlist_insert_tail(&qop->txe->queued_entry, &ep->ope_queued_list);
 		break;

@@ -28,15 +28,15 @@ void efa_rdm_pke_init_rtr_common(struct efa_rdm_pke *pkt_entry,
 
 	assert(txe->op == ofi_op_read_req);
 	rtr_hdr = (struct efa_rdm_rtr_hdr *)pkt_entry->wiredata;
-	rtr_hdr->rma_iov_count = txe->rma_iov_count;
+	rtr_hdr->rma_iov_count = efa_rdm_ope_rma(txe)->rma_iov_count;
 	efa_rdm_pke_init_req_hdr_common(pkt_entry, pkt_type, txe);
 	rtr_hdr->msg_length = txe->total_len;
 	rtr_hdr->recv_id = txe->tx_id;
 	rtr_hdr->recv_length = window;
-	for (i = 0; i < txe->rma_iov_count; ++i) {
-		rtr_hdr->rma_iov[i].addr = txe->rma_iov[i].addr;
-		rtr_hdr->rma_iov[i].len = txe->rma_iov[i].len;
-		rtr_hdr->rma_iov[i].key = txe->rma_iov[i].key;
+	for (i = 0; i < efa_rdm_ope_rma(txe)->rma_iov_count; ++i) {
+		rtr_hdr->rma_iov[i].addr = efa_rdm_ope_rma(txe)->rma_iov[i].addr;
+		rtr_hdr->rma_iov[i].len = efa_rdm_ope_rma(txe)->rma_iov[i].len;
+		rtr_hdr->rma_iov[i].key = efa_rdm_ope_rma(txe)->rma_iov[i].key;
 	}
 
 	pkt_entry->pkt_size = efa_rdm_pke_get_req_hdr_size(pkt_entry);

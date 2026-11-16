@@ -63,7 +63,7 @@ bool efa_rdm_rma_should_write_using_rdma(struct efa_rdm_ep *ep, struct efa_rdm_o
 		 * FI_REMOTE_CQ_DATA using RDMA_WRITE_WITH_IMM when a single iov
 		 * is given, otherwise we use sends to emulate it.
 		 */
-		if (txe->iov_count > 1 || txe->rma_iov_count > 1)
+		if (txe->iov_count > 1 || efa_rdm_ope_rma(txe)->rma_iov_count > 1)
 			return false;
 		/**
 		 * Unsolicited write recv is a feature that makes rdma-write with
