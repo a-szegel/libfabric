@@ -42,9 +42,8 @@ void efa_rdm_txe_construct_common(struct efa_rdm_ope *txe,
 	}
 
 	txe->internal_flags = internal_flags;
-	if (efa_rdm_ope_kind_has_sender(txe->kind))
-		memset(efa_rdm_ope_sender(txe), 0,
-		       sizeof(struct efa_rdm_ope_sender));
+	if (txe->proto && efa_rdm_ope_kind_has_sender(txe->kind))
+		efa_rdm_txe_init_sender(txe);
 	if (efa_rdm_ope_kind_has_receiver(txe->kind))
 		efa_rdm_txe_init_receiver(txe);
 	txe->iov_count = msg->iov_count;

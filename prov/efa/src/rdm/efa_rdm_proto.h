@@ -177,6 +177,8 @@ static inline void efa_rdm_txe_set_proto(struct efa_rdm_ope *txe,
 {
 	txe->proto = proto;
 	txe->kind = proto->txe_kind;
+	if (efa_rdm_ope_kind_has_sender(txe->kind))
+		efa_rdm_txe_init_sender(txe);
 	if (efa_rdm_ope_kind_has_receiver(txe->kind))
 		efa_rdm_txe_init_receiver(txe);
 }

@@ -263,14 +263,15 @@ struct efa_rdm_ope_write {
 struct efa_rdm_txe_rma {
 	struct efa_rdm_ope base;
 	struct efa_rdm_ope_rma rma;
-	struct efa_rdm_ope_sender sender;
-	/** the source packet entry of a local read */
-	struct efa_rdm_pke *local_read_pkt_entry;
 	union {
 		struct efa_rdm_ope_write write;	/**< EFA_RDM_TXE_KIND_DEVICE_WRITE */
 		struct efa_rdm_ope_read read;	/**< EFA_RDM_TXE_KIND_DEVICE_READ */
 		struct efa_rdm_ope_receiver receiver;	/**< EFA_RDM_TXE_KIND_RMA_RECV */
 	} u;
+	/** the source packet entry of a local read */
+	struct efa_rdm_pke *local_read_pkt_entry;
+	/** EFA_RDM_TXE_KIND_RMA and EFA_RDM_TXE_KIND_RMA_SEND */
+	struct efa_rdm_ope_sender sender;
 };
 
 /**
@@ -464,13 +465,16 @@ static inline struct efa_rdm_rxe_read_rsp *efa_rdm_rxe_read_rsp(struct efa_rdm_o
 }
 
 /**
- * @brief Whether an ope of this kind has the sender group.
+ * @brief Whether an ope of this kind tracks send progress.
+ *
+ * Eager and zero copy sends, device reads and writes, and emulated read
+ * requesters do not.
  */
 static inline bool efa_rdm_ope_kind_has_sender(uint8_t kind)
 {
-	return kind == EFA_RDM_TXE_KIND_MSG_EAGER ||
-	       kind == EFA_RDM_TXE_KIND_MSG ||
-	       efa_rdm_txe_kind_is_rma(kind) ||
+	return kind == EFA_RDM_TXE_KIND_MSG ||
+	       kind == EFA_RDM_TXE_KIND_RMA ||
+	       kind == EFA_RDM_TXE_KIND_RMA_SEND ||
 	       kind == EFA_RDM_RXE_KIND_READ_RSP;
 }
 
@@ -500,8 +504,9 @@ static inline bool efa_rdm_rxe_kind_is_msg(uint8_t kind)
  */
 static inline struct efa_rdm_ope_sender *efa_rdm_ope_sender(struct efa_rdm_ope *ope)
 {
+	assert(efa_rdm_ope_kind_has_sender(ope->kind));
+
 	switch (ope->kind) {
-	case EFA_RDM_TXE_KIND_MSG_EAGER:
 	case EFA_RDM_TXE_KIND_MSG:
 		return &efa_rdm_txe_msg(ope)->sender;
 	case EFA_RDM_RXE_KIND_READ_RSP:
@@ -527,6 +532,14 @@ static inline struct efa_rdm_ope_receiver *efa_rdm_ope_receiver(struct efa_rdm_o
 		assert(ope->kind == EFA_RDM_TXE_KIND_RMA_RECV);
 		return &efa_rdm_txe_rma(ope)->u.receiver;
 	}
+}
+
+/**
+ * @brief Start the send progress of an ope that sends its data.
+ */
+static inline void efa_rdm_txe_init_sender(struct efa_rdm_ope *txe)
+{
+	memset(efa_rdm_ope_sender(txe), 0, sizeof(struct efa_rdm_ope_sender));
 }
 
 /**

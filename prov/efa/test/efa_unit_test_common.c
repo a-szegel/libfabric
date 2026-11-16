@@ -463,6 +463,8 @@ struct efa_rdm_ope *efa_unit_test_alloc_txe(struct efa_resource *resource, uint3
 		return NULL;
 
 	efa_rdm_txe_construct(txe, efa_rdm_ep, peer, &msg, op, 0, 0);
+	if (efa_rdm_ope_kind_has_sender(txe->kind))
+		efa_rdm_txe_init_sender(txe);
 	return txe;
 }
 
