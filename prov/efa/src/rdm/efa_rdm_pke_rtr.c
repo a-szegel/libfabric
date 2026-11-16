@@ -67,7 +67,7 @@ struct efa_rdm_ope *efa_rdm_pke_alloc_rtr_rxe(struct efa_rdm_pke *pkt_entry)
 
 	rtr_hdr = (struct efa_rdm_rtr_hdr *)pkt_entry->wiredata;
 	rxe->tx_id = rtr_hdr->recv_id;
-	rxe->window = rtr_hdr->recv_length;
+	efa_rdm_ope_sender(rxe)->window = rtr_hdr->recv_length;
 	rxe->iov_count = rtr_hdr->rma_iov_count;
 	rxe->internal_flags |= EFA_RDM_OPE_INTERNAL;
 

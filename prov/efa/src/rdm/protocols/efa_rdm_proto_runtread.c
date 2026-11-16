@@ -42,8 +42,8 @@ efa_rdm_proto_runtread_handle_matched_rtm(struct efa_rdm_pke *pkt_entry)
 	ssize_t ret;
 
 	efa_rdm_pke_prepare_matched_rtm(pkt_entry);
-	rxe->bytes_runt = rtm_hdr->runt_length;
-	if (rxe->total_len > rxe->bytes_runt &&
+	efa_rdm_rxe_msg(rxe)->bytes_runt = rtm_hdr->runt_length;
+	if (rxe->total_len > efa_rdm_rxe_msg(rxe)->bytes_runt &&
 	    efa_rdm_ope_read(rxe)->bytes_read_total_len == 0) {
 		rxe->tx_id = rtm_hdr->send_id;
 		efa_rdm_ope_rma(rxe)->rma_iov_count = rtm_hdr->read_iov_count;
@@ -186,10 +186,10 @@ EFA_RDM_PROTO_DEF(runtread,
 void efa_rdm_proto_runtread_handle_tx_pkes_posted(struct efa_rdm_ep *ep,
 						  struct efa_rdm_ope *txe)
 {
-	assert(txe->bytes_runt);
+	assert(efa_rdm_ope_sender(txe)->bytes_runt);
 
-	txe->bytes_sent = txe->bytes_runt;
-	txe->peer->num_runt_bytes_in_flight += txe->bytes_runt;
+	efa_rdm_ope_sender(txe)->bytes_sent = efa_rdm_ope_sender(txe)->bytes_runt;
+	txe->peer->num_runt_bytes_in_flight += efa_rdm_ope_sender(txe)->bytes_runt;
 
 	/*
 	 * The receiver only posts a read when the runt did not cover the whole
@@ -197,7 +197,7 @@ void efa_rdm_proto_runtread_handle_tx_pkes_posted(struct efa_rdm_ep *ep,
 	 * records the bump so exactly one release site decrements it; it also
 	 * makes this idempotent should the hook ever run twice.
 	 */
-	if (txe->total_len > txe->bytes_runt &&
+	if (txe->total_len > efa_rdm_ope_sender(txe)->bytes_runt &&
 	    !(txe->internal_flags & EFA_RDM_TXE_READ_MSG_COUNTED)) {
 		ofi_atomic_inc64(
 			&efa_rdm_ep_rdm_domain(ep)->num_read_msg_in_flight);
@@ -238,7 +238,7 @@ ssize_t efa_rdm_proto_runtread_handle_rtm_send_completion(
 	assert(txe);
 
 	pkt_data_size = pkt_entry->payload_size;
-	txe->bytes_acked += pkt_data_size;
+	efa_rdm_ope_sender(txe)->bytes_acked += pkt_data_size;
 
 	peer = txe->peer;
 	assert(peer);
@@ -268,13 +268,13 @@ static void efa_rdm_proto_runtread_set_runt_size(struct efa_rdm_ep *ep,
 {
 	assert(txe->type == EFA_RDM_TXE);
 
-	if (txe->bytes_runt > 0)
+	if (efa_rdm_ope_sender(txe)->bytes_runt > 0)
 		return;
 
 	assert(txe->peer);
-	txe->bytes_runt = efa_rdm_peer_get_runt_size(txe->peer, ep, txe);
+	efa_rdm_ope_sender(txe)->bytes_runt = efa_rdm_peer_get_runt_size(txe->peer, ep, txe);
 
-	assert(txe->bytes_runt);
+	assert(efa_rdm_ope_sender(txe)->bytes_runt);
 }
 
 /**
@@ -313,7 +313,7 @@ static ssize_t efa_rdm_proto_runtread_plan_tx_pkes(struct efa_rdm_ep *ep,
 		   txe->iov_count * sizeof(struct fi_rma_iov);
 	max_data_size = efa_rdm_proto_max_req_data_capacity(ep, hdr_size);
 
-	return efa_rdm_proto_split_req_data(ep, txe, txe->bytes_runt,
+	return efa_rdm_proto_split_req_data(ep, txe, efa_rdm_ope_sender(txe)->bytes_runt,
 					    max_data_size, pkt_entry_cnt,
 					    pkt_entry_data_size_vec);
 }
@@ -410,7 +410,7 @@ int efa_rdm_proto_runtread_construct_tx_pkes(struct efa_rdm_ep *ep,
 		rtm_hdr->msg_length = txe->total_len;
 		rtm_hdr->send_id = txe->tx_id;
 		rtm_hdr->seg_offset = segment_offset;
-		rtm_hdr->runt_length = txe->bytes_runt;
+		rtm_hdr->runt_length = efa_rdm_ope_sender(txe)->bytes_runt;
 		rtm_hdr->read_iov_count = txe->iov_count;
 
 		/*
@@ -434,13 +434,13 @@ int efa_rdm_proto_runtread_construct_tx_pkes(struct efa_rdm_ep *ep,
 	}
 
 	/* The REQ packets carry exactly the runt portion of the message */
-	assert(segment_offset == txe->bytes_runt);
+	assert(segment_offset == efa_rdm_ope_sender(txe)->bytes_runt);
 
 	ep->send_pkt_entry_vec_size = pkt_entry_cnt;
 	EFA_DBG(FI_LOG_EP_DATA,
 		"runtread protocol: posting %zu pkes, runt_size %zu, total_len %zu, msg_id %" PRIu32
 		"\n",
-		pkt_entry_cnt, txe->bytes_runt, txe->total_len, txe->msg_id);
+		pkt_entry_cnt, efa_rdm_ope_sender(txe)->bytes_runt, txe->total_len, txe->msg_id);
 
 	return FI_SUCCESS;
 

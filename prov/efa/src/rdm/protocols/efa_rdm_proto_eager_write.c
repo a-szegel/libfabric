@@ -143,7 +143,7 @@ static void efa_rdm_proto_eager_write_proc_rtw(struct efa_rdm_pke *pkt_entry,
 	rxe->cq_entry.buf = rxe->iov[0].iov_base;
 	rxe->total_len = rxe->cq_entry.len;
 
-	rxe->bytes_received += pkt_entry->payload_size;
+	efa_rdm_ope_receiver(rxe)->bytes_received += pkt_entry->payload_size;
 	if (pkt_entry->payload_size != rxe->total_len) {
 		EFA_WARN(FI_LOG_CQ, "Eager RTM size mismatch! payload_size: %ld total_len: %ld.\n",
 			 pkt_entry->payload_size, rxe->total_len);

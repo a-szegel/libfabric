@@ -128,8 +128,6 @@ struct efa_rdm_ope {
 
 	uint64_t tag;
 
-	int64_t window;
-
 	uint64_t total_len;
 
 	enum efa_rdm_ope_state state;
@@ -180,36 +178,12 @@ struct efa_rdm_ope {
 	/* linked with tx/rxe_list in rdm_peer */
 	struct dlist_entry peer_entry;
 
-	uint64_t bytes_runt;
-
-	/* the following variables are for RX operation only */
-	uint64_t bytes_received;
-	uint64_t bytes_received_via_mulreq;
-	uint64_t bytes_copied;
-	uint64_t bytes_queued_blocking_copy;
-
 #if ENABLE_DEBUG
 	/* linked with ope_recv_list in efa_rdm_ep */
 	struct dlist_entry pending_recv_entry;
 #endif
 
 	size_t efa_outstanding_tx_ops;
-
-	struct efa_rdm_pke *unexp_pkt;
-	enum efa_rdm_cuda_copy_method cuda_copy_method;
-	/* the rxe_map that the rxe is ever inserted */
-	struct efa_rdm_rxe_map *rxe_map;
-	/* end of RX related variables */
-	/* the following variables are for TX operation only */
-	uint64_t bytes_acked;
-	uint64_t bytes_sent;
-	/* end of TX only variables */
-
-	/* used by peer SRX ops */
-	struct fi_peer_rx_entry *peer_rxe;
-
-	/** the source packet entry of a local read operation */
-	struct efa_rdm_pke *local_read_pkt_entry;
 
 	/**
 	 * @brief The REQ packet type selected for this ope.
@@ -225,6 +199,31 @@ struct efa_rdm_ope {
 	 * PEER_ERROR_PKT is being emitted from this ope.
 	 */
 	int peer_error_prov_errno;
+};
+
+/**
+ * @brief progress of an ope that sends the data of a transfer
+ */
+struct efa_rdm_ope_sender {
+	/** bytes the receiver allows to be sent */
+	int64_t window;
+	uint64_t bytes_sent;
+	uint64_t bytes_acked;
+	/** bytes sent in the REQ packets of a runt read */
+	uint64_t bytes_runt;
+};
+
+/**
+ * @brief progress of an ope that receives the data of a transfer
+ */
+struct efa_rdm_ope_receiver {
+	/** bytes the receiver allowed the sender to send */
+	int64_t window;
+	uint64_t bytes_received;
+	uint64_t bytes_received_via_mulreq;
+	uint64_t bytes_copied;
+	uint64_t bytes_queued_blocking_copy;
+	enum efa_rdm_cuda_copy_method cuda_copy_method;
 };
 
 /**
@@ -264,10 +263,23 @@ struct efa_rdm_ope_write {
 struct efa_rdm_txe_rma {
 	struct efa_rdm_ope base;
 	struct efa_rdm_ope_rma rma;
+	struct efa_rdm_ope_sender sender;
+	/** the source packet entry of a local read */
+	struct efa_rdm_pke *local_read_pkt_entry;
 	union {
 		struct efa_rdm_ope_write write;	/**< EFA_RDM_TXE_KIND_DEVICE_WRITE */
 		struct efa_rdm_ope_read read;	/**< EFA_RDM_TXE_KIND_DEVICE_READ */
+		struct efa_rdm_ope_receiver receiver;	/**< EFA_RDM_TXE_KIND_RMA_RECV */
 	} u;
+};
+
+/**
+ * @brief txe of a message (EFA_RDM_TXE_KIND_MSG_EAGER and
+ * EFA_RDM_TXE_KIND_MSG)
+ */
+struct efa_rdm_txe_msg {
+	struct efa_rdm_ope base;
+	struct efa_rdm_ope_sender sender;
 };
 
 /**
@@ -290,6 +302,15 @@ struct efa_rdm_txe_atomic {
  */
 struct efa_rdm_rxe_msg {
 	struct efa_rdm_ope base;
+	struct efa_rdm_ope_receiver receiver;
+	/** unexpected packets held until the message is matched */
+	struct efa_rdm_pke *unexp_pkt;
+	/** used by peer SRX ops */
+	struct fi_peer_rx_entry *peer_rxe;
+	/** the rxe_map that the rxe is ever inserted */
+	struct efa_rdm_rxe_map *rxe_map;
+	/** bytes the sender sent in the REQ packets of a runt read */
+	uint64_t bytes_runt;
 	struct efa_rdm_ope_rma rma;
 	struct efa_rdm_ope_read read;
 };
@@ -302,8 +323,17 @@ struct efa_rdm_rxe_msg {
  */
 struct efa_rdm_rxe_write {
 	struct efa_rdm_ope base;
+	struct efa_rdm_ope_receiver receiver;
 	struct efa_rdm_ope_rma rma;
 	struct efa_rdm_ope_read read;
+};
+
+/**
+ * @brief rxe of an emulated read responder (EFA_RDM_RXE_KIND_READ_RSP)
+ */
+struct efa_rdm_rxe_read_rsp {
+	struct efa_rdm_ope base;
+	struct efa_rdm_ope_sender sender;
 };
 
 /**
@@ -320,6 +350,7 @@ struct efa_rdm_rxe_atomic {
  */
 union efa_rdm_txe_slot {
 	struct efa_rdm_ope base;
+	struct efa_rdm_txe_msg msg;
 	struct efa_rdm_txe_rma rma;
 	struct efa_rdm_txe_atomic atomic;
 };
@@ -331,6 +362,7 @@ union efa_rdm_rxe_slot {
 	struct efa_rdm_ope base;
 	struct efa_rdm_rxe_msg msg;
 	struct efa_rdm_rxe_write write;
+	struct efa_rdm_rxe_read_rsp read_rsp;
 	struct efa_rdm_rxe_atomic atomic;
 };
 
@@ -416,6 +448,93 @@ static inline struct efa_rdm_ope_read *efa_rdm_ope_read(struct efa_rdm_ope *ope)
 		assert(ope->kind == EFA_RDM_TXE_KIND_DEVICE_READ);
 		return &efa_rdm_txe_rma(ope)->u.read;
 	}
+}
+
+static inline struct efa_rdm_txe_msg *efa_rdm_txe_msg(struct efa_rdm_ope *txe)
+{
+	assert(txe->kind == EFA_RDM_TXE_KIND_MSG_EAGER ||
+	       txe->kind == EFA_RDM_TXE_KIND_MSG);
+	return container_of(txe, struct efa_rdm_txe_msg, base);
+}
+
+static inline struct efa_rdm_rxe_read_rsp *efa_rdm_rxe_read_rsp(struct efa_rdm_ope *rxe)
+{
+	assert(rxe->kind == EFA_RDM_RXE_KIND_READ_RSP);
+	return container_of(rxe, struct efa_rdm_rxe_read_rsp, base);
+}
+
+/**
+ * @brief Whether an ope of this kind has the sender group.
+ */
+static inline bool efa_rdm_ope_kind_has_sender(uint8_t kind)
+{
+	return kind == EFA_RDM_TXE_KIND_MSG_EAGER ||
+	       kind == EFA_RDM_TXE_KIND_MSG ||
+	       efa_rdm_txe_kind_is_rma(kind) ||
+	       kind == EFA_RDM_RXE_KIND_READ_RSP;
+}
+
+/**
+ * @brief Whether an ope of this kind has the receiver group.
+ */
+static inline bool efa_rdm_ope_kind_has_receiver(uint8_t kind)
+{
+	return kind == EFA_RDM_TXE_KIND_RMA_RECV ||
+	       kind == EFA_RDM_RXE_KIND_MSG ||
+	       kind == EFA_RDM_RXE_KIND_MSG_READ ||
+	       kind == EFA_RDM_RXE_KIND_WRITE ||
+	       kind == EFA_RDM_RXE_KIND_WRITE_READ;
+}
+
+/**
+ * @brief Whether an rxe of this kind is a message rxe.
+ */
+static inline bool efa_rdm_rxe_kind_is_msg(uint8_t kind)
+{
+	return kind == EFA_RDM_RXE_KIND_MSG ||
+	       kind == EFA_RDM_RXE_KIND_MSG_READ;
+}
+
+/**
+ * @brief The send progress of an ope that sends a transfer's data.
+ */
+static inline struct efa_rdm_ope_sender *efa_rdm_ope_sender(struct efa_rdm_ope *ope)
+{
+	switch (ope->kind) {
+	case EFA_RDM_TXE_KIND_MSG_EAGER:
+	case EFA_RDM_TXE_KIND_MSG:
+		return &efa_rdm_txe_msg(ope)->sender;
+	case EFA_RDM_RXE_KIND_READ_RSP:
+		return &efa_rdm_rxe_read_rsp(ope)->sender;
+	default:
+		return &efa_rdm_txe_rma(ope)->sender;
+	}
+}
+
+/**
+ * @brief The receive progress of an ope that receives a transfer's data.
+ */
+static inline struct efa_rdm_ope_receiver *efa_rdm_ope_receiver(struct efa_rdm_ope *ope)
+{
+	switch (ope->kind) {
+	case EFA_RDM_RXE_KIND_MSG:
+	case EFA_RDM_RXE_KIND_MSG_READ:
+		return &efa_rdm_rxe_msg(ope)->receiver;
+	case EFA_RDM_RXE_KIND_WRITE:
+	case EFA_RDM_RXE_KIND_WRITE_READ:
+		return &efa_rdm_rxe_write(ope)->receiver;
+	default:
+		assert(ope->kind == EFA_RDM_TXE_KIND_RMA_RECV);
+		return &efa_rdm_txe_rma(ope)->u.receiver;
+	}
+}
+
+/**
+ * @brief Start the receive progress of a txe that receives its data.
+ */
+static inline void efa_rdm_txe_init_receiver(struct efa_rdm_ope *txe)
+{
+	memset(efa_rdm_ope_receiver(txe), 0, sizeof(struct efa_rdm_ope_receiver));
 }
 
 /**
@@ -858,7 +977,7 @@ static inline bool efa_rdm_ope_drained(struct efa_rdm_ope *ope)
  */
 static inline bool efa_rdm_ope_send_done(struct efa_rdm_ope *ope)
 {
-	return ope->total_len == ope->bytes_acked &&
+	return ope->total_len == efa_rdm_ope_sender(ope)->bytes_acked &&
 	       ope->efa_outstanding_tx_ops == 0 &&
 	       !(ope->internal_flags & EFA_RDM_OPE_QUEUED_FLAGS);
 }

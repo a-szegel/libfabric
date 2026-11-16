@@ -2877,8 +2877,8 @@ void test_proto_runtread_construct_pkes_carries_read_iov(void **state)
 	 * The runt is only the head of the message; if it covered all of it the
 	 * medium protocol should have won the selection.
 	 */
-	assert_int_equal(txe->bytes_runt, EFA_UNIT_TEST_PROTO_RUNT_SIZE);
-	assert_true(txe->bytes_runt < txe->total_len);
+	assert_int_equal(efa_rdm_ope_sender(txe)->bytes_runt, EFA_UNIT_TEST_PROTO_RUNT_SIZE);
+	assert_true(efa_rdm_ope_sender(txe)->bytes_runt < txe->total_len);
 	assert_true(ep->send_pkt_entry_vec_size > 1);
 	assert_true(ep->send_pkt_entry_vec_size <= EFA_UNIT_TEST_PROTO_MAX_PKES);
 
@@ -2901,7 +2901,7 @@ void test_proto_runtread_construct_pkes_carries_read_iov(void **state)
 
 		rtm_hdr = efa_rdm_pke_get_runtread_rtm_base_hdr(pke);
 		assert_int_equal(rtm_hdr->msg_length, txe->total_len);
-		assert_int_equal(rtm_hdr->runt_length, txe->bytes_runt);
+		assert_int_equal(rtm_hdr->runt_length, efa_rdm_ope_sender(txe)->bytes_runt);
 		assert_int_equal(rtm_hdr->send_id, txe->tx_id);
 		assert_int_equal(rtm_hdr->read_iov_count, txe->iov_count);
 		assert_int_equal(rtm_hdr->seg_offset, expected_offset);
@@ -2917,7 +2917,7 @@ void test_proto_runtread_construct_pkes_carries_read_iov(void **state)
 	}
 
 	/* The REQ packets carry exactly the runt, no more and no less. */
-	assert_int_equal(expected_offset, txe->bytes_runt);
+	assert_int_equal(expected_offset, efa_rdm_ope_sender(txe)->bytes_runt);
 
 	for (i = 0; i < ep->send_pkt_entry_vec_size; ++i)
 		efa_rdm_pke_release_tx(ep->send_pkt_entry_vec[i]);

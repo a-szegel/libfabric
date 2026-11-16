@@ -106,7 +106,7 @@ int efa_test_srx_dispatches_receive_callback(
 
 	out->callback_invocations = efa_test_srx_callback_invocations;
 	out->matched = rxe->state == EFA_RDM_RXE_MATCHED;
-	out->unexpected_packet_cleared = rxe->unexp_pkt == NULL;
+	out->unexpected_packet_cleared = efa_rdm_rxe_msg(rxe)->unexp_pkt == NULL;
 
 	ofi_genlock_lock(srx->lock);
 	efa_rdm_pke_release_rx(pke);

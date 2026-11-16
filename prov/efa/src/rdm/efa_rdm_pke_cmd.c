@@ -282,20 +282,22 @@ void efa_rdm_pke_handle_data_copied(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_ope *ope;
 	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope_receiver *receiver;
 
 	ope = pkt_entry->ope;
 	assert(ope);
+	receiver = efa_rdm_ope_receiver(ope);
 	ep = pkt_entry->ep;
 	assert(ep);
 
-	ope->bytes_copied += pkt_entry->payload_size;
+	receiver->bytes_copied += pkt_entry->payload_size;
 	efa_rdm_tracepoint(rx_pke_proc_matched_msg_end, (size_t) pkt_entry, pkt_entry->payload_size, ope->msg_id, (size_t) ope->cq_entry.op_context, ope->total_len);
 	efa_rdm_pke_release_rx(pkt_entry);
 
-	if (ope->total_len == ope->bytes_copied) {
-		if (ope->cuda_copy_method == EFA_RDM_CUDA_COPY_BLOCKING) {
+	if (ope->total_len == receiver->bytes_copied) {
+		if (receiver->cuda_copy_method == EFA_RDM_CUDA_COPY_BLOCKING) {
 			assert(ep->blocking_copy_rxe_num > 0);
-			ope->cuda_copy_method = EFA_RDM_CUDA_COPY_UNSPEC;
+			receiver->cuda_copy_method = EFA_RDM_CUDA_COPY_UNSPEC;
 			ep->blocking_copy_rxe_num -= 1;
 		}
 

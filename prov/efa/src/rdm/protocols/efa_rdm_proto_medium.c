@@ -95,7 +95,7 @@ EFA_RDM_PROTO_DEF(medium,
 void efa_rdm_proto_medium_handle_tx_pkes_posted(struct efa_rdm_ep *ep,
 						struct efa_rdm_ope *txe)
 {
-	txe->bytes_sent = txe->total_len;
+	efa_rdm_ope_sender(txe)->bytes_sent = txe->total_len;
 }
 
 /* TX path callbacks - one callback per protocol, which reads the txe to tell
@@ -121,14 +121,14 @@ ssize_t efa_rdm_proto_medium_handle_rtm_send_completion(
 	delivery_complete_requested =
 		txe->internal_flags & EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
 
-	txe->bytes_acked += pkt_entry->payload_size;
+	efa_rdm_ope_sender(txe)->bytes_acked += pkt_entry->payload_size;
 
 	if (txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
 		efa_rdm_txe_progress_peer_abort_if_drained(txe);
 	else if (delivery_complete_requested) {
 		if (efa_rdm_txe_with_remote_ack_ready_for_release(txe))
 			efa_rdm_txe_release(txe);
-	} else if (txe->total_len == txe->bytes_acked) {
+	} else if (txe->total_len == efa_rdm_ope_sender(txe)->bytes_acked) {
 		efa_rdm_ope_handle_send_completed(txe);
 	}
 

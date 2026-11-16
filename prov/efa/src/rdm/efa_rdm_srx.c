@@ -39,7 +39,7 @@ void efa_rdm_srx_update_rxe(struct fi_peer_rx_entry *peer_rxe,
 		memset(&rxe->desc[0], 0, sizeof(rxe->desc));
 
 	rxe->cq_entry.op_context = peer_rxe->context;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 }
 
 /**
@@ -72,7 +72,7 @@ static int efa_rdm_srx_start(struct fi_peer_rx_entry *peer_rxe)
 	 * Since the rxe is now matched, we need to clean the unexp_pkt
 	 * as the pkts are now processed.
 	 */
-	rxe->unexp_pkt = NULL;
+	efa_rdm_rxe_msg(rxe)->unexp_pkt = NULL;
 
 	ret = pkt_entry->handle_pke(pkt_entry);
 	if (OFI_UNLIKELY(ret)) {
@@ -111,9 +111,9 @@ static int efa_rdm_srx_discard(struct fi_peer_rx_entry *peer_rxe)
 	rxe = pkt_entry->ope;
 	EFA_WARN(FI_LOG_EP_CTRL,
 		"Discarding unmatched unexpected rxe: %p pkt_entry %p\n",
-		rxe, rxe->unexp_pkt);
-	efa_rdm_pke_release_rx_list(rxe->unexp_pkt);
-	rxe->unexp_pkt = NULL;
+		rxe, efa_rdm_rxe_msg(rxe)->unexp_pkt);
+	efa_rdm_pke_release_rx_list(efa_rdm_rxe_msg(rxe)->unexp_pkt);
+	efa_rdm_rxe_msg(rxe)->unexp_pkt = NULL;
 	efa_rdm_rxe_release_internal(rxe);
 	return FI_SUCCESS;
 }

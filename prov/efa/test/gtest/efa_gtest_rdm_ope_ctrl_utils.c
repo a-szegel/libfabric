@@ -125,6 +125,11 @@ static int efa_test_ctrl_build_ope(int which, struct efa_test_ctrl_result *out)
 			return -FI_ENOMEM;
 		efa_rdm_txe_construct(ope, ep, g_ctrl.peer, &msg, ofi_op_msg, 0,
 				      0);
+		/* a txe that sends a CTS is the receiver of an emulated read */
+		if (which == EFA_TEST_CTRL_CTS_TXE) {
+			ope->kind = EFA_RDM_TXE_KIND_RMA_RECV;
+			efa_rdm_txe_init_receiver(ope);
+		}
 	} else {
 		ope = efa_rdm_ep_alloc_rxe(ep, g_ctrl.peer,
 					   efa_test_ctrl_op_for(which));
@@ -145,12 +150,12 @@ static int efa_test_ctrl_build_ope(int which, struct efa_test_ctrl_result *out)
 	switch (which) {
 	case EFA_TEST_CTRL_CTS_RXE:
 		ope->total_len = EFA_TEST_CTRL_SOURCE_LEN;
-		ope->bytes_received = 0;
+		efa_rdm_ope_receiver(ope)->bytes_received = 0;
 		break;
 	case EFA_TEST_CTRL_CTS_TXE:
 		/* The emulated long CTS read sends CTS from a txe. */
 		ope->total_len = EFA_TEST_CTRL_SOURCE_LEN;
-		ope->bytes_received = 0;
+		efa_rdm_ope_receiver(ope)->bytes_received = 0;
 		ope->cq_entry.flags |= FI_READ;
 		break;
 	case EFA_TEST_CTRL_READRSP_FITS:
@@ -158,7 +163,7 @@ static int efa_test_ctrl_build_ope(int which, struct efa_test_ctrl_result *out)
 		efa_test_ctrl_set_source(ope, len);
 		/* The RTR carries the window, as efa_rdm_pke_alloc_rtr_rxe()
 		 * sets it; handle_readrsp_sent() draws the response down. */
-		ope->window = len;
+		efa_rdm_ope_sender(ope)->window = len;
 		out->source_len = len;
 		memcpy(out->source_bytes, g_ctrl.source, len);
 		break;
@@ -169,7 +174,7 @@ static int efa_test_ctrl_build_ope(int which, struct efa_test_ctrl_result *out)
 			      &ep->base_ep.util_ep.ep_fid) +
 		      1;
 		efa_test_ctrl_set_source(ope, len);
-		ope->window = len;
+		efa_rdm_ope_sender(ope)->window = len;
 		out->source_len = len;
 		break;
 	case EFA_TEST_CTRL_ATOMRSP:
@@ -286,8 +291,12 @@ int efa_test_ctrl_post(struct fid_ep *ep, struct fid_av *av, int which,
 	out->on_longcts_send_list =
 		efa_test_ctrl_on_list(&efa_rdm_ep->ope_longcts_send_list,
 				      &g_ctrl.ope->entry);
-	out->ope_window = g_ctrl.ope->window;
-	out->ope_bytes_sent = g_ctrl.ope->bytes_sent;
+	if (efa_rdm_ope_kind_has_receiver(g_ctrl.ope->kind))
+		out->ope_window = efa_rdm_ope_receiver(g_ctrl.ope)->window;
+	else if (efa_rdm_ope_kind_has_sender(g_ctrl.ope->kind))
+		out->ope_window = efa_rdm_ope_sender(g_ctrl.ope)->window;
+	if (efa_rdm_ope_kind_has_sender(g_ctrl.ope->kind))
+		out->ope_bytes_sent = efa_rdm_ope_sender(g_ctrl.ope)->bytes_sent;
 	out->ope_state = g_ctrl.ope->state;
 	out->outstanding_tx_ops = efa_rdm_ep->efa_outstanding_tx_ops;
 	return 0;
@@ -539,14 +548,14 @@ int efa_test_ctrl_setup_longcts_continuation(struct fid_ep *ep,
 	 * granted a window for the rest. The remaining window is one packet's
 	 * worth, so the continuation posts exactly one CTSDATA.
 	 */
-	rxe->bytes_sent = len / 2;
-	rxe->window = len - rxe->bytes_sent;
-	assert(rxe->window <= g_ctrl.ep->max_data_payload_size);
+	efa_rdm_ope_sender(rxe)->bytes_sent = len / 2;
+	efa_rdm_ope_sender(rxe)->window = len - efa_rdm_ope_sender(rxe)->bytes_sent;
+	assert(efa_rdm_ope_sender(rxe)->window <= g_ctrl.ep->max_data_payload_size);
 	rxe->state = EFA_RDM_OPE_SEND;
 	dlist_insert_tail(&rxe->entry, &g_ctrl.ep->ope_longcts_send_list);
 
 	out->on_longcts_send_list = 1;
-	out->ope_bytes_sent = rxe->bytes_sent;
+	out->ope_bytes_sent = efa_rdm_ope_sender(rxe)->bytes_sent;
 	return 0;
 }
 
@@ -589,7 +598,7 @@ void efa_test_ctrl_drive_continuation(struct fid_ep *ep, int tx_full,
 	out->on_longcts_send_list =
 		efa_test_ctrl_on_list(&efa_rdm_ep->ope_longcts_send_list,
 				      &g_ctrl.ope->entry);
-	out->ope_bytes_sent = g_ctrl.ope->bytes_sent;
+	out->ope_bytes_sent = efa_rdm_ope_sender(g_ctrl.ope)->bytes_sent;
 }
 
 int efa_test_ctrl_setup_longcts_write_continuation(
@@ -628,13 +637,13 @@ int efa_test_ctrl_setup_longcts_write_continuation(
 	 * granted a window for the rest. The remaining window is one packet's
 	 * worth, so the continuation posts exactly one CTSDATA.
 	 */
-	txe->bytes_sent = len / 2;
-	txe->window = len - txe->bytes_sent;
-	assert(txe->window <= g_ctrl.ep->max_data_payload_size);
+	efa_rdm_ope_sender(txe)->bytes_sent = len / 2;
+	efa_rdm_ope_sender(txe)->window = len - efa_rdm_ope_sender(txe)->bytes_sent;
+	assert(efa_rdm_ope_sender(txe)->window <= g_ctrl.ep->max_data_payload_size);
 	txe->state = EFA_RDM_OPE_SEND;
 	dlist_insert_tail(&txe->entry, &g_ctrl.ep->ope_longcts_send_list);
 
 	out->on_longcts_send_list = 1;
-	out->ope_bytes_sent = txe->bytes_sent;
+	out->ope_bytes_sent = efa_rdm_ope_sender(txe)->bytes_sent;
 	return 0;
 }

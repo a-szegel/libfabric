@@ -42,14 +42,18 @@ void efa_rdm_txe_construct_common(struct efa_rdm_ope *txe,
 	}
 
 	txe->internal_flags = internal_flags;
-	txe->bytes_received = 0;
-	txe->bytes_copied = 0;
-	txe->bytes_acked = 0;
-	txe->bytes_sent = 0;
-	txe->window = 0;
+	if (efa_rdm_ope_kind_has_sender(txe->kind))
+		memset(efa_rdm_ope_sender(txe), 0,
+		       sizeof(struct efa_rdm_ope_sender));
+	if (efa_rdm_ope_kind_has_receiver(txe->kind))
+		efa_rdm_txe_init_receiver(txe);
 	txe->iov_count = msg->iov_count;
-	if (efa_rdm_ope_kind_has_rma(txe->kind))
+	if (efa_rdm_txe_kind_is_rma(txe->kind)) {
 		efa_rdm_ope_rma(txe)->rma_iov_count = 0;
+		efa_rdm_txe_rma(txe)->local_read_pkt_entry = NULL;
+	} else if (efa_rdm_ope_kind_has_rma(txe->kind)) {
+		efa_rdm_ope_rma(txe)->rma_iov_count = 0;
+	}
 	txe->msg_id = 0;
 	txe->efa_outstanding_tx_ops = 0;
 	dlist_init(&txe->queued_pkts);
@@ -65,8 +69,6 @@ void efa_rdm_txe_construct_common(struct efa_rdm_ope *txe,
 
 	/* set flags */
 	txe->fi_flags = efa_rdm_msg_get_tx_flags(ep, fi_flags);
-	txe->bytes_runt = 0;
-	txe->local_read_pkt_entry = NULL;
 	dlist_init(&txe->entry);
 
 	switch (op) {
@@ -205,6 +207,7 @@ efa_rdm_txe_switch_protocol(struct efa_rdm_ope *txe,
 {
 	struct efa_rdm_ep *ep = txe->ep;
 	struct efa_rdm_ope *new_txe;
+	struct efa_rdm_ope_sender old_sender;
 	struct efa_rdm_ope_rma old_rma;
 	struct efa_rdm_ope old;
 	struct fi_msg msg = {0};
@@ -215,6 +218,8 @@ efa_rdm_txe_switch_protocol(struct efa_rdm_ope *txe,
 	assert(dlist_empty(&txe->queued_pkts));
 
 	old = *txe;
+	assert(efa_rdm_ope_kind_has_sender(txe->kind));
+	old_sender = *efa_rdm_ope_sender(txe);
 	if (efa_rdm_ope_kind_has_rma(txe->kind))
 		old_rma = *efa_rdm_ope_rma(txe);
 
@@ -249,9 +254,10 @@ efa_rdm_txe_switch_protocol(struct efa_rdm_ope *txe,
 		assert(efa_rdm_ope_kind_has_rma(old.kind));
 		*efa_rdm_ope_rma(new_txe) = old_rma;
 	}
-	new_txe->bytes_sent = old.bytes_sent;
-	new_txe->bytes_acked = old.bytes_acked;
-	new_txe->bytes_runt = old.bytes_runt;
+	assert(efa_rdm_ope_kind_has_sender(new_txe->kind));
+	efa_rdm_ope_sender(new_txe)->bytes_sent = old_sender.bytes_sent;
+	efa_rdm_ope_sender(new_txe)->bytes_acked = old_sender.bytes_acked;
+	efa_rdm_ope_sender(new_txe)->bytes_runt = old_sender.bytes_runt;
 	new_txe->peer_error_prov_errno = old.peer_error_prov_errno;
 	new_txe->req_pkt_type = req_pkt_type;
 
@@ -337,8 +343,8 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe)
 	if (rxe->state == EFA_RDM_OPE_SEND)
 		dlist_remove(&rxe->entry);
 
-	if (rxe->rxe_map)
-		efa_rdm_rxe_map_remove(rxe->rxe_map, rxe->msg_id, rxe);
+	if (efa_rdm_rxe_kind_is_msg(rxe->kind) && efa_rdm_rxe_msg(rxe)->rxe_map)
+		efa_rdm_rxe_map_remove(efa_rdm_rxe_msg(rxe)->rxe_map, rxe->msg_id, rxe);
 
 	if (rxe->kind == EFA_RDM_RXE_KIND_ATOMIC &&
 	    efa_rdm_rxe_atomic(rxe)->atomrsp_data) {
@@ -389,9 +395,9 @@ void efa_rdm_rxe_release_internal(struct efa_rdm_ope *rxe)
 void efa_rdm_rxe_release(struct efa_rdm_ope *rxe)
 {
 	/* release the resource created by util srx */
-	if (rxe->peer_rxe) {
-		efa_rdm_ep_get_peer_srx(rxe->ep)->owner_ops->free_entry(rxe->peer_rxe);
-		rxe->peer_rxe = NULL;
+	if (efa_rdm_rxe_kind_is_msg(rxe->kind) && efa_rdm_rxe_msg(rxe)->peer_rxe) {
+		efa_rdm_ep_get_peer_srx(rxe->ep)->owner_ops->free_entry(efa_rdm_rxe_msg(rxe)->peer_rxe);
+		efa_rdm_rxe_msg(rxe)->peer_rxe = NULL;
 	}
 
 	/* release efa specific resources in rxe */
@@ -543,7 +549,7 @@ size_t efa_rdm_ope_mulreq_total_data_size(struct efa_rdm_ope *ope, int pkt_type)
 	}
 
 	assert(efa_rdm_pkt_type_is_runt(pkt_type));
-	return ope->bytes_runt;
+	return efa_rdm_rxe_msg(ope)->bytes_runt;
 }
 
 /**
@@ -716,9 +722,9 @@ void efa_rdm_rxe_handle_error(struct efa_rdm_ope *rxe, int err, int prov_errno)
 		rxe->internal_flags &= ~EFA_RDM_OPE_QUEUED_FLAGS;
 	}
 
-	if (rxe->unexp_pkt) {
-		efa_rdm_pke_release_rx_list(rxe->unexp_pkt);
-		rxe->unexp_pkt = NULL;
+	if (efa_rdm_rxe_kind_is_msg(rxe->kind) && efa_rdm_rxe_msg(rxe)->unexp_pkt) {
+		efa_rdm_pke_release_rx_list(efa_rdm_rxe_msg(rxe)->unexp_pkt);
+		efa_rdm_rxe_msg(rxe)->unexp_pkt = NULL;
 	}
 
 	err_entry.flags = rxe->cq_entry.flags;
@@ -1777,7 +1783,8 @@ int efa_rdm_ope_prepare_to_post_read(struct efa_rdm_ope *ope)
 	if (ope->type == EFA_RDM_TXE)
 		read->bytes_read_offset = 0;
 	else
-		read->bytes_read_offset = ope->bytes_runt;
+		read->bytes_read_offset = efa_rdm_rxe_kind_is_msg(ope->kind) ?
+					  efa_rdm_rxe_msg(ope)->bytes_runt : 0;
 
 	read->bytes_read_total_len = MIN(total_iov_len, total_rma_iov_len) - read->bytes_read_offset;
 	read->bytes_read_submitted = 0;
@@ -1814,7 +1821,7 @@ ssize_t efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe)
 	assert(txe->type == EFA_RDM_TXE);
 	assert(efa_rdm_ope_rma(txe)->rma_iov_count > 0 && efa_rdm_ope_rma(txe)->rma_iov_count <= efa_rdm_ep_domain(txe->ep)->info->tx_attr->rma_iov_limit);
 
-	pkt_entry = txe->local_read_pkt_entry;
+	pkt_entry = efa_rdm_txe_rma(txe)->local_read_pkt_entry;
 	if (pkt_entry->mr && !(txe->ep->sendrecv_in_order_aligned_128_bytes))
 		return 0;
 
@@ -1839,7 +1846,7 @@ ssize_t efa_rdm_txe_prepare_local_read_pkt_entry(struct efa_rdm_ope *txe)
 	efa_rdm_pke_release_rx(pkt_entry);
 
 	assert(pkt_entry_copy->mr);
-	txe->local_read_pkt_entry = pkt_entry_copy;
+	efa_rdm_txe_rma(txe)->local_read_pkt_entry = pkt_entry_copy;
 	/* pkt from read-copy pool only stores actual application data in wiredata */
 	assert(ofi_is_addr_aligned((void *)pkt_entry_copy->wiredata, EFA_RDM_EP_IN_ORDER_ALIGNMENT));
 	efa_rdm_ope_rma(txe)->rma_iov[0].addr = (uint64_t)pkt_entry_copy->wiredata;
@@ -2303,17 +2310,17 @@ int efa_rdm_rxe_post_local_read_or_queue(struct efa_rdm_ope *rxe,
 	}
 
 	txe->kind = EFA_RDM_TXE_KIND_DEVICE_READ;
-	txe->local_read_pkt_entry = pkt_entry;
+	efa_rdm_txe_rma(txe)->local_read_pkt_entry = pkt_entry;
 	txe->internal_flags |= EFA_RDM_OPE_INTERNAL;
 	err = efa_rdm_ope_post_remote_read_or_queue(txe);
 	/* The rx pkts are held until the local read completes */
 	if (err) {
-		efa_rdm_pke_release_rx(txe->local_read_pkt_entry);
-		txe->local_read_pkt_entry = NULL;
+		efa_rdm_pke_release_rx(efa_rdm_txe_rma(txe)->local_read_pkt_entry);
+		efa_rdm_txe_rma(txe)->local_read_pkt_entry = NULL;
 		efa_rdm_txe_release(txe);
 	} else {
 		/*Local RDMA read posted*/
-		efa_rdm_pke_mark_held(txe->local_read_pkt_entry);
+		efa_rdm_pke_mark_held(efa_rdm_txe_rma(txe)->local_read_pkt_entry);
 		/*
 		 * TODO: post the copy read on the rxe instead of an internal
 		 * txe, so the rxe's own WR accounting covers it and this
@@ -2356,7 +2363,7 @@ ssize_t efa_rdm_ope_post_send(struct efa_rdm_ope *ope, int pkt_type)
 	assert(ep->send_pkt_entry_vec_size <=
 	       efa_base_ep_get_tx_pool_size(&ep->base_ep));
 
-	segment_offset = efa_rdm_pkt_type_contains_data(pkt_type) ? (int64_t) ope->bytes_sent : -1;
+	segment_offset = efa_rdm_pkt_type_contains_data(pkt_type) ? (int64_t) efa_rdm_ope_sender(ope)->bytes_sent : -1;
 	for (i = 0; i < ep->send_pkt_entry_vec_size; ++i) {
 		ep->send_pkt_entry_vec[i] = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool, EFA_RDM_PKE_FROM_EFA_TX_POOL);
 
@@ -2456,9 +2463,8 @@ static ssize_t efa_rdm_ope_post_nonreq_ctrl(struct efa_rdm_ope *ope, int pkt_typ
 		pke_handle_sent = &efa_rdm_pke_handle_cts_sent;
 		break;
 	case EFA_RDM_READRSP_PKT:
-		/* These two carry data, so the old path passed ope->bytes_sent
-		 * as the segment offset and asserted it was 0. */
-		assert(ope->bytes_sent == 0);
+		/* READRSP carries data from the start of the buffer. */
+		assert(efa_rdm_ope_sender(ope)->bytes_sent == 0);
 		err = efa_rdm_pke_init_readrsp(pkt_entry, ope);
 		pke_handle_sent = &efa_rdm_pke_handle_readrsp_sent;
 		break;
@@ -2466,7 +2472,6 @@ static ssize_t efa_rdm_ope_post_nonreq_ctrl(struct efa_rdm_ope *ope, int pkt_typ
 		err = efa_rdm_pke_init_eor(pkt_entry, ope);
 		break;
 	case EFA_RDM_ATOMRSP_PKT:
-		assert(ope->bytes_sent == 0);
 		err = efa_rdm_pke_init_atomrsp(pkt_entry, ope);
 		break;
 	case EFA_RDM_RECEIPT_PKT:

@@ -130,7 +130,7 @@ void test_efa_srx_unexp_pkt(void **state)
 	assert_int_equal(efa_rdm_pke_proc_msgrtm(pke), 0);
 	rxe = pke->ope;
 	assert_true(rxe->state == EFA_RDM_RXE_UNEXP);
-	assert_true(rxe->unexp_pkt == pke);
+	assert_true(efa_rdm_rxe_msg(rxe)->unexp_pkt == pke);
 	pke->handle_pke = test_efa_srx_matched_callback;
 	ofi_genlock_unlock(srx_ctx->lock);
 
@@ -140,7 +140,7 @@ void test_efa_srx_unexp_pkt(void **state)
 
 	/* Make sure rxe is updated as mateched and unexp_pkt is NULL */
 	assert_true(rxe->state == EFA_RDM_RXE_MATCHED);
-	assert_true(rxe->unexp_pkt == NULL);
+	assert_true(efa_rdm_rxe_msg(rxe)->unexp_pkt == NULL);
 
 	ofi_genlock_lock(srx_ctx->lock);
 	efa_rdm_pke_release_rx(pke);

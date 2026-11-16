@@ -235,8 +235,8 @@ void efa_rdm_proto_handle_eor_recv(struct efa_rdm_pke *pkt_entry)
 
 	efa_rdm_txe_release_read_msg_slot(txe);
 
-	txe->bytes_acked += txe->total_len - txe->bytes_runt;
-	if (txe->bytes_acked == txe->total_len) {
+	efa_rdm_ope_sender(txe)->bytes_acked += txe->total_len - efa_rdm_ope_sender(txe)->bytes_runt;
+	if (efa_rdm_ope_sender(txe)->bytes_acked == txe->total_len) {
 		efa_rdm_txe_report_completion(txe);
 		txe->internal_flags |= EFA_RDM_TXE_REMOTE_ACK_RECEIVED;
 		if (efa_rdm_txe_with_remote_ack_ready_for_release(txe))

@@ -82,7 +82,7 @@ static ssize_t efa_rdm_pke_init_longcts_rtr(struct efa_rdm_pke *pkt_entry,
 	efa_rdm_pke_init_rtr_common(pkt_entry,
 				    EFA_RDM_LONGCTS_RTR_PKT,
 				    txe,
-				    txe->window);
+				    efa_rdm_ope_receiver(txe)->window);
 	return 0;
 }
 
@@ -110,7 +110,7 @@ int efa_rdm_proto_longcts_rtr_construct_tx_pkes(struct efa_rdm_ep *ep,
 	       0);
 
 	assert(efa_env.tx_min_credits > 0);
-	txe->window = MIN(txe->total_len,
+	efa_rdm_ope_receiver(txe)->window = MIN(txe->total_len,
 			  efa_env.tx_min_credits * ep->max_data_payload_size);
 
 	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,

@@ -177,7 +177,7 @@ int efa_rdm_ep_flush_queued_blocking_copy_to_hmem(struct efa_rdm_ep *ep)
 			for (j = 0; j < ep->queued_copy_num; ++j) {
 				pkt_entry = ep->queued_copy_vec[j].pkt_entry;
 				rxe = pkt_entry->ope;
-				rxe->bytes_queued_blocking_copy -= pkt_entry->payload_size;
+				efa_rdm_ope_receiver(rxe)->bytes_queued_blocking_copy -= pkt_entry->payload_size;
 				efa_rdm_pke_release_rx(pkt_entry);
 			}
 			ep->queued_copy_num = 0;
@@ -188,7 +188,7 @@ int efa_rdm_ep_flush_queued_blocking_copy_to_hmem(struct efa_rdm_ep *ep)
 	for (i = 0; i < ep->queued_copy_num; ++i) {
 		pkt_entry = ep->queued_copy_vec[i].pkt_entry;
 		rxe = pkt_entry->ope;
-		rxe->bytes_queued_blocking_copy -= pkt_entry->payload_size;
+		efa_rdm_ope_receiver(rxe)->bytes_queued_blocking_copy -= pkt_entry->payload_size;
 		efa_rdm_pke_handle_data_copied(pkt_entry);
 	}
 
@@ -214,6 +214,10 @@ void efa_rdm_ep_purge_queued_blocking_copy_for_rxe(struct efa_rdm_ope *rxe)
 	struct efa_rdm_pke *pkt_entry;
 	size_t i, dst = 0;
 
+	/* only an rxe that receives data can have blocking copies queued */
+	if (!efa_rdm_ope_kind_has_receiver(rxe->kind))
+		return;
+
 	/*
 	 * The bytes_queued_blocking_copy > 0 guard also makes this safe to
 	 * reach from inside a flush: the flush decrements the count for each
@@ -221,18 +225,18 @@ void efa_rdm_ep_purge_queued_blocking_copy_for_rxe(struct efa_rdm_ope *rxe)
 	 * so a nested release sees zero here and never mutates the vector
 	 * the flush is still iterating.
 	 */
-	if (rxe->bytes_queued_blocking_copy > 0) {
+	if (efa_rdm_ope_receiver(rxe)->bytes_queued_blocking_copy > 0) {
 		for (i = 0; i < ep->queued_copy_num; ++i) {
 			pkt_entry = ep->queued_copy_vec[i].pkt_entry;
 			if (pkt_entry->ope == rxe) {
-				rxe->bytes_queued_blocking_copy -= pkt_entry->payload_size;
+				efa_rdm_ope_receiver(rxe)->bytes_queued_blocking_copy -= pkt_entry->payload_size;
 				efa_rdm_pke_release_rx(pkt_entry);
 			} else {
 				ep->queued_copy_vec[dst++] = ep->queued_copy_vec[i];
 			}
 		}
 		ep->queued_copy_num = dst;
-		assert(rxe->bytes_queued_blocking_copy == 0);
+		assert(efa_rdm_ope_receiver(rxe)->bytes_queued_blocking_copy == 0);
 	}
 
 	/*
@@ -242,10 +246,10 @@ void efa_rdm_ep_purge_queued_blocking_copy_for_rxe(struct efa_rdm_ope *rxe)
 	 * gated on the purge above. A normally-completed rxe already reset
 	 * cuda_copy_method, making this a no-op on that path.
 	 */
-	if (rxe->cuda_copy_method == EFA_RDM_CUDA_COPY_BLOCKING) {
+	if (efa_rdm_ope_receiver(rxe)->cuda_copy_method == EFA_RDM_CUDA_COPY_BLOCKING) {
 		assert(ep->blocking_copy_rxe_num > 0);
 		ep->blocking_copy_rxe_num -= 1;
-		rxe->cuda_copy_method = EFA_RDM_CUDA_COPY_UNSPEC;
+		efa_rdm_ope_receiver(rxe)->cuda_copy_method = EFA_RDM_CUDA_COPY_UNSPEC;
 	}
 }
 
@@ -266,6 +270,7 @@ int efa_rdm_pke_queued_copy_payload_to_hmem(struct efa_rdm_pke *pke,
 					    struct efa_rdm_ope *rxe)
 {
 	struct efa_rdm_ep *ep;
+	struct efa_rdm_ope_receiver *receiver = efa_rdm_ope_receiver(rxe);
 
 	ep = pke->ep;
 	assert(ep);
@@ -276,12 +281,12 @@ int efa_rdm_pke_queued_copy_payload_to_hmem(struct efa_rdm_pke *pke,
 	ep->queued_copy_vec[ep->queued_copy_num].data_offset = efa_rdm_pke_get_segment_offset(pke);
 	ep->queued_copy_num += 1;
 
-	rxe->bytes_queued_blocking_copy += pke->payload_size;
+	receiver->bytes_queued_blocking_copy += pke->payload_size;
 
 	efa_rdm_pke_mark_held(pke);
 
 	if (ep->queued_copy_num < efa_env.max_queued_copy &&
-	    rxe->bytes_copied + rxe->bytes_queued_blocking_copy < rxe->total_len) {
+	    receiver->bytes_copied + receiver->bytes_queued_blocking_copy < rxe->total_len) {
 		return 0;
 	}
 
@@ -367,6 +372,7 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 	size_t segment_offset;
 	bool local_read_available, gdrcopy_available, cuda_memcpy_available;
 	int ret, err;
+	struct efa_rdm_ope_receiver *receiver = efa_rdm_ope_receiver(rxe);
 
 	desc = rxe->desc[0];
 	assert(efa_mr_is_cuda(&desc->efa_mr));
@@ -416,13 +422,13 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 
 	/* when both local read and gdrcopy are available, we use a mixed approach */
 
-	if (rxe->cuda_copy_method != EFA_RDM_CUDA_COPY_LOCALREAD) {
-		assert(rxe->bytes_copied + pke->payload_size <= rxe->total_len);
+	if (receiver->cuda_copy_method != EFA_RDM_CUDA_COPY_LOCALREAD) {
+		assert(receiver->bytes_copied + pke->payload_size <= rxe->total_len);
 
 		/* If this packet is the last uncopied piece (or the only piece), copy it right away
 		 * to achieve best latency.
 		 */
-		if (rxe->bytes_copied + pke->payload_size == rxe->total_len) {
+		if (receiver->bytes_copied + pke->payload_size == rxe->total_len) {
 			assert(desc->hmem_data);
 			efa_rdm_tracepoint(rx_pke_blocking_copy_payload_begin, (size_t) pke, pke->payload_size, rxe->msg_id, (size_t) rxe->cq_entry.op_context, rxe->total_len);
 			ofi_dev_reg_copy_to_hmem_iov(FI_HMEM_CUDA, (uint64_t)desc->hmem_data,
@@ -435,19 +441,19 @@ int efa_rdm_pke_copy_payload_to_cuda(struct efa_rdm_pke *pke,
 		}
 
 		/* If this rxe is already been chosen to use gdrcopy/cudaMemcpy, keep using on it */
-		if (rxe->cuda_copy_method == EFA_RDM_CUDA_COPY_BLOCKING)
+		if (receiver->cuda_copy_method == EFA_RDM_CUDA_COPY_BLOCKING)
 			return efa_rdm_pke_queued_copy_payload_to_hmem(pke, rxe);
 
 		/* If there are still empty slot for using gdrcopy, use gdrcopy on this rxe */
-		if (rxe->cuda_copy_method == EFA_RDM_CUDA_COPY_UNSPEC && ep->blocking_copy_rxe_num < max_blocking_copy_rxe_num) {
-			rxe->cuda_copy_method = EFA_RDM_CUDA_COPY_BLOCKING;
+		if (receiver->cuda_copy_method == EFA_RDM_CUDA_COPY_UNSPEC && ep->blocking_copy_rxe_num < max_blocking_copy_rxe_num) {
+			receiver->cuda_copy_method = EFA_RDM_CUDA_COPY_BLOCKING;
 			ep->blocking_copy_rxe_num += 1;
 			return efa_rdm_pke_queued_copy_payload_to_hmem(pke, rxe);
 		}
 	}
 
-	if (rxe->cuda_copy_method == EFA_RDM_CUDA_COPY_UNSPEC)
-		rxe->cuda_copy_method = EFA_RDM_CUDA_COPY_LOCALREAD;
+	if (receiver->cuda_copy_method == EFA_RDM_CUDA_COPY_UNSPEC)
+		receiver->cuda_copy_method = EFA_RDM_CUDA_COPY_LOCALREAD;
 
 	err = efa_rdm_rxe_post_local_read_or_queue(rxe, segment_offset,
 						   pke, pke->payload, pke->payload_size);

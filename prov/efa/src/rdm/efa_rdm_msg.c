@@ -744,7 +744,7 @@ struct efa_rdm_ope *efa_rdm_msg_alloc_unexp_rxe_for_rtm(struct efa_rdm_ep *ep,
 
 	rxe->internal_flags = 0;
 	rxe->state = EFA_RDM_RXE_UNEXP;
-	rxe->unexp_pkt = unexp_pkt_entry;
+	efa_rdm_rxe_msg(rxe)->unexp_pkt = unexp_pkt_entry;
 	efa_rdm_pke_rtm_update_rxe(unexp_pkt_entry, rxe);
 	return rxe;
 }
@@ -851,7 +851,7 @@ efa_rdm_msg_alloc_rxe_for_msgrtm(struct efa_rdm_ep *ep,
 		}
 		efa_rdm_pke_set_ope(*pkt_entry_ptr, rxe);
 		peer_rxe->peer_context = (*pkt_entry_ptr);
-		rxe->peer_rxe = peer_rxe;
+		efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 
 #if HAVE_LTTNG
 		efa_rdm_tracepoint(msg_recv_unexpected_nontagged, (uint64_t) orig_pke_ptr,
@@ -953,7 +953,7 @@ efa_rdm_msg_alloc_rxe_for_tagrtm(struct efa_rdm_ep *ep,
 		}
 
 		peer_rxe->peer_context = *pkt_entry_ptr;
-		rxe->peer_rxe = peer_rxe;
+		efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 
 #if HAVE_LTTNG
 		efa_rdm_tracepoint(msg_recv_unexpected_tagged, (uint64_t) orig_pke_ptr,

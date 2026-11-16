@@ -250,7 +250,7 @@ efa_rdm_pke_proc_msgrtm_with_callback(
 	} else if (rxe->state == EFA_RDM_RXE_UNEXP) {
 		pkt_entry->handle_pke = handle_unexp_pke_match;
 		peer_srx = util_get_peer_srx(ep->peer_srx_ep);
-		return peer_srx->owner_ops->queue_msg(rxe->peer_rxe);
+		return peer_srx->owner_ops->queue_msg(efa_rdm_rxe_msg(rxe)->peer_rxe);
 	}
 
 	return 0;
@@ -310,7 +310,7 @@ efa_rdm_pke_proc_tagrtm_with_callback(
 	} else if (rxe->state == EFA_RDM_RXE_UNEXP) {
 		pkt_entry->handle_pke = handle_unexp_pke_match;
 		peer_srx = util_get_peer_srx(ep->peer_srx_ep);
-		return peer_srx->owner_ops->queue_tag(rxe->peer_rxe);
+		return peer_srx->owner_ops->queue_tag(efa_rdm_rxe_msg(rxe)->peer_rxe);
 	}
 
 	return 0;
@@ -405,9 +405,9 @@ efa_rdm_pke_handle_existing_mulreq_rxe(struct efa_rdm_pke *pkt_entry)
 		efa_rdm_pke_set_ope(pkt_entry, rxe);
 		proto->handle_unexp_pke_match(pkt_entry);
 	} else {
-		assert(rxe->unexp_pkt);
+		assert(efa_rdm_rxe_msg(rxe)->unexp_pkt);
 		unexp_pkt_entry = efa_rdm_pke_get_unexp(&pkt_entry);
-		efa_rdm_pke_append(rxe->unexp_pkt, unexp_pkt_entry);
+		efa_rdm_pke_append(efa_rdm_rxe_msg(rxe)->unexp_pkt, unexp_pkt_entry);
 		efa_rdm_pke_set_ope(unexp_pkt_entry, rxe);
 	}
 
@@ -486,10 +486,10 @@ ssize_t efa_rdm_pke_proc_matched_mulreq_rtm(struct efa_rdm_pke *pkt_entry)
 		/* efa_rdm_pke_copy_payload_to_ope() can release rxe, so
 		 * bytes_received must be calculated before it.
 		 */
-		rxe->bytes_received += cur->payload_size;
-		rxe->bytes_received_via_mulreq += cur->payload_size;
+		efa_rdm_ope_receiver(rxe)->bytes_received += cur->payload_size;
+		efa_rdm_ope_receiver(rxe)->bytes_received_via_mulreq += cur->payload_size;
 		if (efa_rdm_ope_mulreq_total_data_size(rxe, pkt_type) ==
-		    rxe->bytes_received_via_mulreq) {
+		    efa_rdm_ope_receiver(rxe)->bytes_received_via_mulreq) {
 			if (rxe->internal_flags & EFA_RDM_OPE_READ_NACK) {
 				EFA_INFO(FI_LOG_EP_CTRL,
 					 "Receiver sending long read NACK "
