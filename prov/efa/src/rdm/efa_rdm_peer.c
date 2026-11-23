@@ -181,9 +181,9 @@ void efa_rdm_peer_destruct(struct efa_rdm_peer *peer, struct efa_rdm_ep *ep)
 		 * 2. efa_rdm_ep_destroy_buffer_pools sweeps rx_pkt_list
 		 *    (debug only), then releases every rxe left on ope_list.
 		 * 3. Only then does it destroy the peers. */
-		if (rxe->state == EFA_RDM_RXE_UNEXP && rxe->unexp_pkt) {
-			efa_rdm_pke_release_rx_list(rxe->unexp_pkt);
-			rxe->unexp_pkt = NULL;
+		if (rxe->state == EFA_RDM_RXE_UNEXP && efa_rdm_rxe_msg(rxe)->unexp_pkt) {
+			efa_rdm_pke_release_rx_list(efa_rdm_rxe_msg(rxe)->unexp_pkt);
+			efa_rdm_rxe_msg(rxe)->unexp_pkt = NULL;
 		}
 		efa_rdm_rxe_release(rxe);
 	}

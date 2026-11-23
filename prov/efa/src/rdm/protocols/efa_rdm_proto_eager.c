@@ -74,6 +74,7 @@ static bool efa_rdm_proto_eager_can_use_for_send(struct efa_rdm_proto *proto,
 }
 
 EFA_RDM_PROTO_DEF(eager,
+	.txe_kind = EFA_RDM_TXE_KIND_MSG_EAGER,
 	.wants_mr = false,
 	.max_param_name = "inter_max_eager_message_size",
 	.can_use_protocol = &efa_rdm_proto_eager_can_use_for_send,

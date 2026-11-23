@@ -43,9 +43,9 @@ efa_rdm_proto_longread_handle_matched_rtm(struct efa_rdm_pke *pkt_entry)
 	efa_rdm_pke_prepare_matched_rtm(pkt_entry);
 
 	rxe->tx_id = rtm_hdr->send_id;
-	rxe->rma_iov_count = rtm_hdr->read_iov_count;
-	memcpy(rxe->rma_iov, read_iov,
-	       rxe->rma_iov_count * sizeof (struct fi_rma_iov));
+	efa_rdm_ope_rma(rxe)->rma_iov_count = rtm_hdr->read_iov_count;
+	memcpy(efa_rdm_ope_rma(rxe)->rma_iov, read_iov,
+	       efa_rdm_ope_rma(rxe)->rma_iov_count * sizeof (struct fi_rma_iov));
 
 	efa_rdm_tracepoint(longread_read_posted, rxe->msg_id,
 			   (size_t) rxe->cq_entry.op_context, rxe->total_len);
@@ -98,6 +98,7 @@ static bool efa_rdm_proto_longread_set_bounds(struct efa_rdm_proto *proto, enum 
 }
 
 EFA_RDM_PROTO_DEF(longread,
+	.txe_kind = EFA_RDM_TXE_KIND_MSG,
 	.wants_mr = true,
 	.min_param_name = "inter_min_read_message_size",
 	.set_bounds = &efa_rdm_proto_longread_set_bounds,
@@ -134,7 +135,8 @@ void efa_rdm_proto_longread_handle_tx_pkes_posted(struct efa_rdm_ep *ep,
  *
  * The user completion is written when the receiver's EOR arrives, and the txe
  * is released by whichever of this completion and the EOR comes last. After a
- * read NACK, the txe completes here if this is its last packet to finish.
+ * read NACK, the operation continues on the long CTS protocol once this
+ * completion has arrived.
  */
 ssize_t efa_rdm_proto_longread_handle_rtm_send_completion(
 	struct efa_rdm_pke *pkt_entry)
@@ -149,8 +151,8 @@ ssize_t efa_rdm_proto_longread_handle_rtm_send_completion(
 	else if (txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
 		efa_rdm_txe_progress_peer_abort_if_drained(txe);
 	else if ((txe->internal_flags & EFA_RDM_OPE_READ_NACK) &&
-		 efa_rdm_ope_send_done(txe))
-		efa_rdm_ope_handle_send_completed(txe);
+		 efa_rdm_ope_drained(txe))
+		efa_rdm_txe_continue_after_read_nack(txe);
 
 	efa_rdm_pke_release_tx(pkt_entry);
 	return 0;

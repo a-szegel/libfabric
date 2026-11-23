@@ -297,8 +297,8 @@ void test_efa_rdm_pke_alloc_rtw_rxe(void **state)
 	rxe = efa_rdm_pke_alloc_rtw_rxe(pke);
 
 	assert_true(rxe->internal_flags & EFA_RDM_OPE_INTERNAL);
-	assert_int_equal(rxe->bytes_received, 0);
-	assert_int_equal(rxe->bytes_copied, 0);
+	assert_int_equal(efa_rdm_ope_receiver(rxe)->bytes_received, 0);
+	assert_int_equal(efa_rdm_ope_receiver(rxe)->bytes_copied, 0);
 
 	efa_rdm_rxe_release(rxe);
 	efa_rdm_pke_release_rx(pke);
@@ -346,8 +346,8 @@ void test_efa_rdm_pke_alloc_rtr_rxe(void **state)
 	rxe = efa_rdm_pke_alloc_rtw_rxe(pke);
 
 	assert_true(rxe->internal_flags & EFA_RDM_OPE_INTERNAL);
-	assert_int_equal(rxe->bytes_received, 0);
-	assert_int_equal(rxe->bytes_copied, 0);
+	assert_int_equal(efa_rdm_ope_receiver(rxe)->bytes_received, 0);
+	assert_int_equal(efa_rdm_ope_receiver(rxe)->bytes_copied, 0);
 
 	efa_rdm_rxe_release(rxe);
 	efa_rdm_pke_release_rx(pke);
@@ -583,8 +583,8 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_first_packet_error(void **state)
 	rxe->iov[0].iov_len = sizeof buf;
 	rxe->cq_entry.len = 1024;
 	rxe->total_len = 1024;
-	rxe->bytes_received = 0;
-	rxe->bytes_received_via_mulreq = 0;
+	efa_rdm_ope_receiver(rxe)->bytes_received = 0;
+	efa_rdm_ope_receiver(rxe)->bytes_received_via_mulreq = 0;
 	efa_rdm_pke_set_ope(pkt_entry, rxe);
 
 	g_efa_unit_test_mocks.efa_rdm_pke_copy_payload_to_ope = &efa_mock_efa_rdm_pke_copy_payload_to_ope_release_and_return_mock;
@@ -633,8 +633,8 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_second_packet_error(void **state)
 	rxe->iov[0].iov_len = sizeof buf;
 	rxe->cq_entry.len = 2048;
 	rxe->total_len = 2048;
-	rxe->bytes_received = 0;
-	rxe->bytes_received_via_mulreq = 0;
+	efa_rdm_ope_receiver(rxe)->bytes_received = 0;
+	efa_rdm_ope_receiver(rxe)->bytes_received_via_mulreq = 0;
 	efa_rdm_pke_set_ope(pkt_entry, rxe);
 
 	g_efa_unit_test_mocks.efa_rdm_pke_copy_payload_to_ope = &efa_mock_efa_rdm_pke_copy_payload_to_ope_release_and_return_mock;
@@ -722,9 +722,9 @@ void test_efa_rdm_pke_proc_matched_mulreq_rtm_runtread_trunc_chain(void **state)
 	rxe->desc[0] = NULL;
 	rxe->cq_entry.len = sizeof buf;
 	rxe->total_len = 1024;
-	rxe->bytes_read_total_len = 0;
-	rxe->bytes_received = 0;
-	rxe->bytes_received_via_mulreq = 0;
+	efa_rdm_ope_read(rxe)->bytes_read_total_len = 0;
+	efa_rdm_ope_receiver(rxe)->bytes_received = 0;
+	efa_rdm_ope_receiver(rxe)->bytes_received_via_mulreq = 0;
 	dlist_init(&peer.rxe_list);
 	pkt_entry->peer = &peer;
 	pkt_entry2->peer = &peer;
@@ -781,7 +781,7 @@ void test_efa_rdm_pke_flush_queued_blocking_copy_to_hmem_copy_size_mismatch(void
 		efa_rdm_ep->queued_copy_vec[i].data_size = pkt_entry[i]->payload_size;
 		efa_rdm_ep->queued_copy_vec[i].data_offset = 0;
 		efa_rdm_ep->queued_copy_num++;
-		rxe->bytes_queued_blocking_copy += pkt_entry[i]->payload_size;
+		efa_rdm_ope_receiver(rxe)->bytes_queued_blocking_copy += pkt_entry[i]->payload_size;
 		efa_rdm_pke_mark_held(pkt_entry[i]);
 	}
 
@@ -799,7 +799,7 @@ void test_efa_rdm_pke_flush_queued_blocking_copy_to_hmem_copy_size_mismatch(void
 	assert_int_equal(ret, -FI_EIO);
 	assert_int_equal(efa_rdm_ep->queued_copy_num, 0);
 	assert_int_equal(efa_rdm_ep->efa_rx_pkts_to_post - pkts_to_post_before, 2);
-	assert_int_equal(rxe->bytes_queued_blocking_copy, 0);
+	assert_int_equal(efa_rdm_ope_receiver(rxe)->bytes_queued_blocking_copy, 0);
 
 	efa_rdm_rxe_release(rxe);
 }
@@ -866,7 +866,7 @@ void test_efa_rdm_rxe_release_purges_queued_blocking_copy(void **state)
 		efa_rdm_ep->queued_copy_vec[efa_rdm_ep->queued_copy_num].data_size = pkt_a[i]->payload_size;
 		efa_rdm_ep->queued_copy_vec[efa_rdm_ep->queued_copy_num].data_offset = 0;
 		efa_rdm_ep->queued_copy_num++;
-		rxe_a->bytes_queued_blocking_copy += pkt_a[i]->payload_size;
+		efa_rdm_ope_receiver(rxe_a)->bytes_queued_blocking_copy += pkt_a[i]->payload_size;
 		efa_rdm_pke_mark_held(pkt_a[i]);
 	}
 
@@ -881,7 +881,7 @@ void test_efa_rdm_rxe_release_purges_queued_blocking_copy(void **state)
 	efa_rdm_ep->queued_copy_vec[efa_rdm_ep->queued_copy_num].data_size = pkt_b->payload_size;
 	efa_rdm_ep->queued_copy_vec[efa_rdm_ep->queued_copy_num].data_offset = 0;
 	efa_rdm_ep->queued_copy_num++;
-	rxe_b->bytes_queued_blocking_copy += pkt_b->payload_size;
+	efa_rdm_ope_receiver(rxe_b)->bytes_queued_blocking_copy += pkt_b->payload_size;
 	efa_rdm_pke_mark_held(pkt_b);
 
 	assert_int_equal(efa_rdm_ep->queued_copy_num, 3);
@@ -894,14 +894,14 @@ void test_efa_rdm_rxe_release_purges_queued_blocking_copy(void **state)
 	assert_int_equal(efa_rdm_ep->queued_copy_num, 1);
 	assert_ptr_equal(efa_rdm_ep->queued_copy_vec[0].pkt_entry, pkt_b);
 	assert_int_equal(efa_rdm_ep->efa_rx_pkts_to_post - pkts_to_post_before, 2);
-	assert_int_equal(rxe_b->bytes_queued_blocking_copy, 64);
+	assert_int_equal(efa_rdm_ope_receiver(rxe_b)->bytes_queued_blocking_copy, 64);
 
 	/* No stale reference to rxe_a remains. */
 	for (n = 0; n < efa_rdm_ep->queued_copy_num; n++)
 		assert_ptr_not_equal(efa_rdm_ep->queued_copy_vec[n].pkt_entry->ope, rxe_a);
 
 	/* Clean up rxe_b's surviving entry. */
-	rxe_b->bytes_queued_blocking_copy -= pkt_b->payload_size;
+	efa_rdm_ope_receiver(rxe_b)->bytes_queued_blocking_copy -= pkt_b->payload_size;
 	efa_rdm_pke_release_rx(pkt_b);
 	efa_rdm_ep->queued_copy_num = 0;
 	efa_rdm_rxe_release(rxe_b);
@@ -1033,28 +1033,28 @@ void test_efa_rdm_pke_init_peer_error_for_ope_ope_index(void **state)
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_peer_error_hdr *hdr;
-	struct efa_rdm_ope rxe = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_rxe_msg rxe = {.base.kind = EFA_RDM_RXE_KIND_MSG};
+	struct efa_rdm_txe_msg txe = {.base.kind = EFA_RDM_TXE_KIND_MSG};
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
 	ep = container_of(resource->ep, struct efa_rdm_ep,
 			  base_ep.util_ep.ep_fid);
 
 	/* rxe (LONGREAD direction): op_id = tx_id, always valid. */
-	rxe.type = EFA_RDM_RXE;
-	rxe.ep = ep;
-	rxe.tx_id = 0x1234;
-	rxe.msg_id = 0x42;
-	rxe.peer_error_prov_errno = EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS;
+	rxe.base.type = EFA_RDM_RXE;
+	rxe.base.ep = ep;
+	rxe.base.tx_id = 0x1234;
+	rxe.base.msg_id = 0x42;
+	rxe.base.peer_error_prov_errno = EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS;
 	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
 				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
 	assert_non_null(pkt_entry);
-	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &rxe), 0);
+	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &rxe.base), 0);
 	hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
 	assert_int_equal(hdr->type, EFA_RDM_PEER_ERROR_PKT);
 	assert_int_not_equal(hdr->op_id, EFA_RDM_OPE_ID_INVALID);
-	assert_int_equal(hdr->op_id, rxe.tx_id);
-	assert_int_equal(hdr->msg_id, rxe.msg_id);
+	assert_int_equal(hdr->op_id, rxe.base.tx_id);
+	assert_int_equal(hdr->msg_id, rxe.base.msg_id);
 	assert_int_equal(hdr->emitter_ope_type, EFA_RDM_RXE);
 	assert_int_equal(hdr->prov_errno,
 			 EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS);
@@ -1062,18 +1062,18 @@ void test_efa_rdm_pke_init_peer_error_for_ope_ope_index(void **state)
 
 	/* txe (LONGCTS direction): the sender never learns the receiver's
 	 * rxe index, so the emit is msg_id-only (no op_id hint). */
-	txe.type = EFA_RDM_TXE;
-	txe.ep = ep;
-	txe.req_pkt_type = EFA_RDM_LONGCTS_MSGRTM_PKT;
-	txe.msg_id = 0x43;
-	txe.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
+	txe.base.type = EFA_RDM_TXE;
+	txe.base.ep = ep;
+	txe.base.req_pkt_type = EFA_RDM_LONGCTS_MSGRTM_PKT;
+	txe.base.msg_id = 0x43;
+	txe.base.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
 	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
 				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
 	assert_non_null(pkt_entry);
-	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe), 0);
+	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe.base), 0);
 	hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
 	assert_int_equal(hdr->op_id, EFA_RDM_OPE_ID_INVALID);
-	assert_int_equal(hdr->msg_id, txe.msg_id);
+	assert_int_equal(hdr->msg_id, txe.base.msg_id);
 	assert_int_equal(hdr->emitter_ope_type, EFA_RDM_TXE);
 	assert_int_equal(hdr->prov_errno,
 			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
@@ -1093,25 +1093,25 @@ void test_efa_rdm_pke_init_peer_error_for_ope_unlearned_op_id(void **state)
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_peer_error_hdr *hdr;
-	struct efa_rdm_ope rxe = {0};
+	struct efa_rdm_rxe_msg rxe = {.base.kind = EFA_RDM_RXE_KIND_MSG};
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
 	ep = container_of(resource->ep, struct efa_rdm_ep,
 			  base_ep.util_ep.ep_fid);
 
-	rxe.type = EFA_RDM_RXE;
-	rxe.ep = ep;
-	rxe.tx_id = EFA_RDM_OPE_ID_INVALID;
-	rxe.msg_id = 0x42;
-	rxe.peer_error_prov_errno = EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS;
+	rxe.base.type = EFA_RDM_RXE;
+	rxe.base.ep = ep;
+	rxe.base.tx_id = EFA_RDM_OPE_ID_INVALID;
+	rxe.base.msg_id = 0x42;
+	rxe.base.peer_error_prov_errno = EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS;
 
 	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
 				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
 	assert_non_null(pkt_entry);
-	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &rxe), 0);
+	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &rxe.base), 0);
 	hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
 	assert_int_equal(hdr->op_id, EFA_RDM_OPE_ID_INVALID);
-	assert_int_equal(hdr->msg_id, rxe.msg_id);
+	assert_int_equal(hdr->msg_id, rxe.base.msg_id);
 	assert_int_equal(hdr->emitter_ope_type, EFA_RDM_RXE);
 	efa_rdm_pke_release_tx(pkt_entry);
 }
@@ -1163,7 +1163,7 @@ void test_efa_rdm_pke_handle_cts_recv_grants_window(void **state)
 	assert_non_null(txe);
 	efa_rdm_proto_longcts_handle_cts_recv(
 		efa_unit_test_alloc_cts_pke(ep, txe->tx_id, 4096));
-	assert_int_equal(txe->window, 4096);
+	assert_int_equal(efa_rdm_ope_sender(txe)->window, 4096);
 	assert_int_equal(txe->state, EFA_RDM_OPE_SEND);
 
 	/* the emulated longcts read direction, where a CTS names an rxe */
@@ -1171,7 +1171,7 @@ void test_efa_rdm_pke_handle_cts_recv_grants_window(void **state)
 	assert_non_null(rxe);
 	efa_rdm_proto_longcts_handle_cts_recv(
 		efa_unit_test_alloc_cts_pke(ep, rxe->rx_id, 2048));
-	assert_int_equal(rxe->window, 2048);
+	assert_int_equal(efa_rdm_ope_sender(rxe)->window, 2048);
 	assert_int_equal(rxe->state, EFA_RDM_OPE_SEND);
 
 	efa_rdm_txe_release(txe);
@@ -1215,14 +1215,14 @@ void test_efa_rdm_pke_handle_cts_recv_drops_stale_id(void **state)
 
 	efa_rdm_proto_longcts_handle_cts_recv(
 		efa_unit_test_alloc_cts_pke(ep, stale_id, 4096));
-	assert_int_equal(reused->window, 0);
+	assert_int_equal(efa_rdm_ope_sender(reused)->window, 0);
 	assert_int_equal(reused->state, EFA_RDM_TXE_REQ);
 	assert_true(dlist_empty(&ep->ope_longcts_send_list));
 
 	/* the same CTS with the current id is applied */
 	efa_rdm_proto_longcts_handle_cts_recv(
 		efa_unit_test_alloc_cts_pke(ep, reused->tx_id, 4096));
-	assert_int_equal(reused->window, 4096);
+	assert_int_equal(efa_rdm_ope_sender(reused)->window, 4096);
 	assert_int_equal(reused->state, EFA_RDM_OPE_SEND);
 
 	efa_rdm_txe_release(reused);
@@ -1246,7 +1246,7 @@ void test_efa_rdm_pke_init_peer_error_for_ope_medium_msg_id(void **state)
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_peer_error_hdr *hdr;
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_msg txe = {.base.kind = EFA_RDM_TXE_KIND_MSG};
 	uint64_t bytes_acked_cases[] = {128, 0};
 	int i;
 
@@ -1254,22 +1254,22 @@ void test_efa_rdm_pke_init_peer_error_for_ope_medium_msg_id(void **state)
 	ep = container_of(resource->ep, struct efa_rdm_ep,
 			  base_ep.util_ep.ep_fid);
 
-	txe.type = EFA_RDM_TXE;
-	txe.ep = ep;
-	txe.req_pkt_type = EFA_RDM_MEDIUM_MSGRTM_PKT;
-	txe.msg_id = 0x99;
-	txe.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
+	txe.base.type = EFA_RDM_TXE;
+	txe.base.ep = ep;
+	txe.base.req_pkt_type = EFA_RDM_MEDIUM_MSGRTM_PKT;
+	txe.base.msg_id = 0x99;
+	txe.base.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
 
 	for (i = 0; i < 2; i++) {
-		txe.bytes_acked = bytes_acked_cases[i];
+		txe.sender.bytes_acked = bytes_acked_cases[i];
 		pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
 					      EFA_RDM_PKE_FROM_EFA_TX_POOL);
 		assert_non_null(pkt_entry);
 		assert_int_equal(
-			efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe), 0);
+			efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe.base), 0);
 		hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
 		assert_int_equal(hdr->op_id, EFA_RDM_OPE_ID_INVALID);
-		assert_int_equal(hdr->msg_id, txe.msg_id);
+		assert_int_equal(hdr->msg_id, txe.base.msg_id);
 		assert_int_equal(hdr->emitter_ope_type, EFA_RDM_TXE);
 		assert_int_equal(hdr->prov_errno,
 				 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
@@ -1294,7 +1294,7 @@ void test_efa_rdm_pke_init_peer_error_for_ope_runtread(void **state)
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_peer_error_hdr *hdr;
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_msg txe = {.base.kind = EFA_RDM_TXE_KIND_MSG};
 	int i;
 	struct { size_t total_len; size_t bytes_runt; uint64_t bytes_acked; } cases[] = {
 		{ 4096, 4096, 128 },     /* runt-only, partial acked */
@@ -1307,24 +1307,24 @@ void test_efa_rdm_pke_init_peer_error_for_ope_runtread(void **state)
 	ep = container_of(resource->ep, struct efa_rdm_ep,
 			  base_ep.util_ep.ep_fid);
 
-	txe.type = EFA_RDM_TXE;
-	txe.ep = ep;
-	txe.req_pkt_type = EFA_RDM_RUNTREAD_MSGRTM_PKT;
-	txe.msg_id = 0x99;
-	txe.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
+	txe.base.type = EFA_RDM_TXE;
+	txe.base.ep = ep;
+	txe.base.req_pkt_type = EFA_RDM_RUNTREAD_MSGRTM_PKT;
+	txe.base.msg_id = 0x99;
+	txe.base.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
 
 	for (i = 0; i < 4; i++) {
-		txe.total_len = cases[i].total_len;
-		txe.bytes_runt = cases[i].bytes_runt;
-		txe.bytes_acked = cases[i].bytes_acked;
+		txe.base.total_len = cases[i].total_len;
+		txe.sender.bytes_runt = cases[i].bytes_runt;
+		txe.sender.bytes_acked = cases[i].bytes_acked;
 		pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
 					      EFA_RDM_PKE_FROM_EFA_TX_POOL);
 		assert_non_null(pkt_entry);
 		assert_int_equal(
-			efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe), 0);
+			efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe.base), 0);
 		hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
 		assert_int_equal(hdr->op_id, EFA_RDM_OPE_ID_INVALID);
-		assert_int_equal(hdr->msg_id, txe.msg_id);
+		assert_int_equal(hdr->msg_id, txe.base.msg_id);
 		assert_int_equal(hdr->emitter_ope_type, EFA_RDM_TXE);
 		efa_rdm_pke_release_tx(pkt_entry);
 	}
@@ -1344,26 +1344,26 @@ void test_efa_rdm_pke_init_peer_error_for_ope_eager_skip(void **state)
 	struct efa_rdm_ep *ep;
 	struct efa_rdm_pke *pkt_entry;
 	struct efa_rdm_peer_error_hdr *hdr;
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_msg txe = {.base.kind = EFA_RDM_TXE_KIND_MSG};
 
 	efa_unit_test_resource_construct(resource, FI_EP_RDM, EFA_FABRIC_NAME);
 	ep = container_of(resource->ep, struct efa_rdm_ep,
 			  base_ep.util_ep.ep_fid);
 
-	txe.type = EFA_RDM_TXE;
-	txe.ep = ep;
-	txe.req_pkt_type = EFA_RDM_EAGER_MSGRTM_PKT;
-	txe.msg_id = 0x99;
-	txe.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
+	txe.base.type = EFA_RDM_TXE;
+	txe.base.ep = ep;
+	txe.base.req_pkt_type = EFA_RDM_EAGER_MSGRTM_PKT;
+	txe.base.msg_id = 0x99;
+	txe.base.peer_error_prov_errno = EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY;
 
 	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
 				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
 	assert_non_null(pkt_entry);
-	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe), 0);
+	assert_int_equal(efa_rdm_pke_init_peer_error_for_ope(pkt_entry, &txe.base), 0);
 	hdr = efa_rdm_pke_get_peer_error_hdr(pkt_entry);
 	assert_int_equal(hdr->type, EFA_RDM_PEER_ERROR_PKT);
 	assert_int_equal(hdr->op_id, EFA_RDM_OPE_ID_INVALID);
-	assert_int_equal(hdr->msg_id, txe.msg_id);
+	assert_int_equal(hdr->msg_id, txe.base.msg_id);
 	assert_int_equal(hdr->emitter_ope_type, EFA_RDM_TXE);
 	assert_int_equal(hdr->prov_errno,
 			 EFA_IO_COMP_STATUS_LOCAL_ERROR_INVALID_LKEY);
@@ -1481,10 +1481,10 @@ static void test_efa_rdm_pke_copy_payload_neuron_uses_rdma_read_impl(
 		txe = efa_unit_test_get_first_ope(efa_rdm_ep, EFA_RDM_TXE);
 		assert_non_null(txe);
 		assert_true(txe->internal_flags & EFA_RDM_OPE_INTERNAL);
-		assert_ptr_equal(txe->local_read_pkt_entry, pkt_entry);
+		assert_ptr_equal(efa_rdm_txe_rma(txe)->local_read_pkt_entry, pkt_entry);
 
 		/* Drive the read completion to release the held pkt and txe. */
-		txe->local_read_pkt_entry->payload_size = sizeof buf;
+		efa_rdm_txe_rma(txe)->local_read_pkt_entry->payload_size = sizeof buf;
 		context_pkt = ofi_bufpool_get_ibuf(efa_rdm_ep->efa_tx_pkt_pool, 0);
 		context_pkt->flags |= EFA_RDM_PKE_LOCAL_READ;
 		efa_rdm_pke_handle_rma_completion(context_pkt);

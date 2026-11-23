@@ -80,6 +80,7 @@ efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 			 uint32_t op, uint64_t fi_flags,
 			 uint32_t internal_flags)
 {
+	struct efa_rdm_txe_atomic *atomic_txe;
 	struct efa_rdm_ope *txe;
 	struct fi_msg msg;
 	struct iovec iov[EFA_RDM_IOV_LIMIT];
@@ -111,20 +112,21 @@ efa_rdm_atomic_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 	efa_rdm_txe_construct(txe, efa_rdm_ep, peer, &msg, op, fi_flags, internal_flags);
 
 	assert(msg_atomic->rma_iov_count > 0);
-	txe->rma_iov_count = msg_atomic->rma_iov_count;
+	efa_rdm_ope_rma(txe)->rma_iov_count = msg_atomic->rma_iov_count;
 	ofi_rma_ioc_to_iov(msg_atomic->rma_iov,
-			   txe->rma_iov,
+			   efa_rdm_ope_rma(txe)->rma_iov,
 			   msg_atomic->rma_iov_count,
 			   datatype_size);
 
-	txe->atomic_hdr.atomic_op = msg_atomic->op;
-	txe->atomic_hdr.datatype = msg_atomic->datatype;
+	atomic_txe = efa_rdm_txe_atomic(txe);
+	atomic_txe->atomic_hdr.atomic_op = msg_atomic->op;
+	atomic_txe->atomic_hdr.datatype = msg_atomic->datatype;
 
 	if (op == ofi_op_atomic_fetch || op == ofi_op_atomic_compare) {
 		assert(atomic_ex);
-		memcpy(&txe->atomic_ex, atomic_ex, sizeof(struct efa_rdm_atomic_ex));
+		memcpy(&atomic_txe->atomic_ex, atomic_ex, sizeof(struct efa_rdm_atomic_ex));
 	}
-	txe->atomic_proto = efa_rdm_proto_atomic_select(op);
+	atomic_txe->atomic_proto = efa_rdm_proto_atomic_select(op);
 
 	return txe;
 }

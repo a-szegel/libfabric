@@ -30,7 +30,7 @@
  * outcome is reported.
  */
 static int efa_rdm_proto_atomic_req_pkt_type(struct efa_rdm_ope *txe){
-	const struct efa_rdm_atomic_proto *proto = txe->atomic_proto;
+	const struct efa_rdm_atomic_proto *proto = efa_rdm_txe_atomic(txe)->atomic_proto;
 	return (txe->fi_flags & FI_DELIVERY_COMPLETE) ? proto->req_pkt_type_dc :
 							proto->req_pkt_type;
 }
@@ -129,8 +129,10 @@ static int efa_rdm_proto_atomic_compare_get_req_data_size(
 	size_t compare_size;
 	int err;
 
+	struct efa_rdm_atomic_ex *atomic_ex = &efa_rdm_txe_atomic(txe)->atomic_ex;
+
 	err = efa_rdm_proto_atomic_iov_size(
-		txe->atomic_ex.comp_iov, txe->atomic_ex.comp_iov_count, &compare_size);
+		atomic_ex->comp_iov, atomic_ex->comp_iov_count, &compare_size);
 	if (err)
 		return err;
 	if (compare_size != txe->total_len)
@@ -181,24 +183,26 @@ const struct efa_rdm_atomic_proto *efa_rdm_proto_atomic_select(uint32_t op) {
  * other negative libfabric error code if the PKE initialization fails
  */
 static ssize_t efa_rdm_proto_atomic_construct_tx_pke(struct efa_rdm_ope *txe){
+	const struct efa_rdm_atomic_proto *atomic_proto =
+		efa_rdm_txe_atomic(txe)->atomic_proto;
 	struct efa_rdm_ep *ep = txe->ep;
 	struct efa_rdm_pke *pkt_entry;
 	size_t max_payload;
 	size_t req_data_size;
 	ssize_t err;
 
-	assert(txe->atomic_proto->get_req_data_size);
-	assert(txe->atomic_proto->init_req_pke);
-	assert(txe->atomic_proto->handle_send_completion);
+	assert(atomic_proto->get_req_data_size);
+	assert(atomic_proto->init_req_pke);
+	assert(atomic_proto->handle_send_completion);
 
-	err = txe->atomic_proto->get_req_data_size(txe, &req_data_size);
+	err = atomic_proto->get_req_data_size(txe, &req_data_size);
 	if (OFI_UNLIKELY(err))
 		return err;
 	max_payload = efa_rdm_proto_max_req_data_capacity(
 		ep, efa_rdm_pkt_type_get_req_hdr_size(
 			    txe->req_pkt_type,
 			    efa_rdm_proto_req_header_flags(txe->peer, txe->fi_flags),
-			    txe->rma_iov_count));
+			    efa_rdm_ope_rma(txe)->rma_iov_count));
 	if (OFI_UNLIKELY(req_data_size > max_payload))
 		return -FI_EMSGSIZE;
 	if (txe->op != ofi_op_atomic &&
@@ -213,7 +217,7 @@ static ssize_t efa_rdm_proto_atomic_construct_tx_pke(struct efa_rdm_ope *txe){
 	if (OFI_UNLIKELY(!pkt_entry))
 		return -FI_EAGAIN;
 
-	err = txe->atomic_proto->init_req_pke(pkt_entry, txe);
+	err = atomic_proto->init_req_pke(pkt_entry, txe);
 	if (OFI_UNLIKELY(err)) {
 		efa_rdm_pke_release_tx(pkt_entry);
 		return err;
@@ -221,7 +225,7 @@ static ssize_t efa_rdm_proto_atomic_construct_tx_pke(struct efa_rdm_ope *txe){
 
 	/* Install the callback before posting: the completion may arrive at any
 	 * time after. */
-	pkt_entry->handle_pke = txe->atomic_proto->handle_send_completion;
+	pkt_entry->handle_pke = atomic_proto->handle_send_completion;
 	ep->send_pkt_entry_vec[0] = pkt_entry;
 	ep->send_pkt_entry_vec_size = 1;
 	return FI_SUCCESS;
@@ -232,7 +236,7 @@ ssize_t efa_rdm_proto_atomic_post(struct efa_rdm_ope *txe)
 	struct efa_rdm_ep *ep = txe->ep;
 	ssize_t err;
 
-	assert(txe->atomic_proto);
+	assert(efa_rdm_txe_atomic(txe)->atomic_proto);
 	assert(!txe->proto);
 	assert(txe->op == ofi_op_atomic || txe->op == ofi_op_atomic_fetch ||
 	       txe->op == ofi_op_atomic_compare);

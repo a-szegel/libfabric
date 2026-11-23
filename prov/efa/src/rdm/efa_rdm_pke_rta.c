@@ -45,16 +45,16 @@ ssize_t efa_rdm_pke_init_rta_common(struct efa_rdm_pke *pkt_entry,
 
 	rta_hdr = (struct efa_rdm_rta_hdr *)pkt_entry->wiredata;
 	rta_hdr->msg_id = txe->msg_id;
-	rta_hdr->rma_iov_count = txe->rma_iov_count;
-	rta_hdr->atomic_datatype = txe->atomic_hdr.datatype;
-	rta_hdr->atomic_op = txe->atomic_hdr.atomic_op;
+	rta_hdr->rma_iov_count = efa_rdm_ope_rma(txe)->rma_iov_count;
+	rta_hdr->atomic_datatype = efa_rdm_txe_atomic(txe)->atomic_hdr.datatype;
+	rta_hdr->atomic_op = efa_rdm_txe_atomic(txe)->atomic_hdr.atomic_op;
 	efa_rdm_pke_init_req_hdr_common(pkt_entry, pkt_type, txe);
 	rta_hdr->flags |= EFA_RDM_REQ_ATOMIC;
 	rma_iov = rta_hdr->rma_iov;
-	for (i=0; i < txe->rma_iov_count; ++i) {
-		rma_iov[i].addr = txe->rma_iov[i].addr;
-		rma_iov[i].len = txe->rma_iov[i].len;
-		rma_iov[i].key = txe->rma_iov[i].key;
+	for (i=0; i < efa_rdm_ope_rma(txe)->rma_iov_count; ++i) {
+		rma_iov[i].addr = efa_rdm_ope_rma(txe)->rma_iov[i].addr;
+		rma_iov[i].len = efa_rdm_ope_rma(txe)->rma_iov[i].len;
+		rma_iov[i].key = efa_rdm_ope_rma(txe)->rma_iov[i].key;
 	}
 
 	hdr_size = efa_rdm_pke_get_req_hdr_size(pkt_entry);
@@ -64,7 +64,7 @@ ssize_t efa_rdm_pke_init_rta_common(struct efa_rdm_pke *pkt_entry,
 	 * @todo use efa_rdm_pke_init_payload_from_ope() to set up
 	 * payload, which can avoid copy under certain condition.
 	 */
-	if (txe->atomic_hdr.atomic_op == FI_ATOMIC_READ) {
+	if (efa_rdm_txe_atomic(txe)->atomic_hdr.atomic_op == FI_ATOMIC_READ) {
 		memset(data, 0, txe->total_len);
 		data_size = txe->total_len;
 	} else {
@@ -109,8 +109,8 @@ struct efa_rdm_ope *efa_rdm_pke_alloc_rta_rxe(struct efa_rdm_pke *pkt_entry, int
 		return rxe;
 
 	rta_hdr = (struct efa_rdm_rta_hdr *)pkt_entry->wiredata;
-	rxe->atomic_hdr.atomic_op = rta_hdr->atomic_op;
-	rxe->atomic_hdr.datatype = rta_hdr->atomic_datatype;
+	efa_rdm_rxe_atomic(rxe)->atomic_hdr.atomic_op = rta_hdr->atomic_op;
+	efa_rdm_rxe_atomic(rxe)->atomic_hdr.datatype = rta_hdr->atomic_datatype;
 
 	rxe->iov_count = rta_hdr->rma_iov_count;
 	return rxe;
@@ -142,8 +142,8 @@ static int efa_rdm_pke_prepare_atomic_response_rxe(
 	 * -FI_EAGAIN, we need a buffer to hold response_data.
 	 * The internal RXE owns the buffer through response retry and cleanup.
 	 */
-	rxe->atomrsp_data = ofi_buf_alloc(pkt_entry->ep->rx_atomrsp_pool);
-	if (!rxe->atomrsp_data) {
+	efa_rdm_rxe_atomic(rxe)->atomrsp_data = ofi_buf_alloc(pkt_entry->ep->rx_atomrsp_pool);
+	if (!efa_rdm_rxe_atomic(rxe)->atomrsp_data) {
 		EFA_WARN(FI_LOG_CQ,
 			"atomic response buffer pool exhausted.\n");
 		return -FI_ENOBUFS;
@@ -172,8 +172,8 @@ static int efa_rdm_atomic_validate_op_datatype(
 
 static int efa_rdm_pke_validate_fetch_compare_atomic(
 	struct efa_rdm_pke *pkt_entry, struct efa_rdm_ope *rxe, uint64_t flags){
-	uint32_t op = rxe->atomic_hdr.atomic_op;
-	uint32_t datatype = rxe->atomic_hdr.datatype;
+	uint32_t op = efa_rdm_rxe_atomic(rxe)->atomic_hdr.atomic_op;
+	uint32_t datatype = efa_rdm_rxe_atomic(rxe)->atomic_hdr.datatype;
 	int err;
 
 	err = efa_rdm_atomic_validate_op_datatype(op, datatype, flags);
@@ -483,13 +483,13 @@ ssize_t efa_rdm_pke_proc_fetch_rta(struct efa_rdm_pke *pkt_entry)
 	}
 
 	rxe->tx_id = efa_rdm_pke_get_rta_hdr(pkt_entry)->recv_id;
-	op = rxe->atomic_hdr.atomic_op;
-	dt = rxe->atomic_hdr.datatype;
+	op = efa_rdm_rxe_atomic(rxe)->atomic_hdr.atomic_op;
+	dt = efa_rdm_rxe_atomic(rxe)->atomic_hdr.datatype;
 	err = efa_rdm_pke_validate_fetch_compare_atomic(pkt_entry, rxe, FI_FETCH_ATOMIC);
 	if (OFI_UNLIKELY(err))
 		return err;
 
-	dtsize = ofi_datatype_size(rxe->atomic_hdr.datatype);
+	dtsize = ofi_datatype_size(efa_rdm_rxe_atomic(rxe)->atomic_hdr.datatype);
 	if (OFI_UNLIKELY(!dtsize))
 		return efa_rdm_pke_rta_handle_error(
 			pkt_entry, rxe, -FI_EINVAL,
@@ -514,11 +514,11 @@ ssize_t efa_rdm_pke_proc_fetch_rta(struct efa_rdm_pke *pkt_entry)
 		if (hmem_iface == FI_HMEM_SYSTEM) {
 			ofi_atomic_readwrite_handlers[op][dt](rxe->iov[i].iov_base,
 			                                      data + offset,
-			                                      rxe->atomrsp_data + offset,
+			                                      efa_rdm_rxe_atomic(rxe)->atomrsp_data + offset,
 			                                      rxe->iov[i].iov_len / dtsize);
 		} else {
 			err = efa_rdm_fetch_atomic_hmem(efa_mr, &rxe->iov[i], data + offset,
-							rxe->atomrsp_data + offset, dtsize, op, dt);
+							efa_rdm_rxe_atomic(rxe)->atomrsp_data + offset, dtsize, op, dt);
 			if (OFI_UNLIKELY(err))
 				return efa_rdm_pke_rta_handle_error(
 					pkt_entry, rxe, err, FI_EFA_ERR_RXE_COPY);
@@ -553,6 +553,7 @@ ssize_t efa_rdm_pke_init_compare_rta(struct efa_rdm_pke *pkt_entry,
 				     struct efa_rdm_ope *txe)
 
 {
+	struct efa_rdm_atomic_ex *atomic_ex;
 	char *data;
 	size_t data_size;
 	ssize_t ret;
@@ -568,8 +569,9 @@ ssize_t efa_rdm_pke_init_compare_rta(struct efa_rdm_pke *pkt_entry,
 	 */
 
 	data = pkt_entry->wiredata + pkt_entry->pkt_size;
-	ret = efa_copy_from_hmem_iov(txe->atomic_ex.compare_desc, data, txe->ep->mtu_size - pkt_entry->pkt_size,
-	                             txe->atomic_ex.comp_iov, txe->atomic_ex.comp_iov_count);
+	atomic_ex = &efa_rdm_txe_atomic(txe)->atomic_ex;
+	ret = efa_copy_from_hmem_iov(atomic_ex->compare_desc, data, txe->ep->mtu_size - pkt_entry->pkt_size,
+	                             atomic_ex->comp_iov, atomic_ex->comp_iov_count);
 
 	if (OFI_UNLIKELY(ret < 0))
 		return ret;
@@ -630,13 +632,13 @@ ssize_t efa_rdm_pke_proc_compare_rta(struct efa_rdm_pke *pkt_entry)
 	}
 
 	rxe->tx_id = efa_rdm_pke_get_rta_hdr(pkt_entry)->recv_id;
-	op = rxe->atomic_hdr.atomic_op;
-	dt = rxe->atomic_hdr.datatype;
+	op = efa_rdm_rxe_atomic(rxe)->atomic_hdr.atomic_op;
+	dt = efa_rdm_rxe_atomic(rxe)->atomic_hdr.datatype;
 	err = efa_rdm_pke_validate_fetch_compare_atomic(pkt_entry, rxe, FI_COMPARE_ATOMIC);
 	if (OFI_UNLIKELY(err))
 		return err;
 
-	dtsize = ofi_datatype_size(rxe->atomic_hdr.datatype);
+	dtsize = ofi_datatype_size(efa_rdm_rxe_atomic(rxe)->atomic_hdr.datatype);
 	if (OFI_UNLIKELY(!dtsize))
 		return efa_rdm_pke_rta_handle_error(
 			pkt_entry, rxe, -FI_EINVAL, FI_EFA_ERR_INVALID_DATATYPE);
@@ -658,11 +660,11 @@ ssize_t efa_rdm_pke_proc_compare_rta(struct efa_rdm_pke *pkt_entry)
 			ofi_atomic_swap_handler(op, dt, rxe->iov[i].iov_base,
 			                        src_data + offset,
 			                        cmp_data + offset,
-			                        rxe->atomrsp_data + offset,
+			                        efa_rdm_rxe_atomic(rxe)->atomrsp_data + offset,
 			                        rxe->iov[i].iov_len / dtsize);
 		} else {
 			err = efa_rdm_compare_atomic_hmem(efa_mr, &rxe->iov[i], src_data + offset,
-							  rxe->atomrsp_data + offset, cmp_data + offset,
+							  efa_rdm_rxe_atomic(rxe)->atomrsp_data + offset, cmp_data + offset,
 							  dtsize, op, dt);
 			if (OFI_UNLIKELY(err))
 				return efa_rdm_pke_rta_handle_error(

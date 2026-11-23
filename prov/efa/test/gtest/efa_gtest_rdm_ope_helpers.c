@@ -287,6 +287,9 @@ int efa_test_queue_ope_with_flag(struct fid_ep *ep_fid, struct fid_av *av_fid,
 		efa_rdm_ep_queue_rnr_pkt(ep, pkt_entry);
 		break;
 	case EFA_TEST_QUEUED_FLAG_CTRL:
+		/* a txe that sends a CTS is the receiver of an emulated read */
+		qop->txe->kind = EFA_RDM_TXE_KIND_RMA_RECV;
+		efa_rdm_txe_init_receiver(qop->txe);
 		qop->queued_ctrl_type = EFA_RDM_CTS_PKT;
 		qop->txe->queued_ctrl_type = qop->queued_ctrl_type;
 		qop->txe->internal_flags |= EFA_RDM_OPE_QUEUED_CTRL;
@@ -297,10 +300,13 @@ int efa_test_queue_ope_with_flag(struct fid_ep *ep_fid, struct fid_av *av_fid,
 		 * efa_rdm_ope_post_read() asserts a non-empty rma_iov, and
 		 * takes its zero-byte branch while bytes_read_total_len is 0.
 		 */
-		qop->txe->rma_iov_count = 1;
-		qop->txe->rma_iov[0].addr = (uint64_t) qop->buf;
-		qop->txe->rma_iov[0].len = sizeof(qop->buf);
-		qop->txe->rma_iov[0].key = 0x1234;
+		qop->txe->kind = EFA_RDM_TXE_KIND_DEVICE_READ;
+		memset(efa_rdm_ope_read(qop->txe), 0,
+		       sizeof(struct efa_rdm_ope_read));
+		efa_rdm_ope_rma(qop->txe)->rma_iov_count = 1;
+		efa_rdm_ope_rma(qop->txe)->rma_iov[0].addr = (uint64_t) qop->buf;
+		efa_rdm_ope_rma(qop->txe)->rma_iov[0].len = sizeof(qop->buf);
+		efa_rdm_ope_rma(qop->txe)->rma_iov[0].key = 0x1234;
 		qop->txe->internal_flags |= EFA_RDM_OPE_QUEUED_READ;
 		dlist_insert_tail(&qop->txe->queued_entry, &ep->ope_queued_list);
 		break;
@@ -411,7 +417,7 @@ static int efa_test_alloc_matched_rxe(struct efa_rdm_ep *ep, struct fid_av *av,
 	}
 
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->cq_entry.op_context = peer_rxe->context;
 	rxe->cq_entry.flags = FI_RECV | FI_MSG;
 	rxe->cq_entry.len = len;
@@ -445,7 +451,8 @@ static struct efa_rdm_ope *efa_test_find_local_read_txe(struct efa_rdm_ep *ep,
 	dlist_foreach(&ep->base_ep.ope_list, item) {
 		ope = container_of(item, struct efa_rdm_ope, ep_entry);
 		if (ope->type == EFA_RDM_TXE &&
-		    ope->local_read_pkt_entry == pke)
+		    efa_rdm_txe_kind_is_rma(ope->kind) &&
+		    efa_rdm_txe_rma(ope)->local_read_pkt_entry == pke)
 			return ope;
 	}
 

@@ -11,6 +11,7 @@
 #include <rdma/fabric.h>
 #include <rdma/fi_domain.h>
 #include <rdma/fi_endpoint.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -358,6 +359,10 @@ struct efa_test_proto_read_nack_result {
 	uint64_t bytes_sent_before;
 	uint64_t bytes_runt;
 	uint64_t total_len;
+	int switched_on_nack;
+	uint32_t old_tx_id;
+	int old_tx_id_live;
+	int new_tx_id_live;
 	int read_nack_flag;
 	int proto_is_longcts;
 	int req_pkt_type;
@@ -381,12 +386,14 @@ struct efa_test_proto_read_nack_result {
 };
 
 /**
- * @brief fi_send a runt read message, deliver a READ_NACK for it, and drain
- * every send completion. The caller must arm efa_qp_post_send.
+ * @brief fi_send a runt read message, deliver a READ_NACK for it before or
+ * after the runt packets complete, and drain every send completion. The
+ * caller must arm efa_qp_post_send.
  */
 int efa_test_longcts_read_nack_continues_in_api_path(
 	struct fid_ep *ep, struct fid_av *av, struct fid_cq *cq,
-	struct fid_domain *domain, struct efa_test_proto_read_nack_result *out);
+	struct fid_domain *domain, bool nack_after_runt_completions,
+	struct efa_test_proto_read_nack_result *out);
 
 struct efa_test_proto_read_nack_req_result {
 	ssize_t ret;

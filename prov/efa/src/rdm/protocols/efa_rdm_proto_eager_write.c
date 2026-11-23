@@ -48,7 +48,7 @@ ssize_t efa_rdm_proto_eager_write_init_rtw(struct efa_rdm_pke *pkt_entry,
 	assert(txe->op == ofi_op_write);
 
 	rtw_hdr = (struct efa_rdm_eager_rtw_hdr *)pkt_entry->wiredata;
-	rtw_hdr->rma_iov_count = txe->rma_iov_count;
+	rtw_hdr->rma_iov_count = efa_rdm_ope_rma(txe)->rma_iov_count;
 	efa_rdm_pke_init_req_hdr_common(pkt_entry, EFA_RDM_EAGER_RTW_PKT, txe);
 	pkt_entry->handle_pke =
 		&efa_rdm_proto_eager_write_handle_rtw_send_completion;
@@ -78,7 +78,7 @@ static ssize_t efa_rdm_proto_eager_write_init_dc_rtw(struct efa_rdm_pke *pkt_ent
 
 	txe->internal_flags |= EFA_RDM_TXE_DELIVERY_COMPLETE_REQUESTED;
 	dc_eager_rtw_hdr = (struct efa_rdm_dc_eager_rtw_hdr *)pkt_entry->wiredata;
-	dc_eager_rtw_hdr->rma_iov_count = txe->rma_iov_count;
+	dc_eager_rtw_hdr->rma_iov_count = efa_rdm_ope_rma(txe)->rma_iov_count;
 	efa_rdm_pke_init_req_hdr_common(pkt_entry, EFA_RDM_DC_EAGER_RTW_PKT, txe);
 	pkt_entry->handle_pke =
 		&efa_rdm_proto_eager_write_handle_rtw_send_completion;
@@ -143,7 +143,7 @@ static void efa_rdm_proto_eager_write_proc_rtw(struct efa_rdm_pke *pkt_entry,
 	rxe->cq_entry.buf = rxe->iov[0].iov_base;
 	rxe->total_len = rxe->cq_entry.len;
 
-	rxe->bytes_received += pkt_entry->payload_size;
+	efa_rdm_ope_receiver(rxe)->bytes_received += pkt_entry->payload_size;
 	if (pkt_entry->payload_size != rxe->total_len) {
 		EFA_WARN(FI_LOG_CQ, "Eager RTM size mismatch! payload_size: %ld total_len: %ld.\n",
 			 pkt_entry->payload_size, rxe->total_len);
@@ -253,13 +253,14 @@ static bool efa_rdm_proto_eager_write_can_use(struct efa_rdm_proto *proto,
 		return false;
 
 	max_data_offset = efa_rdm_pkt_type_get_req_hdr_size(
-		req_pkt_type, header_flags, txe->rma_iov_count);
+		req_pkt_type, header_flags, efa_rdm_ope_rma(txe)->rma_iov_count);
 	max_rtw_data_capacity = txe->ep->mtu_size - max_data_offset;
 
 	return txe->total_len <= max_rtw_data_capacity;
 }
 
 EFA_RDM_PROTO_DEF(eager_write,
+	.txe_kind = EFA_RDM_TXE_KIND_RMA,
 	.wants_mr = false,
 	.max_param_name = "inter_max_eager_write_size",
 	.can_use_protocol = &efa_rdm_proto_eager_write_can_use,

@@ -301,7 +301,7 @@ void test_efa_rdm_ope_post_write_0_byte(void **state)
 	struct efa_resource *resource = *state;
 	struct efa_unit_test_buff local_buff;
 	struct efa_ep_addr raw_addr;
-	struct efa_rdm_ope mock_txe;
+	struct efa_rdm_txe_rma mock_txe;
 	size_t raw_addr_len = sizeof(raw_addr);
 	fi_addr_t addr;
 	uint64_t wr_id;
@@ -322,25 +322,26 @@ void test_efa_rdm_ope_post_write_0_byte(void **state)
 
 	efa_unit_test_buff_construct(&local_buff, resource, 4096 /* buff_size */);
 	memset(&mock_txe, 0, sizeof(mock_txe));
-	mock_txe.total_len = 0;
-	mock_txe.peer = peer;
-	mock_txe.iov_count = 1;
-	mock_txe.iov[0].iov_base = local_buff.buff;
-	mock_txe.iov[0].iov_len = 0;
-	mock_txe.desc[0] = fi_mr_desc(local_buff.mr);
-	mock_txe.rma_iov_count = 1;
-	mock_txe.rma_iov[0].addr = 0x87654321;
-	mock_txe.rma_iov[0].key = 123456;
-	mock_txe.rma_iov[0].len = 0;
+	mock_txe.base.kind = EFA_RDM_TXE_KIND_DEVICE_WRITE;
+	mock_txe.base.total_len = 0;
+	mock_txe.base.peer = peer;
+	mock_txe.base.iov_count = 1;
+	mock_txe.base.iov[0].iov_base = local_buff.buff;
+	mock_txe.base.iov[0].iov_len = 0;
+	mock_txe.base.desc[0] = fi_mr_desc(local_buff.mr);
+	mock_txe.rma.rma_iov_count = 1;
+	mock_txe.rma.rma_iov[0].addr = 0x87654321;
+	mock_txe.rma.rma_iov[0].key = 123456;
+	mock_txe.rma.rma_iov[0].len = 0;
 
-	mock_txe.ep = efa_rdm_ep;
+	mock_txe.base.ep = efa_rdm_ep;
 
 	/* Mock general QP post write function to save work request IDs */
 	g_efa_unit_test_mocks.efa_qp_post_write = &efa_mock_efa_qp_post_write_return_mock;
 	will_return(efa_mock_efa_qp_post_write_return_mock, 0);
 
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 0);
-	err = efa_rdm_ope_post_remote_write(&mock_txe);
+	err = efa_rdm_ope_post_remote_write(&mock_txe.base);
 	assert_int_equal(err, 0);
 	assert_int_equal(g_ibv_submitted_wr_id_cnt, 1);
 
@@ -348,7 +349,7 @@ void test_efa_rdm_ope_post_write_0_byte(void **state)
 	pkt_entry = efa_rdm_cq_get_pke_from_wr_id_solicited(wr_id);
 
 	efa_rdm_pke_release_tx(pkt_entry);
-	mock_txe.ep->efa_outstanding_tx_ops = 0;
+	mock_txe.base.ep->efa_outstanding_tx_ops = 0;
 	efa_unit_test_buff_destruct(&local_buff);
 }
 
@@ -446,9 +447,9 @@ void test_efa_rdm_rxe_post_local_read_or_queue_impl(struct efa_resource *resourc
 		assert_int_equal(efa_unit_test_get_ope_list_length(efa_rdm_ep, EFA_RDM_TXE), 1);
 		txe = efa_unit_test_get_first_ope(efa_rdm_ep, EFA_RDM_TXE);
 		assert_true(txe->internal_flags & EFA_RDM_OPE_INTERNAL);
-		assert_non_null(txe->local_read_pkt_entry);
+		assert_non_null(efa_rdm_txe_rma(txe)->local_read_pkt_entry);
 
-		txe->local_read_pkt_entry->payload_size = 16;
+		efa_rdm_txe_rma(txe)->local_read_pkt_entry->payload_size = 16;
 		context_pkt = ofi_bufpool_get_ibuf(efa_rdm_ep->efa_tx_pkt_pool, 0);
 		context_pkt->flags |= EFA_RDM_PKE_LOCAL_READ;
 		efa_rdm_pke_handle_rma_completion(context_pkt);
@@ -1130,7 +1131,7 @@ void test_efa_rdm_pke_receipt_drops_stale_txe_id(void **state)
 
 	/* The reused txe must not be credited with the stale transfer's ack. */
 	assert_false(reused->internal_flags & EFA_RDM_TXE_REMOTE_ACK_RECEIVED);
-	assert_int_equal(reused->bytes_acked, 0);
+	assert_int_equal(efa_rdm_ope_sender(reused)->bytes_acked, 0);
 
 	/* The drop path released the packet rather than leaking it. */
 	assert_int_equal(ep->efa_rx_pkts_to_post, pkts_to_post + 1);
@@ -1157,7 +1158,7 @@ void test_efa_rdm_rxe_map(void **state)
 	assert_non_null(rxe);
 
 	/* rxe has not been inserted to any rxe_map yet */
-	assert_null(rxe->rxe_map);
+	assert_null(efa_rdm_rxe_msg(rxe)->rxe_map);
 
 	efa_rdm_ep = container_of(resource->ep, struct efa_rdm_ep,
 				  base_ep.util_ep.ep_fid);
@@ -1168,8 +1169,8 @@ void test_efa_rdm_rxe_map(void **state)
 	peer = efa_rdm_ep_get_peer_explicit(efa_rdm_ep, 0);
 
 	efa_rdm_rxe_map_insert(&peer->rxe_map, rxe->msg_id, rxe);
-	assert_true(rxe->rxe_map == &peer->rxe_map);
-	assert_true(rxe == efa_rdm_rxe_map_lookup(rxe->rxe_map, rxe->msg_id));
+	assert_true(efa_rdm_rxe_msg(rxe)->rxe_map == &peer->rxe_map);
+	assert_true(rxe == efa_rdm_rxe_map_lookup(efa_rdm_rxe_msg(rxe)->rxe_map, rxe->msg_id));
 
 	efa_rdm_rxe_release(rxe);
 
@@ -1257,7 +1258,8 @@ void test_efa_rdm_txe_prepare_local_read_pkt_entry(void **state)
 
 	txe = ofi_buf_alloc(efa_rdm_ep->base_ep.txe_pool);
 	assert_non_null(txe);
-	efa_rdm_txe_construct(txe, efa_rdm_ep, NULL, &msg, ofi_op_msg, 0, 0);
+	efa_rdm_txe_construct(txe, efa_rdm_ep, NULL, &msg, ofi_op_read_req, 0, 0);
+	txe->kind = EFA_RDM_TXE_KIND_DEVICE_READ;
 
 	/* Use ooo rx pkt because it doesn't have mr so a read_copy pkt clone is enforced. */
 	pkt_entry = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->rx_ooo_pkt_pool, EFA_RDM_PKE_FROM_OOO_POOL);
@@ -1265,8 +1267,8 @@ void test_efa_rdm_txe_prepare_local_read_pkt_entry(void **state)
 	pkt_entry->payload = pkt_entry->wiredata + 16;
 	pkt_entry->pkt_size = 32;
 	assert_non_null(pkt_entry);
-	txe->local_read_pkt_entry = pkt_entry;
-	txe->rma_iov_count = 1;
+	efa_rdm_txe_rma(txe)->local_read_pkt_entry = pkt_entry;
+	efa_rdm_ope_rma(txe)->rma_iov_count = 1;
 
 	assert_int_equal(efa_rdm_txe_prepare_local_read_pkt_entry(txe), 0);
 
@@ -1843,8 +1845,8 @@ void test_efa_rdm_atomic_compare_desc_persistence(void **state)
 	txe = efa_unit_test_get_first_ope(efa_rdm_ep, EFA_RDM_TXE);
 
 	/* Verify compare_desc was copied, not just pointer stored */
-	assert_ptr_equal(txe->atomic_ex.compare_desc[0], original_desc_value);
-	assert_ptr_equal(txe->atomic_ex.result_desc[0],
+	assert_ptr_equal(efa_rdm_txe_atomic(txe)->atomic_ex.compare_desc[0], original_desc_value);
+	assert_ptr_equal(efa_rdm_txe_atomic(txe)->atomic_ex.result_desc[0],
 			 original_result_desc_value);
 	efa_rdm_pke_handle_send_completion(efa_rdm_ep->send_pkt_entry_vec[0]);
 	efa_rdm_txe_release(txe);
@@ -1897,27 +1899,29 @@ static void test_efa_rdm_txe_with_resp_release_common(struct efa_resource *resou
 	/* Allocate TXE based on protocol */
 	if (pkt_type == EFA_RDM_SHORT_RTR_PKT || pkt_type == EFA_RDM_LONGCTS_RTR_PKT) {
 		txe = efa_unit_test_alloc_txe(resource, ofi_op_read_req);
+		txe->kind = EFA_RDM_TXE_KIND_RMA_RECV;
+		efa_rdm_txe_init_receiver(txe);
 		txe->cq_entry.flags = FI_READ;
 		/* Set len >= total_len to avoid truncation error path */
 		txe->cq_entry.len = 1000;
 		/* Non-zero total_len so bytes_copied != total_len initially */
 		txe->total_len = 1000;
-		txe->bytes_copied = 0;
+		efa_rdm_ope_receiver(txe)->bytes_copied = 0;
 		/* Ensure CQ entry is written by efa_rdm_txe_report_completion */
 		txe->fi_flags |= FI_COMPLETION;
 	} else if (pkt_type == EFA_RDM_LONGREAD_MSGRTM_PKT || pkt_type == EFA_RDM_LONGREAD_TAGRTM_PKT) {
 		txe = efa_unit_test_alloc_txe(resource, ofi_op_msg);
 		txe->cq_entry.flags = FI_SEND | FI_MSG;
 		txe->total_len = 1000;
-		txe->bytes_runt = 0;
-		txe->bytes_acked = 0;
+		efa_rdm_ope_sender(txe)->bytes_runt = 0;
+		efa_rdm_ope_sender(txe)->bytes_acked = 0;
 		txe->fi_flags |= FI_COMPLETION;
 	} else if (pkt_type == EFA_RDM_LONGREAD_RTW_PKT) {
 		txe = efa_unit_test_alloc_txe(resource, ofi_op_write);
 		txe->cq_entry.flags = FI_WRITE | FI_RMA;
 		txe->total_len = 1000;
-		txe->bytes_runt = 0;
-		txe->bytes_acked = 0;
+		efa_rdm_ope_sender(txe)->bytes_runt = 0;
+		efa_rdm_ope_sender(txe)->bytes_acked = 0;
 		txe->fi_flags |= FI_COMPLETION;
 	} else if (pkt_type == EFA_RDM_DC_EAGER_RTW_PKT) {
 		/* DC eager write: acked by a RECEIPT, released once both the
@@ -1993,8 +1997,8 @@ static void test_efa_rdm_txe_with_resp_release_common(struct efa_resource *resou
 		if (pkt_type == EFA_RDM_SHORT_RTR_PKT ||
 		    pkt_type == EFA_RDM_LONGCTS_RTR_PKT) {
 			/* Simulate all read data received and copied */
-			txe->bytes_received = txe->total_len;
-			txe->bytes_copied = txe->total_len;
+			efa_rdm_ope_receiver(txe)->bytes_received = txe->total_len;
+			efa_rdm_ope_receiver(txe)->bytes_copied = txe->total_len;
 			efa_rdm_ope_handle_recv_completed(txe);
 		} else if (pkt_type == EFA_RDM_LONGREAD_MSGRTM_PKT ||
 			   pkt_type == EFA_RDM_LONGREAD_TAGRTM_PKT ||
@@ -2008,8 +2012,8 @@ static void test_efa_rdm_txe_with_resp_release_common(struct efa_resource *resou
 		if (pkt_type == EFA_RDM_SHORT_RTR_PKT ||
 		    pkt_type == EFA_RDM_LONGCTS_RTR_PKT) {
 			/* Simulate all read data received and copied */
-			txe->bytes_received = txe->total_len;
-			txe->bytes_copied = txe->total_len;
+			efa_rdm_ope_receiver(txe)->bytes_received = txe->total_len;
+			efa_rdm_ope_receiver(txe)->bytes_copied = txe->total_len;
 			efa_rdm_ope_handle_recv_completed(txe);
 		} else if (pkt_type == EFA_RDM_LONGREAD_MSGRTM_PKT ||
 			   pkt_type == EFA_RDM_LONGREAD_TAGRTM_PKT ||
@@ -2194,6 +2198,8 @@ static void test_efa_rdm_ope_longcts_cts_release_common(struct efa_resource *res
 
 	if (is_txe) {
 		ope = efa_unit_test_alloc_txe(resource, op);
+		ope->kind = EFA_RDM_TXE_KIND_RMA_RECV;
+		efa_rdm_txe_init_receiver(ope);
 		ope->cq_entry.flags = FI_READ;
 	} else {
 		ope = efa_unit_test_alloc_rxe(resource, op);
@@ -2201,8 +2207,8 @@ static void test_efa_rdm_ope_longcts_cts_release_common(struct efa_resource *res
 	assert_non_null(ope);
 	ope->efa_outstanding_tx_ops = 1; /* CTS packet in flight */
 	ope->total_len = 1000;
-	ope->bytes_received = 0;
-	ope->bytes_copied = 0;
+	efa_rdm_ope_receiver(ope)->bytes_received = 0;
+	efa_rdm_ope_receiver(ope)->bytes_copied = 0;
 	if (is_txe)
 		ope->state = EFA_RDM_TXE_REQ;
 	else
@@ -2233,13 +2239,13 @@ static void test_efa_rdm_ope_longcts_cts_release_common(struct efa_resource *res
 			assert_int_equal(efa_unit_test_get_ope_list_length(efa_rdm_ep, EFA_RDM_RXE), 1);
 
 		/* Simulate recv completed */
-		ope->bytes_received = ope->total_len;
-		ope->bytes_copied = ope->total_len;
+		efa_rdm_ope_receiver(ope)->bytes_received = ope->total_len;
+		efa_rdm_ope_receiver(ope)->bytes_copied = ope->total_len;
 		efa_rdm_ope_handle_recv_completed(ope);
 	} else {
 		/* Simulate recv completed first - CTS still outstanding */
-		ope->bytes_received = ope->total_len;
-		ope->bytes_copied = ope->total_len;
+		efa_rdm_ope_receiver(ope)->bytes_received = ope->total_len;
+		efa_rdm_ope_receiver(ope)->bytes_copied = ope->total_len;
 		efa_rdm_ope_handle_recv_completed(ope);
 		/* ope should NOT be released yet */
 		if (is_txe)
@@ -2343,8 +2349,8 @@ static void test_efa_rdm_rxe_dc_longcts_write_cts_receipt_order_common(
 	rxe->efa_outstanding_tx_ops = 1;
 	rxe->total_len = 1000;
 	rxe->cq_entry.len = rxe->total_len;
-	rxe->bytes_received = rxe->total_len;
-	rxe->bytes_copied = rxe->total_len;
+	efa_rdm_ope_receiver(rxe)->bytes_received = rxe->total_len;
+	efa_rdm_ope_receiver(rxe)->bytes_copied = rxe->total_len;
 	rxe->state = EFA_RDM_RXE_RECV;
 
 	/* Create fake CTS packet entry */
@@ -2660,11 +2666,11 @@ void test_efa_rdm_rxe_peer_abort_writes_error_completion_at_drain(void **state)
 	rxe = efa_rdm_ep_alloc_rxe(efa_rdm_ep, peer, ofi_op_msg);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->cq_entry.op_context = peer_rxe->context;
 	rxe->cq_entry.flags = FI_RECV | FI_MSG;
-	rxe->bytes_received = 0;
-	rxe->bytes_copied = 0;
+	efa_rdm_ope_receiver(rxe)->bytes_received = 0;
+	efa_rdm_ope_receiver(rxe)->bytes_copied = 0;
 
 	/* Simulate one in-flight device WR (e.g. a LONGREAD RDMA READ)
 	 * still using the rxe as wr_id. */
@@ -2675,11 +2681,11 @@ void test_efa_rdm_rxe_peer_abort_writes_error_completion_at_drain(void **state)
 	efa_rdm_rxe_mark_peer_aborted_if_needed(rxe,
 		EFA_IO_COMP_STATUS_REMOTE_ERROR_BAD_ADDRESS);
 	assert_true(rxe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING);
-	assert_non_null(rxe->peer_rxe);
+	assert_non_null(efa_rdm_rxe_msg(rxe)->peer_rxe);
 
 	/* Not yet drained: the helper is a no-op. */
 	efa_rdm_rxe_release_peer_abort_if_drained(rxe);
-	assert_non_null(rxe->peer_rxe);
+	assert_non_null(efa_rdm_rxe_msg(rxe)->peer_rxe);
 	ofi_genlock_unlock(srx_ctx->lock);
 	assert_int_equal(fi_cq_read(resource->cq, NULL, 1), -FI_EAGAIN);
 
@@ -2857,7 +2863,7 @@ void test_efa_rdm_rxe_mark_peer_aborted_multi_recv_writes_err(
 	rxe2 = efa_rdm_ep_alloc_rxe(efa_rdm_ep, peer, ofi_op_msg);
 	assert_non_null(rxe2);
 	rxe2->state = EFA_RDM_RXE_MATCHED;
-	rxe2->peer_rxe = peer_rxe2;
+	efa_rdm_rxe_msg(rxe2)->peer_rxe = peer_rxe2;
 	rxe2->cq_entry.op_context = peer_rxe2->context;
 	rxe2->cq_entry.flags = FI_RECV | FI_MSG;
 	/* A medium-style matched rxe has no outstanding device WR, so the
@@ -3044,7 +3050,7 @@ static struct efa_rdm_ope *build_matched_rxe(struct efa_resource *resource)
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->cq_entry.flags = FI_RECV | FI_MSG;
 	rxe->cq_entry.op_context = (void *) 0xa1;
 	ofi_genlock_unlock(srx_ctx->lock);
@@ -3133,7 +3139,7 @@ void test_efa_rdm_pke_handle_tx_error_longread_bad_length_writes_cq_err(void **s
 	srx_ctx = efa_rdm_ep_get_peer_srx_ctx(ep);
 
 	rxe = build_matched_rxe(resource);
-	peer_rxe_held = rxe->peer_rxe;
+	peer_rxe_held = efa_rdm_rxe_msg(rxe)->peer_rxe;
 
 	ofi_genlock_lock(srx_ctx->lock);
 	run_longread_read_error(resource, rxe,
@@ -3146,7 +3152,7 @@ void test_efa_rdm_pke_handle_tx_error_longread_bad_length_writes_cq_err(void **s
 
 	/* Cleanup. */
 	efa_rdm_ep_get_peer_srx(ep)->owner_ops->free_entry(peer_rxe_held);
-	rxe->peer_rxe = NULL;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = NULL;
 	ofi_genlock_unlock(srx_ctx->lock);
 	efa_rdm_rxe_release(rxe);
 }
@@ -3216,7 +3222,7 @@ void test_efa_rdm_pke_handle_tx_error_longread_tagged_peer_aborts(void **state)
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_tagged);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->cq_entry.flags = FI_RECV | FI_TAGGED;
 	rxe->cq_entry.op_context = (void *) 0xa1;
 	rxe->tag = tag_value;
@@ -3299,7 +3305,7 @@ void test_efa_rdm_rxe_emit_peer_error_emits_pkt(void **state)
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->tx_id = 0xdead;  /* sender's send op id, propagated from RTM */
 
 	outstanding_before = ep->efa_outstanding_tx_ops;
@@ -3310,7 +3316,7 @@ void test_efa_rdm_rxe_emit_peer_error_emits_pkt(void **state)
 	/* The peer_rxe is NOT re-queued: it stays owned by the rxe and
 	 * is returned to the SRX only at drain. So msg_queue is empty. */
 	assert_true(slist_empty(&srx_ctx->msg_queue));
-	assert_non_null(rxe->peer_rxe);
+	assert_non_null(efa_rdm_rxe_msg(rxe)->peer_rxe);
 
 	/* rxe is still alive with the in-flight flag set; no user CQ
 	 * entry yet (deferred to drain). */
@@ -3336,7 +3342,7 @@ void test_efa_rdm_rxe_emit_peer_error_emits_pkt(void **state)
  *             test_..._multi_recv_writes_err_for_failed_msg).
  *          2. Free the matched peer_rxe via the SRX free_entry op
  *             so multi_recv_ref decrements (fi_msg(3) bookkeeping)
- *             and clear rxe->peer_rxe to avoid a double-free.
+ *             and clear efa_rdm_rxe_msg(rxe)->peer_rxe to avoid a double-free.
  *          3. Stash prov_errno on the rxe and set
  *             EFA_RDM_OPE_PEER_ABORT_PENDING.
  *          4. Post a PEER_ERROR_PKT (efa_outstanding_tx_ops++).
@@ -3430,7 +3436,7 @@ void test_efa_rdm_rxe_emit_peer_error_multi_recv_emits_pkt(
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->cq_entry.op_context = peer_rxe->context;
 	rxe->cq_entry.flags = FI_RECV | FI_MSG;
 	rxe->tx_id = 0xdead;  /* sender's send op id, propagated from RTM */
@@ -3445,7 +3451,7 @@ void test_efa_rdm_rxe_emit_peer_error_multi_recv_emits_pkt(
 
 	/* Deferred: no state change, peer_rxe still attached,
 	 * multi_recv_ref unchanged, no CQ entry yet. */
-	assert_non_null(rxe->peer_rxe);
+	assert_non_null(efa_rdm_rxe_msg(rxe)->peer_rxe);
 	assert_int_equal(owner_entry->multi_recv_ref, 1);
 
 	/* Emit-PEER_ERROR_PKT: in-flight flag set, prov_errno stashed,
@@ -3550,7 +3556,7 @@ void test_efa_rdm_rxe_emit_peer_error_skips_on_peer_ep_closed(void **state)
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->tx_id = 0xdead;
 
 	outstanding_before = ep->efa_outstanding_tx_ops;
@@ -3639,7 +3645,7 @@ void test_efa_rdm_rxe_emit_peer_error_with_homogeneous_peers(void **state)
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->tx_id = 0xdead;
 
 	outstanding_before = ep->efa_outstanding_tx_ops;
@@ -3720,7 +3726,7 @@ void test_efa_rdm_rxe_emit_peer_error_skips_when_no_handshake(void **state)
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->tx_id = 0xdead;
 
 	outstanding_before = ep->efa_outstanding_tx_ops;
@@ -3971,7 +3977,7 @@ void test_efa_rdm_rxe_emit_peer_error_reentry_safe(void **state)
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->tx_id = 0xdead;
 
 	/* First failure. */
@@ -4217,7 +4223,7 @@ void test_efa_rdm_pke_handle_peer_error_recv_atomic_txe_dropped(void **state)
 	txe = efa_unit_test_alloc_txe(resource, ofi_op_atomic_fetch);
 	assert_non_null(txe);
 	txe->msg_id = 0x1234;
-	txe->atomic_proto = &efa_rdm_atomic_fetch_proto;
+	efa_rdm_txe_atomic(txe)->atomic_proto = &efa_rdm_atomic_fetch_proto;
 	tx_id = txe->tx_id;
 
 	request_pke = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
@@ -4335,7 +4341,7 @@ void test_efa_rdm_pke_handle_peer_error_recv_longcts_reaps_rxe(void **state)
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 
 	/* Build the inbound PEER_ERROR_PKT pointing at our rxe via recv_id. */
 	pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_rx_pkt_pool,
@@ -4432,7 +4438,7 @@ void test_efa_rdm_pke_handle_peer_error_recv_longcts_tagged(void **state)
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_tagged);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->cq_entry.flags = FI_RECV | FI_TAGGED;
 	rxe->tag = tag_value;
 
@@ -4539,19 +4545,19 @@ void test_efa_rdm_pke_handle_peer_error_recv_eager_unexpected_tears_down(
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_UNEXP;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->msg_id = msg_id;
 
 	unexp_pkt = efa_rdm_pke_alloc(ep, ep->rx_unexp_pkt_pool,
 				      EFA_RDM_PKE_FROM_UNEXP_POOL);
 	assert_non_null(unexp_pkt);
-	rxe->unexp_pkt = unexp_pkt;
+	efa_rdm_rxe_msg(rxe)->unexp_pkt = unexp_pkt;
 
 	/*
 	 * Unlike medium, no efa_rdm_rxe_map_insert(): eager rxes are only
 	 * reachable through peer->rxe_list, which is what this test pins.
 	 */
-	assert_null(rxe->rxe_map);
+	assert_null(efa_rdm_rxe_msg(rxe)->rxe_map);
 
 	rxe_list_len_before = efa_unit_test_get_dlist_length(&ep->base_ep.ope_list);
 
@@ -4673,7 +4679,7 @@ void test_efa_rdm_txe_handle_error_emits_peer_error_on_invalid_lkey(void **state
 	txe->cq_entry.flags = FI_SEND | FI_MSG;
 	txe->cq_entry.op_context = (void *) 0xa1;
 	txe->total_len = 1024;
-	txe->bytes_sent = 256;	/* mid-CTSDATA */
+	efa_rdm_ope_sender(txe)->bytes_sent = 256;	/* mid-CTSDATA */
 
 	/* Mark the peer as supporting PEER_ERROR_PKT. */
 	peer = txe->peer;
@@ -4744,7 +4750,7 @@ void test_efa_rdm_txe_handle_error_emits_peer_error_on_canceled(void **state)
 	txe->cq_entry.flags = FI_SEND | FI_TAGGED;
 	txe->cq_entry.op_context = (void *) 0xb2;
 	txe->total_len = 1024;
-	txe->bytes_sent = 512;
+	efa_rdm_ope_sender(txe)->bytes_sent = 512;
 
 	peer = txe->peer;
 	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
@@ -4979,7 +4985,7 @@ void test_efa_rdm_txe_handle_error_longcts_prepost_cancel_emits_skip(void **stat
 	txe->cq_entry.flags = FI_SEND | FI_MSG;
 	txe->cq_entry.op_context = (void *) 0xc3;
 	txe->msg_id = 0x77;
-	txe->bytes_acked = 0;
+	efa_rdm_ope_sender(txe)->bytes_acked = 0;
 
 	peer = txe->peer;
 	assert_non_null(peer);
@@ -5051,8 +5057,8 @@ void test_efa_rdm_txe_handle_error_runtread_prepost_cancel_emits_skip(void **sta
 	txe->cq_entry.op_context = (void *) 0xb4;
 	txe->msg_id = 0x55;
 	txe->total_len = 4096;
-	txe->bytes_runt = 4096;
-	txe->bytes_acked = 0;
+	efa_rdm_ope_sender(txe)->bytes_runt = 4096;
+	efa_rdm_ope_sender(txe)->bytes_acked = 0;
 
 	peer = txe->peer;
 	assert_non_null(peer);
@@ -5098,7 +5104,7 @@ void test_efa_rdm_txe_handle_error_no_emit_when_peer_unsupported(void **state)
 	txe->state = EFA_RDM_OPE_SEND;
 	txe->cq_entry.flags = FI_SEND | FI_MSG;
 	txe->total_len = 1024;
-	txe->bytes_sent = 256;
+	efa_rdm_ope_sender(txe)->bytes_sent = 256;
 
 	peer = txe->peer;
 	/* Handshake received but feature bit NOT advertised — old peer. */
@@ -5151,7 +5157,7 @@ void test_efa_rdm_txe_handle_error_emits_peer_error_with_homogeneous_peers(void 
 	txe->state = EFA_RDM_OPE_SEND;
 	txe->cq_entry.flags = FI_SEND | FI_MSG;
 	txe->total_len = 1024;
-	txe->bytes_sent = 256;
+	efa_rdm_ope_sender(txe)->bytes_sent = 256;
 
 	peer = txe->peer;
 	/* Deliberately leave handshake-received unset and feature bit
@@ -5205,7 +5211,7 @@ void test_efa_rdm_txe_handle_error_skips_peer_error_when_no_handshake(void **sta
 	txe->state = EFA_RDM_OPE_SEND;
 	txe->cq_entry.flags = FI_SEND | FI_MSG;
 	txe->total_len = 1024;
-	txe->bytes_sent = 256;
+	efa_rdm_ope_sender(txe)->bytes_sent = 256;
 
 	peer = txe->peer;
 	/* No handshake received from receiver. */
@@ -5263,7 +5269,7 @@ void test_efa_rdm_txe_handle_error_no_emit_when_not_longcts(void **state)
 	txe->state = EFA_RDM_TXE_REQ;
 	txe->cq_entry.flags = FI_SEND | FI_MSG;
 	txe->total_len = 1024;
-	txe->bytes_sent = 256;
+	efa_rdm_ope_sender(txe)->bytes_sent = 256;
 
 	peer = txe->peer;
 	assert_non_null(peer);
@@ -5361,8 +5367,8 @@ void test_efa_rdm_pke_handle_rma_read_completion_drains_recovered_rxe(
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
-	rxe->bytes_read_total_len = 32;	/* two 16-byte READ WRs */
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
+	efa_rdm_ope_read(rxe)->bytes_read_total_len = 32;	/* two 16-byte READ WRs */
 
 	ep->efa_outstanding_tx_ops += 2;
 	peer->efa_outstanding_tx_ops += 2;
@@ -5492,7 +5498,7 @@ void test_efa_rdm_pke_handle_peer_error_recv_longcts_cts_outstanding(
 	 */
 	dlist_insert_tail(&rxe->entry,
 			  &ep->ope_longcts_send_list);
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 
 	/* Simulate a CTS in flight on this rxe (window refill). */
 	cts_pkt = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
@@ -5647,7 +5653,7 @@ static void run_medium_inbound_peer_abort(struct efa_resource *resource,
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, op);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_MATCHED;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->msg_id = msg_id;
 	rxe->tag = tag;
 	rxe->cq_entry.flags = (op == ofi_op_tagged) ? (FI_RECV | FI_TAGGED)
@@ -5857,13 +5863,13 @@ void test_efa_rdm_pke_handle_peer_error_recv_medium_unexpected_tears_down(
 	rxe = efa_rdm_ep_alloc_rxe(ep, peer, ofi_op_msg);
 	assert_non_null(rxe);
 	rxe->state = EFA_RDM_RXE_UNEXP;
-	rxe->peer_rxe = peer_rxe;
+	efa_rdm_rxe_msg(rxe)->peer_rxe = peer_rxe;
 	rxe->msg_id = msg_id;
 
 	unexp_pkt = efa_rdm_pke_alloc(ep, ep->rx_unexp_pkt_pool,
 				      EFA_RDM_PKE_FROM_UNEXP_POOL);
 	assert_non_null(unexp_pkt);
-	rxe->unexp_pkt = unexp_pkt;
+	efa_rdm_rxe_msg(rxe)->unexp_pkt = unexp_pkt;
 
 	efa_rdm_rxe_map_insert(&peer->rxe_map, msg_id, rxe);
 
@@ -5973,7 +5979,7 @@ void test_efa_rdm_pke_handle_tx_error_medium_emits_peer_error_once(void **state)
 	txe->msg_id = 0x99;
 	txe->total_len = 1024;
 	/* Simulate partial delivery: one segment landed before MR cancel. */
-	txe->bytes_acked = 256;
+	efa_rdm_ope_sender(txe)->bytes_acked = 256;
 
 	peer = txe->peer;
 	assert_non_null(peer);
@@ -6324,7 +6330,7 @@ void test_efa_rdm_pke_handle_tx_error_runtread_only_emits_peer_error(void **stat
 	txe->msg_id = 0x99;
 	/* Runt-only: the whole message is the runt, no READ remainder. */
 	txe->total_len = 4096;
-	txe->bytes_runt = 4096;
+	efa_rdm_ope_sender(txe)->bytes_runt = 4096;
 
 	peer = txe->peer;
 	assert_non_null(peer);
@@ -6376,7 +6382,7 @@ void test_efa_rdm_pke_handle_tx_error_runtread_with_read_emits(void **state)
 	txe->msg_id = 0x99;
 	/* Has a READ remainder: runt portion is only part of the message. */
 	txe->total_len = 1048576;
-	txe->bytes_runt = 4096;
+	efa_rdm_ope_sender(txe)->bytes_runt = 4096;
 
 	peer = txe->peer;
 	assert_non_null(peer);
@@ -6441,7 +6447,7 @@ void test_efa_rdm_pke_handle_tx_error_longcts_abort_drains_txe(
 	txe->state = EFA_RDM_OPE_SEND;
 	txe->cq_entry.flags = FI_SEND | FI_MSG;
 	txe->total_len = 4096;
-	txe->bytes_acked = 256;        /* partial; never reaches total_len */
+	efa_rdm_ope_sender(txe)->bytes_acked = 256;        /* partial; never reaches total_len */
 	txe->rx_id = 0x7;
 	peer = txe->peer;
 	peer->flags |= EFA_RDM_PEER_HANDSHAKE_RECEIVED;
@@ -6539,7 +6545,7 @@ void test_efa_rdm_txe_handle_error_no_defer_when_peer_unsupported(void **state)
 	txe->state = EFA_RDM_OPE_SEND;
 	txe->cq_entry.flags = FI_SEND | FI_MSG;
 	txe->total_len = 4096;
-	txe->bytes_acked = 256;
+	efa_rdm_ope_sender(txe)->bytes_acked = 256;
 	peer = txe->peer;
 	/* Deny every route to feature support. */
 	peer->is_self = false;
@@ -6753,12 +6759,13 @@ void test_efa_rdm_txe_handle_error_emulated_canceled_not_peer_aborted(void **sta
  * is that a cap exists, not what it is, so a pool with the same entry size and
  * a cap of two exercises the same exhaustion path.
  */
-static void efa_unit_test_shrink_ope_pool(struct ofi_bufpool **pool)
+static void efa_unit_test_shrink_ope_pool(struct ofi_bufpool **pool,
+					  size_t entry_size)
 {
 	ofi_bufpool_destroy(*pool);
 	/* a test leaves entries held on purpose, so opt out of the tracking
 	 * that would make destroying the pool complain about them */
-	assert_int_equal(ofi_bufpool_create(pool, sizeof(struct efa_rdm_ope),
+	assert_int_equal(ofi_bufpool_create(pool, entry_size,
 					    EFA_RDM_BUFPOOL_ALIGNMENT, 2, 2,
 					    OFI_BUFPOOL_NO_TRACK),
 			 0);
@@ -6825,7 +6832,8 @@ void test_efa_rdm_ope_txe_pool_cap_fails_send(void **state)
 	/* the endpoint's own pool is bounded, which is what the id space
 	 * relies on; the value of the bound is checked elsewhere */
 	assert_true(ep->base_ep.txe_pool->attr.max_cnt > 0);
-	efa_unit_test_shrink_ope_pool(&ep->base_ep.txe_pool);
+	efa_unit_test_shrink_ope_pool(&ep->base_ep.txe_pool,
+				      sizeof(union efa_rdm_txe_slot));
 
 	/* neither send completes, so each one holds its txe */
 	assert_int_equal(fi_send(resource->ep, NULL, 0, NULL, addr, NULL), 0);
@@ -6865,7 +6873,8 @@ void test_efa_rdm_ope_rxe_pool_cap_fails_recv(void **state)
 
 	assert_int_equal(ep->base_ep.rxe_pool->attr.max_cnt,
 			 EFA_RDM_RXE_POOL_MAX_CNT);
-	efa_unit_test_shrink_ope_pool(&ep->base_ep.rxe_pool);
+	efa_unit_test_shrink_ope_pool(&ep->base_ep.rxe_pool,
+				      sizeof(union efa_rdm_rxe_slot));
 
 	/* the one posted receive takes the first arrival, and the arrivals
 	 * behind it go unexpected, so each one holds an rxe */
@@ -6930,7 +6939,8 @@ static void test_efa_rdm_srx_entry_released_common(struct efa_resource *resource
 	}
 
 	/* drain the pool so the arrival cannot get an rxe at all */
-	efa_unit_test_shrink_ope_pool(&ep->base_ep.rxe_pool);
+	efa_unit_test_shrink_ope_pool(&ep->base_ep.rxe_pool,
+				      sizeof(union efa_rdm_rxe_slot));
 	while (n < ARRAY_SIZE(held) &&
 	       (held[n] = ofi_buf_alloc(ep->base_ep.rxe_pool)))
 		n++;

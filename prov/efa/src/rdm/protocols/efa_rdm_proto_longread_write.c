@@ -53,17 +53,17 @@ static ssize_t efa_rdm_proto_longread_write_init_rtw(struct efa_rdm_pke *pkt_ent
 	assert(txe->op == ofi_op_write);
 
 	rtw_hdr = (struct efa_rdm_longread_rtw_hdr *)pkt_entry->wiredata;
-	rtw_hdr->rma_iov_count = txe->rma_iov_count;
+	rtw_hdr->rma_iov_count = efa_rdm_ope_rma(txe)->rma_iov_count;
 	rtw_hdr->msg_length = txe->total_len;
 	rtw_hdr->send_id = txe->tx_id;
 	rtw_hdr->read_iov_count = txe->iov_count;
 	efa_rdm_pke_init_req_hdr_common(pkt_entry, EFA_RDM_LONGREAD_RTW_PKT, txe);
 
 	rma_iov = rtw_hdr->rma_iov;
-	for (i = 0; i < txe->rma_iov_count; ++i) {
-		rma_iov[i].addr = txe->rma_iov[i].addr;
-		rma_iov[i].len = txe->rma_iov[i].len;
-		rma_iov[i].key = txe->rma_iov[i].key;
+	for (i = 0; i < efa_rdm_ope_rma(txe)->rma_iov_count; ++i) {
+		rma_iov[i].addr = efa_rdm_ope_rma(txe)->rma_iov[i].addr;
+		rma_iov[i].len = efa_rdm_ope_rma(txe)->rma_iov[i].len;
+		rma_iov[i].key = efa_rdm_ope_rma(txe)->rma_iov[i].key;
 	}
 
 	hdr_size = efa_rdm_pke_get_req_hdr_size(pkt_entry);
@@ -81,8 +81,9 @@ static ssize_t efa_rdm_proto_longread_write_init_rtw(struct efa_rdm_pke *pkt_ent
  * @brief Handle the send completion of a LONGREAD RTW packet.
  *
  * For long read write, the txe is released either here or in
- * efa_rdm_proto_handle_eor_recv(), whichever happens last. After a read NACK, the
- * txe completes here if this is its last packet to finish.
+ * efa_rdm_proto_handle_eor_recv(), whichever happens last. After a read NACK,
+ * the write continues on the long CTS write protocol once this completion has
+ * arrived.
  */
 ssize_t efa_rdm_proto_longread_write_handle_rtw_send_completion(struct efa_rdm_pke *pkt_entry)
 {
@@ -93,8 +94,8 @@ ssize_t efa_rdm_proto_longread_write_handle_rtw_send_completion(struct efa_rdm_p
 	else if (pkt_entry->ope->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
 		efa_rdm_txe_progress_peer_abort_if_drained(pkt_entry->ope);
 	else if ((pkt_entry->ope->internal_flags & EFA_RDM_OPE_READ_NACK) &&
-		 efa_rdm_ope_send_done(pkt_entry->ope))
-		efa_rdm_ope_handle_send_completed(pkt_entry->ope);
+		 efa_rdm_ope_drained(pkt_entry->ope))
+		efa_rdm_txe_continue_after_read_nack(pkt_entry->ope);
 
 	efa_rdm_pke_release_tx(pkt_entry);
 	return 0;
@@ -179,6 +180,7 @@ static bool efa_rdm_proto_longread_write_set_bounds(struct efa_rdm_proto *proto,
 }
 
 EFA_RDM_PROTO_DEF(longread_write,
+	.txe_kind = EFA_RDM_TXE_KIND_RMA,
 	.wants_mr = true,
 	.min_param_name = "inter_min_read_write_size",
 	.set_bounds = &efa_rdm_proto_longread_write_set_bounds,
@@ -239,9 +241,9 @@ void efa_rdm_proto_longread_write_handle_rtw_recv(struct efa_rdm_pke *pkt_entry)
 	read_iov = (struct fi_rma_iov *)(pkt_entry->wiredata + hdr_size);
 	rxe->peer = pkt_entry->peer;
 	rxe->tx_id = rtw_hdr->send_id;
-	rxe->rma_iov_count = rtw_hdr->read_iov_count;
-	memcpy(rxe->rma_iov, read_iov,
-	       rxe->rma_iov_count * sizeof(struct fi_rma_iov));
+	efa_rdm_ope_rma(rxe)->rma_iov_count = rtw_hdr->read_iov_count;
+	memcpy(efa_rdm_ope_rma(rxe)->rma_iov, read_iov,
+	       efa_rdm_ope_rma(rxe)->rma_iov_count * sizeof(struct fi_rma_iov));
 
 	err = efa_rdm_pke_post_remote_read_or_nack(rxe->ep, pkt_entry, rxe);
 

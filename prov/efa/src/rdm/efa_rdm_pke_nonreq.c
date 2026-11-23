@@ -225,7 +225,7 @@ ssize_t efa_rdm_pke_init_cts(struct efa_rdm_pke *pkt_entry,
 		cts_hdr->recv_id = ope->rx_id;
 	}
 
-	bytes_left = ope->total_len - ope->bytes_received;
+	bytes_left = ope->total_len - efa_rdm_ope_receiver(ope)->bytes_received;
 	cts_hdr->recv_length = MIN(bytes_left, efa_env.tx_min_credits * ope->ep->max_data_payload_size);
 	assert(cts_hdr->recv_length > 0);
 	pkt_entry->pkt_size = sizeof(struct efa_rdm_cts_hdr);
@@ -248,7 +248,7 @@ void efa_rdm_pke_handle_cts_sent(struct efa_rdm_pke *pkt_entry)
 	struct efa_rdm_ope *ope;
 
 	ope = pkt_entry->ope;
-	ope->window = efa_rdm_pke_get_cts_hdr(pkt_entry)->recv_length;
+	efa_rdm_ope_receiver(ope)->window = efa_rdm_pke_get_cts_hdr(pkt_entry)->recv_length;
 }
 
 /**
@@ -363,11 +363,11 @@ void efa_rdm_pke_proc_ctsdata(struct efa_rdm_pke *pkt_entry,
 
 	assert(pkt_type == EFA_RDM_CTSDATA_PKT || pkt_type == EFA_RDM_READRSP_PKT);
 #endif
-	ope->bytes_received += seg_size;
-	assert(ope->bytes_received <= ope->total_len);
-	all_received = (ope->bytes_received == ope->total_len);
+	efa_rdm_ope_receiver(ope)->bytes_received += seg_size;
+	assert(efa_rdm_ope_receiver(ope)->bytes_received <= ope->total_len);
+	all_received = (efa_rdm_ope_receiver(ope)->bytes_received == ope->total_len);
 
-	ope->window -= seg_size;
+	efa_rdm_ope_receiver(ope)->window -= seg_size;
 #if ENABLE_DEBUG
 	/* ope can be released by #efa_rdm_pke_copy_payload_to_ope
 	 * so the call to dlist_remove must happen before
@@ -387,7 +387,7 @@ void efa_rdm_pke_proc_ctsdata(struct efa_rdm_pke *pkt_entry,
 	if (all_received)
 		return;
 
-	if (!ope->window) {
+	if (!efa_rdm_ope_receiver(ope)->window) {
 		err = efa_rdm_ope_post_send_or_queue(ope, EFA_RDM_CTS_PKT);
 		if (err) {
 			EFA_WARN(FI_LOG_CQ, "post CTS packet failed!\n");
@@ -429,10 +429,10 @@ void efa_rdm_pke_handle_readrsp_sent(struct efa_rdm_pke *pkt_entry)
 
 	rxe = pkt_entry->ope;
 	data_len = efa_rdm_pke_get_readrsp_hdr(pkt_entry)->seg_length;
-	rxe->bytes_sent += data_len;
-	rxe->window -= data_len;
-	assert(rxe->window >= 0);
-	if (rxe->bytes_sent < rxe->total_len) {
+	efa_rdm_ope_sender(rxe)->bytes_sent += data_len;
+	efa_rdm_ope_sender(rxe)->window -= data_len;
+	assert(efa_rdm_ope_sender(rxe)->window >= 0);
+	if (efa_rdm_ope_sender(rxe)->bytes_sent < rxe->total_len) {
 		if (efa_is_cache_available(efa_rdm_ep_rdm_domain(pkt_entry->ep)))
 			efa_rdm_ope_try_fill_desc(rxe, 0, FI_SEND);
 
@@ -451,8 +451,8 @@ ssize_t efa_rdm_pke_handle_readrsp_send_completion(struct efa_rdm_pke *pkt_entry
 
 	rxe = pkt_entry->ope;
 	assert(rxe->cq_entry.flags & FI_READ);
-	rxe->bytes_acked += readrsp_hdr->seg_length;
-	if (rxe->total_len == rxe->bytes_acked)
+	efa_rdm_ope_sender(rxe)->bytes_acked += readrsp_hdr->seg_length;
+	if (rxe->total_len == efa_rdm_ope_sender(rxe)->bytes_acked)
 		efa_rdm_ope_handle_send_completed(rxe);
 
 	efa_rdm_pke_release_tx(pkt_entry);
@@ -536,6 +536,7 @@ static
 void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entry)
 {
 	enum efa_rdm_ope_type x_entry_type;
+	struct efa_rdm_ope_read *read;
 	struct efa_rdm_ope *txe;
 	struct efa_rdm_ope *rxe;
 	struct efa_rdm_pke *data_pkt_entry;
@@ -550,10 +551,11 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 	if (x_entry_type == EFA_RDM_TXE) {
 		txe = context_pkt_entry->ope;
 		assert(txe->op == ofi_op_read_req);
-		txe->bytes_read_completed += rma_context_pkt->seg_size;
-		if (txe->bytes_read_total_len == txe->bytes_read_completed) {
+		read = efa_rdm_ope_read(txe);
+		read->bytes_read_completed += rma_context_pkt->seg_size;
+		if (read->bytes_read_total_len == read->bytes_read_completed) {
 			if (txe->peer == NULL) {
-				data_pkt_entry = txe->local_read_pkt_entry;
+				data_pkt_entry = efa_rdm_txe_rma(txe)->local_read_pkt_entry;
 				assert(data_pkt_entry->payload_size > 0);
 				efa_rdm_pke_assert_ope_valid(data_pkt_entry);
 				rxe = data_pkt_entry->ope;
@@ -561,7 +563,7 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 				/* The copy landed, so drop its rxe reference. */
 				assert(rxe->efa_outstanding_tx_ops > 0);
 				rxe->efa_outstanding_tx_ops--;
-				txe->local_read_pkt_entry = NULL;
+				efa_rdm_txe_rma(txe)->local_read_pkt_entry = NULL;
 				if (rxe->internal_flags &
 				    EFA_RDM_OPE_PEER_ABORT_PENDING) {
 					/* Canceled recv: the drain owns its
@@ -606,9 +608,10 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 			return;
 		}
 
-		rxe->bytes_read_completed += rma_context_pkt->seg_size;
-		assert(rxe->bytes_read_completed <= rxe->bytes_read_total_len);
-		if (rxe->bytes_read_completed == rxe->bytes_read_total_len) {
+		read = efa_rdm_ope_read(rxe);
+		read->bytes_read_completed += rma_context_pkt->seg_size;
+		assert(read->bytes_read_completed <= read->bytes_read_total_len);
+		if (read->bytes_read_completed == read->bytes_read_total_len) {
 			efa_rdm_tracepoint(read_completed,
 				    rxe->msg_id, (size_t) rxe->cq_entry.op_context,
 				    rxe->total_len, (size_t) rxe);
@@ -622,11 +625,11 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 			}
 
 			rxe->internal_flags |= EFA_RDM_RXE_ACK_IN_FLIGHT;
-			rxe->bytes_received += rxe->bytes_read_completed;
-			rxe->bytes_copied += rxe->bytes_read_completed;
-			if (rxe->bytes_copied == rxe->total_len) {
+			efa_rdm_ope_receiver(rxe)->bytes_received += read->bytes_read_completed;
+			efa_rdm_ope_receiver(rxe)->bytes_copied += read->bytes_read_completed;
+			if (efa_rdm_ope_receiver(rxe)->bytes_copied == rxe->total_len) {
 				efa_rdm_ope_handle_recv_completed(rxe);
-			} else if(rxe->bytes_copied + rxe->bytes_queued_blocking_copy == rxe->total_len) {
+			} else if(efa_rdm_ope_receiver(rxe)->bytes_copied + efa_rdm_ope_receiver(rxe)->bytes_queued_blocking_copy == rxe->total_len) {
 				efa_rdm_ep_flush_queued_blocking_copy_to_hmem(context_pkt_entry->ep);
 			}
 		}
@@ -647,6 +650,7 @@ void efa_rdm_pke_handle_rma_read_completion(struct efa_rdm_pke *context_pkt_entr
 ssize_t efa_rdm_pke_handle_rma_completion(struct efa_rdm_pke *context_pkt_entry)
 {
 	struct efa_rdm_ope *txe = NULL;
+	struct efa_rdm_ope_write *write;
 	struct efa_rdm_rma_context_pkt *rma_context_pkt;
 
 	assert(efa_rdm_pke_get_base_hdr(context_pkt_entry)->version == EFA_RDM_PROTOCOL_VERSION);
@@ -667,8 +671,9 @@ ssize_t efa_rdm_pke_handle_rma_completion(struct efa_rdm_pke *context_pkt_entry)
 	switch (rma_context_pkt->context_type) {
 	case EFA_RDM_RDMA_WRITE_CONTEXT:
 		txe = context_pkt_entry->ope;
-		txe->bytes_write_completed += rma_context_pkt->seg_size;
-		if (txe->bytes_write_completed == txe->bytes_write_total_len) {
+		write = efa_rdm_txe_write(txe);
+		write->bytes_write_completed += rma_context_pkt->seg_size;
+		if (write->bytes_write_completed == write->bytes_write_total_len) {
 			if (txe->fi_flags & FI_COMPLETION)
 				efa_rdm_txe_report_completion(txe);
 			else if (!(txe->internal_flags & EFA_RDM_TXE_NO_COUNTER))
@@ -716,7 +721,7 @@ ssize_t efa_rdm_pke_handle_eor_send_completion(struct efa_rdm_pke *pkt_entry)
 	rxe = pkt_entry->ope;
 	assert(rxe && rxe->rx_id == efa_rdm_pke_get_eor_hdr(pkt_entry)->recv_id);
 
-	if (rxe->bytes_copied == rxe->total_len) {
+	if (efa_rdm_ope_receiver(rxe)->bytes_copied == rxe->total_len) {
 		efa_rdm_rxe_release(rxe);
 	} else {
 		rxe->internal_flags &= ~EFA_RDM_RXE_ACK_IN_FLIGHT;
@@ -764,8 +769,6 @@ void efa_rdm_pke_handle_read_nack_recv(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_read_nack_hdr *nack_hdr;
 	struct efa_rdm_ope *txe;
-	bool delivery_complete_requested;
-	ssize_t err;
 
 	nack_hdr = (struct efa_rdm_read_nack_hdr *) pkt_entry->wiredata;
 
@@ -782,36 +785,9 @@ void efa_rdm_pke_handle_read_nack_recv(struct efa_rdm_pke *pkt_entry)
 	efa_rdm_pke_release_rx(pkt_entry);
 	txe->internal_flags |= EFA_RDM_OPE_READ_NACK;
 
-	delivery_complete_requested = txe->fi_flags & FI_DELIVERY_COMPLETE;
-
-	if (txe->op == ofi_op_write) {
-		EFA_INFO(FI_LOG_EP_CTRL,
-			 "Sender fallback to emulated long CTS write "
-			 "protocol because p2p is not available\n");
-		txe->req_pkt_type = delivery_complete_requested ?
-				EFA_RDM_DC_LONGCTS_RTW_PKT :
-				EFA_RDM_LONGCTS_RTW_PKT;
-		txe->proto = &efa_rdm_proto_longcts_write;
-		err = efa_rdm_ope_post_send_or_queue(txe, txe->req_pkt_type);
-		if (OFI_UNLIKELY(err))
-			efa_rdm_txe_handle_error(txe, -err, FI_EFA_ERR_PKT_POST);
-	} else {
-		EFA_INFO(FI_LOG_EP_CTRL,
-			 "Sender fallback to long CTS %s "
-			 "protocol because memory registration limit "
-			 "was reached on the receiver\n",
-			 (txe->op == ofi_op_tagged) ? "tagged" : "untagged");
-		/* Continue the message with the long CTS protocol. */
-		txe->req_pkt_type =
-			(delivery_complete_requested ?
-				 efa_rdm_proto_longcts.req_pkt_type_dc :
-				 efa_rdm_proto_longcts.req_pkt_type) +
-			efa_rdm_proto_get_tagged(txe);
-		txe->proto = &efa_rdm_proto_longcts;
-		err = efa_rdm_ope_post_send_or_queue(txe, txe->req_pkt_type);
-		if (OFI_UNLIKELY(err))
-			efa_rdm_txe_handle_error(txe, -err, FI_EFA_ERR_PKT_POST);
-	}
+	/* Otherwise the read protocol's last send completion continues it. */
+	if (efa_rdm_ope_drained(txe))
+		efa_rdm_txe_continue_after_read_nack(txe);
 }
 
 /* PEER_ERROR packet related functions */
@@ -924,9 +900,9 @@ static void efa_rdm_pke_peer_error_handle_rxe(struct efa_rdm_ope *rxe,
 		 * segments, then the rxe (efa_rdm_rxe_release frees peer_rxe via
 		 * free_entry, then release_internal).
 		 */
-		if (rxe->unexp_pkt) {
-			efa_rdm_pke_release_rx_list(rxe->unexp_pkt);
-			rxe->unexp_pkt = NULL;
+		if (efa_rdm_rxe_msg(rxe)->unexp_pkt) {
+			efa_rdm_pke_release_rx_list(efa_rdm_rxe_msg(rxe)->unexp_pkt);
+			efa_rdm_rxe_msg(rxe)->unexp_pkt = NULL;
 		}
 		efa_rdm_rxe_release(rxe);
 		return;
@@ -1159,7 +1135,7 @@ int efa_rdm_pke_init_atomrsp(struct efa_rdm_pke *pkt_entry, struct efa_rdm_ope *
 	struct efa_rdm_atomrsp_pkt *atomrsp_pkt;
 	struct efa_rdm_atomrsp_hdr *atomrsp_hdr;
 
-	assert(rxe->atomrsp_data);
+	assert(efa_rdm_rxe_atomic(rxe)->atomrsp_data);
 	pkt_entry->peer = rxe->peer;
 	efa_rdm_pke_set_ope(pkt_entry, rxe);
 
@@ -1173,8 +1149,8 @@ int efa_rdm_pke_init_atomrsp(struct efa_rdm_pke *pkt_entry, struct efa_rdm_ope *
 	atomrsp_hdr->flags |= EFA_RDM_PKT_CONNID_HDR;
 	atomrsp_hdr->connid = efa_rdm_ep_raw_addr(rxe->ep)->qkey;
 	assert(sizeof(struct efa_rdm_atomrsp_hdr) + atomrsp_hdr->seg_length <= rxe->ep->mtu_size);
-	/* rxe->atomrsp_data was filled in efa_rdm_pke_handle_req_recv() */
-	memcpy(atomrsp_pkt->data, rxe->atomrsp_data, atomrsp_hdr->seg_length);
+	/* atomrsp_data was filled in efa_rdm_pke_handle_req_recv() */
+	memcpy(atomrsp_pkt->data, efa_rdm_rxe_atomic(rxe)->atomrsp_data, atomrsp_hdr->seg_length);
 	pkt_entry->pkt_size = sizeof(struct efa_rdm_atomrsp_hdr) + atomrsp_hdr->seg_length;
 	pkt_entry->handle_pke = &efa_rdm_pke_handle_atomrsp_send_completion;
 	return 0;
@@ -1196,6 +1172,7 @@ void efa_rdm_pke_handle_atomrsp_recv(struct efa_rdm_pke *pkt_entry)
 {
 	struct efa_rdm_atomrsp_pkt *atomrsp_pkt = NULL;
 	struct efa_rdm_atomrsp_hdr *atomrsp_hdr = NULL;
+	struct efa_rdm_atomic_ex *atomic_ex;
 	struct efa_rdm_ope *txe = NULL;
 	ssize_t ret;
 
@@ -1225,12 +1202,13 @@ void efa_rdm_pke_handle_atomrsp_recv(struct efa_rdm_pke *pkt_entry)
 		return;
 	}
 
+	atomic_ex = &efa_rdm_txe_atomic(txe)->atomic_ex;
 	if (pkt_entry->pkt_size - sizeof(*atomrsp_hdr) != atomrsp_hdr->seg_length ||
-	    ofi_total_iov_len(txe->atomic_ex.resp_iov, txe->atomic_ex.resp_iov_count) != atomrsp_hdr->seg_length)
+	    ofi_total_iov_len(atomic_ex->resp_iov, atomic_ex->resp_iov_count) != atomrsp_hdr->seg_length)
 		ret = -FI_ETRUNC;
 	else
-		ret = efa_copy_to_hmem_iov(txe->atomic_ex.result_desc, txe->atomic_ex.resp_iov,
-	                           txe->atomic_ex.resp_iov_count, atomrsp_pkt->data,
+		ret = efa_copy_to_hmem_iov(atomic_ex->result_desc, atomic_ex->resp_iov,
+	                           atomic_ex->resp_iov_count, atomrsp_pkt->data,
 	                           atomrsp_hdr->seg_length);
 	if (OFI_UNLIKELY(ret < 0)) {
 		efa_rdm_txe_handle_error(txe, -ret,ret == -FI_ETRUNC ? EFA_IO_COMP_STATUS_LOCAL_ERROR_BAD_LENGTH : FI_EFA_ERR_RXE_COPY);

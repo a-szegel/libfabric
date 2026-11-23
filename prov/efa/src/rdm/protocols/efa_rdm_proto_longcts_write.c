@@ -52,7 +52,7 @@ void efa_rdm_proto_longcts_write_init_rtw_hdr(struct efa_rdm_pke *pkt_entry,
 	struct efa_rdm_longcts_rtw_hdr *rtw_hdr;
 
 	rtw_hdr = (struct efa_rdm_longcts_rtw_hdr *)pkt_entry->wiredata;
-	rtw_hdr->rma_iov_count = txe->rma_iov_count;
+	rtw_hdr->rma_iov_count = efa_rdm_ope_rma(txe)->rma_iov_count;
 	rtw_hdr->msg_length = txe->total_len;
 	rtw_hdr->send_id = txe->tx_id;
 	rtw_hdr->credit_request = efa_env.tx_min_credits;
@@ -116,7 +116,7 @@ static void efa_rdm_proto_longcts_write_handle_rtw_send_completion(struct efa_rd
 	struct efa_rdm_ope *txe;
 
 	txe = pkt_entry->ope;
-	txe->bytes_acked += pkt_entry->payload_size;
+	efa_rdm_ope_sender(txe)->bytes_acked += pkt_entry->payload_size;
 	if (efa_rdm_ope_send_done(txe))
 		efa_rdm_ope_handle_send_completed(txe);
 }
@@ -159,8 +159,8 @@ static void efa_rdm_proto_longcts_write_handle_tx_pkes_posted(struct efa_rdm_ep 
 {
 	struct efa_rdm_pke *pkt_entry = ep->send_pkt_entry_vec[0];
 
-	txe->bytes_sent += pkt_entry->payload_size;
-	assert(txe->bytes_sent < txe->total_len);
+	efa_rdm_ope_sender(txe)->bytes_sent += pkt_entry->payload_size;
+	assert(efa_rdm_ope_sender(txe)->bytes_sent < txe->total_len);
 	if (efa_is_cache_available(efa_rdm_ep_rdm_domain(ep)))
 		efa_rdm_ope_try_fill_desc(txe, 0, FI_SEND);
 }
@@ -236,11 +236,12 @@ static bool efa_rdm_proto_longcts_write_can_use(struct efa_rdm_proto *proto,
 		return false;
 
 	max_data_offset = efa_rdm_pkt_type_get_req_hdr_size(
-		req_pkt_type, header_flags, txe->rma_iov_count);
+		req_pkt_type, header_flags, efa_rdm_ope_rma(txe)->rma_iov_count);
 	return txe->total_len > txe->ep->mtu_size - max_data_offset;
 }
 
 EFA_RDM_PROTO_DEF(longcts_write,
+	.txe_kind = EFA_RDM_TXE_KIND_RMA_SEND,
 	.wants_mr = false,
 	.can_use_protocol = &efa_rdm_proto_longcts_write_can_use,
 	.construct_tx_pkes = &efa_rdm_proto_longcts_write_construct_tx_pkes,
@@ -299,7 +300,7 @@ void efa_rdm_proto_longcts_write_handle_rtw_recv(struct efa_rdm_pke *pkt_entry)
 	rxe->cq_entry.buf = rxe->iov[0].iov_base;
 	rxe->total_len = rxe->cq_entry.len;
 
-	rxe->bytes_received += pkt_entry->payload_size;
+	efa_rdm_ope_receiver(rxe)->bytes_received += pkt_entry->payload_size;
 	if (pkt_entry->payload_size >= rxe->total_len) {
 		EFA_WARN(FI_LOG_CQ, "Long RTM size mismatch! payload_size: %ld total_len: %ld\n",
 			 pkt_entry->payload_size, rxe->total_len);

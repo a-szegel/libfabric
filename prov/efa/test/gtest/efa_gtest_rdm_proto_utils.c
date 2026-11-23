@@ -427,7 +427,7 @@ int efa_test_proto_medium_construct_repost(
 	 */
 	if (!err && !second->ret) {
 		txe->proto->handle_tx_pkes_posted(ctx.ep, txe);
-		second->bytes_sent = txe->bytes_sent;
+		second->bytes_sent = efa_rdm_ope_sender(txe)->bytes_sent;
 	}
 
 	if (first->txe_filled)
@@ -494,7 +494,7 @@ int efa_test_proto_medium_completion(
 	out->ope_list_after_send = efa_test_proto_ope_list_count(ctx.ep);
 
 	txe = pkes[0]->ope;
-	if (!txe || txe->bytes_acked != 0) {
+	if (!txe || efa_rdm_ope_sender(txe)->bytes_acked != 0) {
 		err = -FI_EINVAL;
 		goto out;
 	}
@@ -511,7 +511,7 @@ int efa_test_proto_medium_completion(
 		 * it only while a packet still holds a reference.
 		 */
 		out->bytes_acked_after[i] =
-			(i + 1 < out->pke_cnt) ? txe->bytes_acked : 0;
+			(i + 1 < out->pke_cnt) ? efa_rdm_ope_sender(txe)->bytes_acked : 0;
 		out->ope_list_after[i] = efa_test_proto_ope_list_count(ctx.ep);
 	}
 
@@ -874,8 +874,8 @@ int efa_test_proto_bounds_select(struct fid_ep *ep, struct fid_av *av, struct fi
 	if (write) {
 		/* As efa_rdm_rma_post_write() has the txe when it picks an emulated write protocol */
 		efa_rdm_txe_construct(txe, ctx.ep, ctx.peer, &msg, ofi_op_write, flags, 0);
-		txe->rma_iov_count = 1;
-		txe->rma_iov[0].len = len;
+		efa_rdm_ope_rma(txe)->rma_iov_count = 1;
+		efa_rdm_ope_rma(txe)->rma_iov[0].len = len;
 		efa_rdm_proto_select_emulated_write_protocol(ctx.ep, ctx.peer, txe, false, &proto);
 		out->ret = proto ? 0 : -FI_EOPNOTSUPP;
 	} else {
@@ -1127,10 +1127,10 @@ int efa_test_runtread_construct_is_repeatable(
 				ctx.ep->send_pkt_entry_vec[i])->seg_offset;
 	efa_test_proto_release_send_pkes(ctx.ep);
 	out->first_req_pkt_type = txe->req_pkt_type;
-	out->first_bytes_runt = txe->bytes_runt;
+	out->first_bytes_runt = efa_rdm_ope_sender(txe)->bytes_runt;
 
 	txe->proto->handle_tx_pkes_posted(ctx.ep, txe);
-	out->bytes_sent_after_first_hook = txe->bytes_sent;
+	out->bytes_sent_after_first_hook = efa_rdm_ope_sender(txe)->bytes_sent;
 	out->read_msg_counted_after_first_hook =
 		!!(txe->internal_flags & EFA_RDM_TXE_READ_MSG_COUNTED);
 	out->read_msg_in_flight_after_first_hook =
@@ -1143,14 +1143,14 @@ int efa_test_runtread_construct_is_repeatable(
 
 	out->second_pke_cnt = ctx.ep->send_pkt_entry_vec_size;
 	out->second_req_pkt_type = txe->req_pkt_type;
-	out->second_bytes_runt = txe->bytes_runt;
+	out->second_bytes_runt = efa_rdm_ope_sender(txe)->bytes_runt;
 	for (i = 0; i < out->second_pke_cnt && i < EFA_TEST_PROTO_MAX_PKES; ++i)
 		out->second_seg_offsets[i] =
 			efa_rdm_pke_get_runtread_rtm_base_hdr(
 				ctx.ep->send_pkt_entry_vec[i])->seg_offset;
 
 	txe->proto->handle_tx_pkes_posted(ctx.ep, txe);
-	out->bytes_sent_after_second_hook = txe->bytes_sent;
+	out->bytes_sent_after_second_hook = efa_rdm_ope_sender(txe)->bytes_sent;
 	out->read_msg_in_flight_after_second_hook =
 		efa_test_proto_read_msg_in_flight(ctx.ep);
 
@@ -1267,7 +1267,7 @@ int efa_test_longcts_construct_is_repeatable(
 	out->first_payload_size = ctx.ep->send_pkt_entry_vec[0]->payload_size;
 
 	txe->proto->handle_tx_pkes_posted(ctx.ep, txe);
-	out->bytes_sent_after_first_hook = txe->bytes_sent;
+	out->bytes_sent_after_first_hook = efa_rdm_ope_sender(txe)->bytes_sent;
 	efa_test_proto_release_send_pkes(ctx.ep);
 
 	out->second_ret = txe->proto->construct_tx_pkes(ctx.ep, txe,
@@ -1282,7 +1282,7 @@ int efa_test_longcts_construct_is_repeatable(
 					 ctx.ep->send_pkt_entry_vec[0])->msg_length;
 
 	txe->proto->handle_tx_pkes_posted(ctx.ep, txe);
-	out->bytes_sent_after_second_hook = txe->bytes_sent;
+	out->bytes_sent_after_second_hook = efa_rdm_ope_sender(txe)->bytes_sent;
 
 	efa_test_proto_release_send_pkes(ctx.ep);
 out:
@@ -1378,7 +1378,8 @@ out:
 
 int efa_test_longcts_read_nack_continues_in_api_path(
 	struct fid_ep *ep, struct fid_av *av, struct fid_cq *cq,
-	struct fid_domain *domain, struct efa_test_proto_read_nack_result *out)
+	struct fid_domain *domain, bool nack_after_runt_completions,
+	struct efa_test_proto_read_nack_result *out)
 {
 	struct efa_test_proto_ctx ctx = {0};
 	struct fi_cq_data_entry cq_entry;
@@ -1421,8 +1422,8 @@ int efa_test_longcts_read_nack_continues_in_api_path(
 	out->expected_runt_req_pkt_type = EFA_RDM_RUNTREAD_MSGRTM_PKT;
 	out->read_msg_counted_before =
 		!!(txe->internal_flags & EFA_RDM_TXE_READ_MSG_COUNTED);
-	out->bytes_sent_before = txe->bytes_sent;
-	out->bytes_runt = txe->bytes_runt;
+	out->bytes_sent_before = efa_rdm_ope_sender(txe)->bytes_sent;
+	out->bytes_runt = efa_rdm_ope_sender(txe)->bytes_runt;
 	out->total_len = txe->total_len;
 
 	nack_pke = efa_rdm_pke_alloc(ctx.ep, ctx.ep->efa_rx_pkt_pool,
@@ -1435,11 +1436,31 @@ int efa_test_longcts_read_nack_continues_in_api_path(
 	nack_hdr = (struct efa_rdm_read_nack_hdr *) nack_pke->wiredata;
 	nack_hdr->type = EFA_RDM_READ_NACK_PKT;
 	nack_hdr->send_id = txe->tx_id;
+	out->old_tx_id = txe->tx_id;
+
+	if (nack_after_runt_completions) {
+		for (i = 0; i < out->runt_pke_cnt; ++i) {
+			efa_rdm_ep_record_tx_op_completed(ctx.ep, runt_pkes[i]);
+			runt_pkes[i]->handle_pke(runt_pkes[i]);
+		}
+	}
 
 	rx_pkts_to_post = ctx.ep->efa_rx_pkts_to_post;
 	efa_rdm_pke_handle_read_nack_recv(nack_pke);
 	ctx.ep->efa_rx_pkts_to_post = rx_pkts_to_post;
+	out->switched_on_nack = txe->proto == &efa_rdm_proto_longcts;
 
+	if (!nack_after_runt_completions) {
+		for (i = 0; i < out->runt_pke_cnt; ++i) {
+			efa_rdm_ep_record_tx_op_completed(ctx.ep, runt_pkes[i]);
+			runt_pkes[i]->handle_pke(runt_pkes[i]);
+		}
+	}
+
+	out->old_tx_id_live =
+		efa_rdm_ep_live_txe_from_id(ctx.ep, out->old_tx_id) != NULL;
+	out->new_tx_id_live =
+		efa_rdm_ep_live_txe_from_id(ctx.ep, txe->tx_id) == txe;
 	out->read_nack_flag = !!(txe->internal_flags & EFA_RDM_OPE_READ_NACK);
 	out->proto_is_longcts = txe->proto == &efa_rdm_proto_longcts;
 	out->req_pkt_type = txe->req_pkt_type;
@@ -1459,7 +1480,7 @@ int efa_test_longcts_read_nack_continues_in_api_path(
 			       &efa_rdm_proto_longcts_handle_req_send_completion;
 	out->req_ope_set = req_pke->ope == txe;
 	out->req_payload_size = req_pke->payload_size;
-	out->bytes_sent_after = txe->bytes_sent;
+	out->bytes_sent_after = efa_rdm_ope_sender(txe)->bytes_sent;
 
 	rtm_hdr = efa_rdm_pke_get_rtm_base_hdr(req_pke);
 	out->hdr_type = rtm_hdr->type;
@@ -1472,10 +1493,6 @@ int efa_test_longcts_read_nack_continues_in_api_path(
 	out->hdr_send_id = longcts_hdr->send_id;
 	out->tx_id = txe->tx_id;
 
-	for (i = 0; i < out->runt_pke_cnt; ++i) {
-		efa_rdm_ep_record_tx_op_completed(ctx.ep, runt_pkes[i]);
-		runt_pkes[i]->handle_pke(runt_pkes[i]);
-	}
 	efa_rdm_ep_record_tx_op_completed(ctx.ep, req_pke);
 	req_pke->handle_pke(req_pke);
 
@@ -1566,7 +1583,7 @@ int efa_test_longcts_read_nack_req_completes_txe_last(
 	data_hdr->type = EFA_RDM_CTSDATA_PKT;
 	data_hdr->seg_length = txe->total_len;
 
-	txe->bytes_sent = txe->total_len;
+	efa_rdm_ope_sender(txe)->bytes_sent = txe->total_len;
 	txe->efa_outstanding_tx_ops = 1;
 	efa_rdm_proto_ctsdata_handle_send_completion(data_pke);
 

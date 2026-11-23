@@ -59,7 +59,7 @@ void efa_rdm_rxe_map_insert(struct efa_rdm_rxe_map *rxe_map,
 	entry->msg_id = msg_id;
 	entry->rxe = rxe;
 	HASH_ADD(hh, rxe_map->head, msg_id, sizeof(msg_id), entry);
-	rxe->rxe_map = rxe_map;
+	efa_rdm_rxe_msg(rxe)->rxe_map = rxe_map;
 }
 
 /**
@@ -83,5 +83,5 @@ void efa_rdm_rxe_map_remove(struct efa_rdm_rxe_map *rxe_map, uint64_t msg_id,
 	HASH_DEL(rxe_map->head, entry);
 	ofi_buf_free(entry);
 	/* Now the rxe is removed from the map, reset it to NULL */
-	rxe->rxe_map = NULL;
+	efa_rdm_rxe_msg(rxe)->rxe_map = NULL;
 }

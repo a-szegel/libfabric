@@ -2209,6 +2209,9 @@ void test_efa_rdm_mr_gen_check_cancels_longcts_ope(void **state)
 	/* Retrieve the txe */
 	txe = container_of(efa_rdm_ep->base_ep.ope_list.next, struct efa_rdm_ope, ep_entry);
 
+	/* The send went out eager; treat it as a long CTS send from here on. */
+	efa_rdm_txe_set_proto(txe, &efa_rdm_proto_longcts);
+
 	/*
 	 * Simulate receiving a CTS: craft a CTS pke and call the handler.
 	 * This sets ope->window and inserts the ope onto ope_longcts_send_list.
@@ -2231,7 +2234,7 @@ void test_efa_rdm_mr_gen_check_cancels_longcts_ope(void **state)
 
 	/* Verify ope is on the longcts list */
 	assert_int_equal(txe->state, EFA_RDM_OPE_SEND);
-	assert_true(txe->window > 0);
+	assert_true(efa_rdm_ope_sender(txe)->window > 0);
 	assert_false(dlist_empty(&efa_rdm_ep->ope_longcts_send_list));
 	assert_true(efa_rdm_ep->needs_progress);
 	assert_false(dlist_empty(&efa_rdm_cq->progress_ep_list));

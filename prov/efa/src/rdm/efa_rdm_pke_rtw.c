@@ -31,6 +31,9 @@ struct efa_rdm_ope *efa_rdm_pke_alloc_rtw_rxe(struct efa_rdm_pke *pkt_entry)
 		return NULL;
 
 	base_hdr = efa_rdm_pke_get_base_hdr(pkt_entry);
+	rxe->kind = base_hdr->type == EFA_RDM_LONGREAD_RTW_PKT ?
+			    EFA_RDM_RXE_KIND_WRITE_READ :
+			    EFA_RDM_RXE_KIND_WRITE;
 	if (base_hdr->flags & EFA_RDM_REQ_OPT_CQ_DATA_HDR) {
 		rxe->cq_entry.flags |= FI_REMOTE_CQ_DATA;
 		rxe->cq_entry.data = efa_rdm_pke_get_req_cq_data(pkt_entry);

@@ -165,7 +165,7 @@ void efa_test_mr_abort_set_aborting_with_wr_in_flight(void)
 
 	txe->state = EFA_RDM_OPE_ERR;
 	txe->total_len = 4096;
-	txe->bytes_acked = 4096;
+	efa_rdm_ope_sender(txe)->bytes_acked = 4096;
 	txe->internal_flags |= EFA_RDM_OPE_PEER_ABORT_PENDING;
 	txe->efa_outstanding_tx_ops = 1;
 }

@@ -785,7 +785,7 @@ static ssize_t efa_test_rtm_init_runtread(struct efa_rdm_pke *pkt_entry,
 	rtm_hdr->msg_length = txe->total_len;
 	rtm_hdr->send_id = txe->tx_id;
 	rtm_hdr->seg_offset = segment_offset;
-	rtm_hdr->runt_length = txe->bytes_runt;
+	rtm_hdr->runt_length = efa_rdm_ope_sender(txe)->bytes_runt;
 	rtm_hdr->read_iov_count = txe->iov_count;
 
 	if (EFA_TEST_RTM_IS_TAGGED(variant)) {
@@ -832,7 +832,7 @@ void efa_test_rtm_init_build(struct fid_ep *ep, struct fid_av *av,
 		return;
 	}
 	if (family == EFA_TEST_RTM_FAM_RUNTREAD)
-		txe->bytes_runt = EFA_TEST_RTM_RUNT_LEN;
+		efa_rdm_ope_sender(txe)->bytes_runt = EFA_TEST_RTM_RUNT_LEN;
 
 	pkt_entry = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->efa_tx_pkt_pool,
 				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
@@ -990,12 +990,12 @@ void efa_test_rtm_sent_build(struct fid_ep *ep, struct fid_av *av,
 		return;
 	peer = txe->peer;
 	if (family == EFA_TEST_RTM_FAM_RUNTREAD)
-		txe->bytes_runt = EFA_TEST_RTM_RUNT_LEN;
+		efa_rdm_ope_sender(txe)->bytes_runt = EFA_TEST_RTM_RUNT_LEN;
 	/* A boundary completion writes to the CQ only when completion is
 	 * requested; ask for it so the test can observe the SEND completion. */
 	txe->fi_flags |= FI_COMPLETION;
-	txe->bytes_sent = bytes_already;
-	txe->bytes_acked = bytes_already;
+	efa_rdm_ope_sender(txe)->bytes_sent = bytes_already;
+	efa_rdm_ope_sender(txe)->bytes_acked = bytes_already;
 
 	pkt_entry = efa_rdm_pke_alloc(efa_rdm_ep, efa_rdm_ep->efa_tx_pkt_pool,
 				      EFA_RDM_PKE_FROM_EFA_TX_POOL);
@@ -1049,8 +1049,8 @@ void efa_test_rtm_sent_build(struct fid_ep *ep, struct fid_av *av,
 			break;
 		}
 		/* sent handlers never free the txe; just read the counters. */
-		out->bytes_sent = txe->bytes_sent;
-		out->bytes_acked = txe->bytes_acked;
+		out->bytes_sent = efa_rdm_ope_sender(txe)->bytes_sent;
+		out->bytes_acked = efa_rdm_ope_sender(txe)->bytes_acked;
 		out->num_read_msg_in_flight =
 			ofi_atomic_get64(&domain->num_read_msg_in_flight) - read_in_flight_before;
 		out->num_runt_bytes_in_flight = peer->num_runt_bytes_in_flight;
@@ -1117,7 +1117,7 @@ void efa_test_rtm_sent_build(struct fid_ep *ep, struct fid_av *av,
 				     NULL) != -FI_EAGAIN);
 	out->num_runt_bytes_in_flight = peer->num_runt_bytes_in_flight;
 	if (out->txe_on_ope_list) {
-		out->bytes_acked = txe->bytes_acked;
+		out->bytes_acked = efa_rdm_ope_sender(txe)->bytes_acked;
 		if (!pkt_entry_released)
 			efa_rdm_pke_release_tx(pkt_entry);
 		efa_rdm_txe_release(txe);
@@ -1331,9 +1331,9 @@ int efa_test_flushes_when_queue_full(struct fid_ep *ep, size_t num_pkts,
 
 		steps[i].ret = efa_rdm_pke_copy_payload_to_ope(pke, rxe);
 		steps[i].queued_copy_num = efa_rdm_ep->queued_copy_num;
-		steps[i].bytes_copied = rxe->bytes_copied;
+		steps[i].bytes_copied = efa_rdm_ope_receiver(rxe)->bytes_copied;
 		steps[i].bytes_queued_blocking_copy =
-			rxe->bytes_queued_blocking_copy;
+			efa_rdm_ope_receiver(rxe)->bytes_queued_blocking_copy;
 		steps[i].rx_pkts_released =
 			efa_rdm_ep->efa_rx_pkts_to_post - to_post_before;
 	}
@@ -1411,10 +1411,10 @@ int efa_test_av_remove_releases_unexp_pkt(
 	rxe = container_of(ep->base_ep.ope_list.prev, struct efa_rdm_ope,
 			   ep_entry);
 	out->was_unexpected =
-		rxe->state == EFA_RDM_RXE_UNEXP && rxe->unexp_pkt &&
-		(copy_unexp ? rxe->unexp_pkt->alloc_type ==
+		rxe->state == EFA_RDM_RXE_UNEXP && efa_rdm_rxe_msg(rxe)->unexp_pkt &&
+		(copy_unexp ? efa_rdm_rxe_msg(rxe)->unexp_pkt->alloc_type ==
 				      EFA_RDM_PKE_FROM_UNEXP_POOL
-			    : rxe->unexp_pkt == pke);
+			    : efa_rdm_rxe_msg(rxe)->unexp_pkt == pke);
 
 	out->unexp_pool_outstanding_queued =
 		efa_test_ep_unexp_pool_outstanding(ep_fid);

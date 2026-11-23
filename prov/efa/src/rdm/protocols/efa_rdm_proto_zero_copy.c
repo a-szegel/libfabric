@@ -16,6 +16,7 @@
  */
 
 EFA_RDM_PROTO_DEF(zero_copy,
+	.txe_kind = EFA_RDM_TXE_KIND_MSG_EAGER,
 	.wants_mr = false,
 	.construct_tx_pkes = &efa_rdm_proto_zero_copy_construct_tx_pkes,
 	.handle_tx_pkes_posted = &efa_rdm_proto_handle_tx_pkes_posted_no_op,
@@ -27,7 +28,7 @@ void efa_rdm_proto_zero_copy_reselect_queued_before_handshake(
 	assert(txe->peer->flags & EFA_RDM_PEER_HANDSHAKE_RECEIVED);
 
 	if (efa_rdm_peer_expects_zero_hdr_data_transfer(txe->peer))
-		txe->proto = &efa_rdm_proto_zero_copy;
+		efa_rdm_txe_set_proto(txe, &efa_rdm_proto_zero_copy);
 }
 
 /* TX path callbacks */

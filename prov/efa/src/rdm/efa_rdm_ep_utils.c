@@ -251,6 +251,7 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_p
 	dlist_insert_tail(&rxe->ep_entry, &ep->base_ep.ope_list);
 	efa_rdm_domain_ope_list_unlock(efa_rdm_ep_rdm_domain(ep));
 	rxe->type = EFA_RDM_RXE;
+	rxe->kind = efa_rdm_rxe_kind_of_op(op);
 	rxe->internal_flags = 0;
 	rxe->req_pkt_type = 0;
 	rxe->proto = NULL;
@@ -276,22 +277,24 @@ struct efa_rdm_ope *efa_rdm_ep_alloc_rxe(struct efa_rdm_ep *ep, struct efa_rdm_p
 		rxe->peer = NULL;
 	}
 
-	rxe->bytes_received = 0;
-	rxe->bytes_received_via_mulreq = 0;
-	rxe->bytes_copied = 0;
-	rxe->bytes_queued_blocking_copy = 0;
-	rxe->bytes_acked = 0;
-	rxe->bytes_sent = 0;
-	rxe->bytes_runt = 0;
-	rxe->cuda_copy_method = EFA_RDM_CUDA_COPY_UNSPEC;
+	if (efa_rdm_ope_kind_has_receiver(rxe->kind))
+		memset(efa_rdm_ope_receiver(rxe), 0,
+		       sizeof(struct efa_rdm_ope_receiver));
+	if (efa_rdm_ope_kind_has_sender(rxe->kind))
+		memset(efa_rdm_ope_sender(rxe), 0,
+		       sizeof(struct efa_rdm_ope_sender));
+	if (efa_rdm_rxe_kind_is_msg(rxe->kind)) {
+		efa_rdm_rxe_msg(rxe)->bytes_runt = 0;
+		efa_rdm_rxe_msg(rxe)->peer_rxe = NULL;
+		efa_rdm_rxe_msg(rxe)->unexp_pkt = NULL;
+		efa_rdm_rxe_msg(rxe)->rxe_map = NULL;
+	}
 	rxe->efa_outstanding_tx_ops = 0;
-	rxe->window = 0;
 	rxe->op = op;
-	rxe->peer_rxe = NULL;
-	rxe->unexp_pkt = NULL;
-	rxe->rxe_map = NULL;
-	rxe->atomrsp_data = NULL;
-	rxe->bytes_read_total_len = 0;
+	if (rxe->kind == EFA_RDM_RXE_KIND_ATOMIC)
+		efa_rdm_rxe_atomic(rxe)->atomrsp_data = NULL;
+	if (efa_rdm_ope_kind_has_rma(rxe->kind))
+		efa_rdm_ope_read(rxe)->bytes_read_total_len = 0;
 
 	switch (op) {
 	case ofi_op_tagged:
@@ -1269,7 +1272,7 @@ void efa_rdm_ep_progress_peers_and_queues(struct efa_rdm_ep *ep)
 		if (!(peer->flags & EFA_RDM_PEER_HANDSHAKE_RECEIVED))
 			continue;
 
-		if (ope->window > 0) {
+		if (efa_rdm_ope_sender(ope)->window > 0) {
 			if (efa_rdm_mr_gen_check_ope(ope)) {
 				/* A protocol that owns its continuation sends the
 				 * next batch itself; otherwise fall back to the

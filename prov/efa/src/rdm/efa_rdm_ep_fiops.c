@@ -276,7 +276,7 @@ int efa_rdm_ep_create_buffer_pools(struct efa_rdm_ep *ep)
 			 txe_pool_size);
 
 	ret = ofi_bufpool_create(&ep->base_ep.txe_pool,
-				 sizeof(struct efa_rdm_ope),
+				 sizeof(union efa_rdm_txe_slot),
 				 EFA_RDM_BUFPOOL_ALIGNMENT,
 				 txe_pool_size, chunk_size, 0);
 	if (ret)
@@ -287,7 +287,7 @@ int efa_rdm_ep_create_buffer_pools(struct efa_rdm_ep *ep)
 		goto err_free;
 
 	ret = ofi_bufpool_create(&ep->base_ep.rxe_pool,
-				 sizeof(struct efa_rdm_ope),
+				 sizeof(union efa_rdm_rxe_slot),
 				 EFA_RDM_BUFPOOL_ALIGNMENT,
 				 EFA_RDM_RXE_POOL_MAX_CNT,
 				 ep->base_ep.info->rx_attr->size, 0);

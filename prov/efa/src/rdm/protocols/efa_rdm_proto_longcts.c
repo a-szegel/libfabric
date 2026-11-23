@@ -49,7 +49,7 @@ efa_rdm_proto_longcts_handle_matched_rtm(struct efa_rdm_pke *pkt_entry)
 	efa_rdm_pke_prepare_matched_rtm(pkt_entry);
 	rxe->tx_id =
 		efa_rdm_pke_get_longcts_rtm_base_hdr(pkt_entry)->send_id;
-	rxe->bytes_received += pkt_entry->payload_size;
+	efa_rdm_ope_receiver(rxe)->bytes_received += pkt_entry->payload_size;
 	ret = efa_rdm_pke_copy_payload_to_ope(pkt_entry, rxe);
 	if (ret)
 		return ret;
@@ -83,8 +83,8 @@ void efa_rdm_proto_longcts_handle_cts_recv(struct efa_rdm_pke *pkt_entry)
 	}
 
 	ope->rx_id = cts_pkt->recv_id;
-	ope->window = cts_pkt->recv_length;
-	assert(ope->window > 0);
+	efa_rdm_ope_sender(ope)->window = cts_pkt->recv_length;
+	assert(efa_rdm_ope_sender(ope)->window > 0);
 
 	efa_rdm_pke_release_rx(pkt_entry);
 
@@ -149,6 +149,7 @@ static bool efa_rdm_proto_longcts_set_bounds(struct efa_rdm_proto *proto,
 }
 
 EFA_RDM_PROTO_DEF(longcts,
+	.txe_kind = EFA_RDM_TXE_KIND_MSG,
 	.wants_mr = true,
 	.set_bounds = &efa_rdm_proto_longcts_set_bounds,
 	.can_use_protocol = &efa_rdm_proto_longcts_can_use_for_send,
@@ -178,9 +179,9 @@ void efa_rdm_proto_longcts_handle_req_posted(
 	if (txe->internal_flags & EFA_RDM_OPE_READ_NACK)
 		assert(ep->send_pkt_entry_vec[0]->payload_size == 0);
 	else
-		txe->bytes_sent = ep->send_pkt_entry_vec[0]->payload_size;
+		efa_rdm_ope_sender(txe)->bytes_sent = ep->send_pkt_entry_vec[0]->payload_size;
 
-	assert(txe->bytes_sent < txe->total_len);
+	assert(efa_rdm_ope_sender(txe)->bytes_sent < txe->total_len);
 
 	/* Retry registering the source buffer so CTSDATA can send from it. */
 	if (efa_is_cache_available(efa_rdm_ep_rdm_domain(ep)))
@@ -199,7 +200,7 @@ static void efa_rdm_proto_longcts_account_send_completion(
 
 	/* Delivery complete tracks outstanding TX ops instead of bytes. */
 	if (!delivery_complete_requested)
-		txe->bytes_acked += pkt_entry->payload_size;
+		efa_rdm_ope_sender(txe)->bytes_acked += pkt_entry->payload_size;
 
 	if (txe->internal_flags & EFA_RDM_OPE_PEER_ABORT_PENDING)
 		efa_rdm_txe_progress_peer_abort_if_drained(txe);
@@ -321,7 +322,7 @@ ssize_t efa_rdm_proto_ctsdata_handle_send_completion(
 		if (efa_rdm_txe_with_remote_ack_ready_for_release(ope))
 			efa_rdm_txe_release(ope);
 	} else {
-		ope->bytes_acked +=
+		efa_rdm_ope_sender(ope)->bytes_acked +=
 			efa_rdm_pke_get_ctsdata_hdr(pkt_entry)->seg_length;
 		if (efa_rdm_ope_send_done(ope))
 			efa_rdm_ope_handle_send_completed(ope);
@@ -346,18 +347,18 @@ ssize_t efa_rdm_proto_post_ctsdata(struct efa_rdm_ope *ope)
 	uint64_t segment_offset;
 	ssize_t err;
 
-	assert(ope->window > 0);
+	assert(efa_rdm_ope_sender(ope)->window > 0);
 
 	pkt_entry_cnt = efa_rdm_ep_get_available_tx_pkts(ep);
 	if (pkt_entry_cnt == 0)
 		return -FI_EAGAIN;
 
 	pkt_entry_cnt = MIN(pkt_entry_cnt,
-			    (ope->window - 1) / ep->max_data_payload_size + 1);
+			    (efa_rdm_ope_sender(ope)->window - 1) / ep->max_data_payload_size + 1);
 	assert(pkt_entry_cnt <= efa_base_ep_get_tx_pool_size(&ep->base_ep));
 
-	segment_offset = ope->bytes_sent;
-	remaining = ope->window;
+	segment_offset = efa_rdm_ope_sender(ope)->bytes_sent;
+	remaining = efa_rdm_ope_sender(ope)->window;
 	for (i = 0; i < pkt_entry_cnt; ++i) {
 		pkt_entry = efa_rdm_pke_alloc(ep, ep->efa_tx_pkt_pool,
 					      EFA_RDM_PKE_FROM_EFA_TX_POOL);
@@ -389,10 +390,10 @@ ssize_t efa_rdm_proto_post_ctsdata(struct efa_rdm_ope *ope)
 	for (i = 0; i < pkt_entry_cnt; ++i) {
 		data_size = efa_rdm_pke_get_ctsdata_hdr(
 				    ep->send_pkt_entry_vec[i])->seg_length;
-		ope->bytes_sent += data_size;
-		ope->window -= data_size;
+		efa_rdm_ope_sender(ope)->bytes_sent += data_size;
+		efa_rdm_ope_sender(ope)->window -= data_size;
 	}
-	assert(ope->window >= 0);
+	assert(efa_rdm_ope_sender(ope)->window >= 0);
 
 	return 0;
 

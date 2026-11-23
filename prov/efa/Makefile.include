@@ -123,6 +123,7 @@ _efa_headers = \
 	prov/efa/src/efa_domain_util.h \
 	prov/efa/src/efa_fabric_util.h \
 	prov/efa/src/efa_errno.h \
+	prov/efa/src/efa_cacheline.h \
 	prov/efa/src/efa_user_info.h \
 	prov/efa/src/efa_prov_info.h \
 	prov/efa/src/efa_fork_support.h \

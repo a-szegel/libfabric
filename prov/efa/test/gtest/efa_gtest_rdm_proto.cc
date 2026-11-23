@@ -803,9 +803,16 @@ class EfaRdmProtoReadNackTest : public EfaRdmProtoReadTest
 	}
 };
 
-TEST_F(EfaRdmProtoReadNackTest, longcts_read_nack_continues_in_api_path)
+class EfaRdmProtoReadNackOrderTest
+	: public EfaRdmProtoReadNackTest,
+	  public testing::WithParamInterface<bool>
+{
+};
+
+TEST_P(EfaRdmProtoReadNackOrderTest, longcts_read_nack_continues_in_api_path)
 {
 	struct efa_test_proto_read_nack_result res = {};
+	bool nack_after_runt_completions = GetParam();
 	size_t posts = 0;
 
 	EFA_EXPECT_CALL(mock_efa, efa_qp_post_send)
@@ -814,7 +821,7 @@ TEST_F(EfaRdmProtoReadNackTest, longcts_read_nack_continues_in_api_path)
 
 	ASSERT_EQ(efa_test_longcts_read_nack_continues_in_api_path(
 			  resource.ep, resource.av, resource.cq,
-			  resource.domain, &res),
+			  resource.domain, nack_after_runt_completions, &res),
 		  0);
 	ASSERT_GT(res.runt_pke_cnt, 1u);
 	EXPECT_EQ(res.runt_req_pkt_type, res.expected_runt_req_pkt_type);
@@ -822,6 +829,10 @@ TEST_F(EfaRdmProtoReadNackTest, longcts_read_nack_continues_in_api_path)
 	EXPECT_EQ(res.bytes_sent_before, res.bytes_runt);
 	EXPECT_LT(res.bytes_sent_before, res.total_len);
 
+	EXPECT_EQ(res.switched_on_nack, nack_after_runt_completions);
+	EXPECT_FALSE(res.old_tx_id_live);
+	EXPECT_TRUE(res.new_tx_id_live);
+	EXPECT_NE(res.tx_id, res.old_tx_id);
 	EXPECT_TRUE(res.read_nack_flag);
 	EXPECT_TRUE(res.proto_is_longcts);
 	EXPECT_EQ(res.req_pkt_type, res.expected_req_pkt_type);
@@ -844,3 +855,10 @@ TEST_F(EfaRdmProtoReadNackTest, longcts_read_nack_continues_in_api_path)
 	EXPECT_EQ(res.cq_read_after_completions, -FI_EAGAIN);
 	EXPECT_EQ(posts, res.runt_pke_cnt + 1);
 }
+
+INSTANTIATE_TEST_SUITE_P(, EfaRdmProtoReadNackOrderTest, testing::Bool(),
+			 [](const testing::TestParamInfo<bool> &info) {
+				 return std::string(info.param ?
+						    "nack_after_runt_completions" :
+						    "nack_before_runt_completions");
+			 });

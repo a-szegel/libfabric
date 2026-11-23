@@ -240,7 +240,7 @@ struct efa_test_rtm_sent_result {
  * @param[in]	variant	selects family/tagged/dc
  * @param[in]	op	sent vs send-completion handler
  * @param[in]	payload_size	bytes carried by this packet
- * @param[in]	bytes_already	txe->bytes_sent/bytes_acked before the call
+ * @param[in]	bytes_already	efa_rdm_ope_sender(txe)->bytes_sent/bytes_acked before the call
  * @param[out]	out	observable counters after the call
  */
 void efa_test_rtm_sent_build(struct fid_ep *ep, struct fid_av *av,

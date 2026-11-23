@@ -43,7 +43,7 @@ void test_efa_rdm_rma_should_write_using_rdma_remote_cq_data_multiple_iovs_retur
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_rma txe = {.base.kind = EFA_RDM_TXE_KIND_RMA};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -53,12 +53,12 @@ void test_efa_rdm_rma_should_write_using_rdma_remote_cq_data_multiple_iovs_retur
 
 	peer.flags = EFA_RDM_PEER_HANDSHAKE_RECEIVED;
 	peer.extra_info[0] = EFA_RDM_EXTRA_FEATURE_RDMA_WRITE;
-	txe.fi_flags = FI_REMOTE_CQ_DATA;
-	txe.iov_count = 2;
-	txe.rma_iov_count = 1;
+	txe.base.fi_flags = FI_REMOTE_CQ_DATA;
+	txe.base.iov_count = 2;
+	txe.rma.rma_iov_count = 1;
 
 	result = test_efa_rdm_rma_should_write_using_rdma_helper(
-			ep, &peer, &txe, true, true, true, true);
+			ep, &peer, &txe.base, true, true, true, true);
 	assert_false(result);
 }
 
@@ -73,7 +73,7 @@ void test_efa_rdm_rma_should_write_using_rdma_remote_cq_data_multiple_rma_iovs_r
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_rma txe = {.base.kind = EFA_RDM_TXE_KIND_RMA};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -83,12 +83,12 @@ void test_efa_rdm_rma_should_write_using_rdma_remote_cq_data_multiple_rma_iovs_r
 
 	peer.flags = EFA_RDM_PEER_HANDSHAKE_RECEIVED;
 	peer.extra_info[0] = EFA_RDM_EXTRA_FEATURE_RDMA_WRITE;
-	txe.fi_flags = FI_REMOTE_CQ_DATA;
-	txe.iov_count = 1;
-	txe.rma_iov_count = 2;
+	txe.base.fi_flags = FI_REMOTE_CQ_DATA;
+	txe.base.iov_count = 1;
+	txe.rma.rma_iov_count = 2;
 
 	result = test_efa_rdm_rma_should_write_using_rdma_helper(
-			ep, &peer, &txe, true, true, true, true);
+			ep, &peer, &txe.base, true, true, true, true);
 	assert_false(result);
 }
 
@@ -103,7 +103,7 @@ void test_efa_rdm_rma_should_write_using_rdma_use_device_rdma_false_returns_fals
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_rma txe = {.base.kind = EFA_RDM_TXE_KIND_RMA};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -113,12 +113,12 @@ void test_efa_rdm_rma_should_write_using_rdma_use_device_rdma_false_returns_fals
 
 	peer.flags = EFA_RDM_PEER_HANDSHAKE_RECEIVED;
 	peer.extra_info[0] = EFA_RDM_EXTRA_FEATURE_RDMA_WRITE;
-	txe.fi_flags = 0;
-	txe.iov_count = 1;
-	txe.rma_iov_count = 1;
+	txe.base.fi_flags = 0;
+	txe.base.iov_count = 1;
+	txe.rma.rma_iov_count = 1;
 
 	result = test_efa_rdm_rma_should_write_using_rdma_helper(
-			ep, &peer, &txe, false, true, true, true);
+			ep, &peer, &txe.base, false, true, true, true);
 	assert_false(result);
 }
 
@@ -133,7 +133,7 @@ void test_efa_rdm_rma_should_write_using_rdma_peer_no_rdma_write_support_returns
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_rma txe = {.base.kind = EFA_RDM_TXE_KIND_RMA};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -143,12 +143,12 @@ void test_efa_rdm_rma_should_write_using_rdma_peer_no_rdma_write_support_returns
 
 	peer.flags = EFA_RDM_PEER_HANDSHAKE_RECEIVED;
 	peer.extra_info[0] = 0; // No RDMA write support
-	txe.fi_flags = 0;
-	txe.iov_count = 1;
-	txe.rma_iov_count = 1;
+	txe.base.fi_flags = 0;
+	txe.base.iov_count = 1;
+	txe.rma.rma_iov_count = 1;
 
 	result = test_efa_rdm_rma_should_write_using_rdma_helper(
-			ep, &peer, &txe, true, false, true, true);
+			ep, &peer, &txe.base, true, false, true, true);
 	assert_false(result);
 }
 
@@ -163,7 +163,7 @@ void test_efa_rdm_rma_should_write_using_rdma_no_p2p_support_returns_false(
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_rma txe = {.base.kind = EFA_RDM_TXE_KIND_RMA};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -173,12 +173,12 @@ void test_efa_rdm_rma_should_write_using_rdma_no_p2p_support_returns_false(
 
 	peer.flags = EFA_RDM_PEER_HANDSHAKE_RECEIVED;
 	peer.extra_info[0] = EFA_RDM_EXTRA_FEATURE_RDMA_WRITE;
-	txe.fi_flags = 0;
-	txe.iov_count = 1;
-	txe.rma_iov_count = 1;
+	txe.base.fi_flags = 0;
+	txe.base.iov_count = 1;
+	txe.rma.rma_iov_count = 1;
 
 	result = test_efa_rdm_rma_should_write_using_rdma_helper(
-			ep, &peer, &txe, true, true, false, true);
+			ep, &peer, &txe.base, true, true, false, true);
 	assert_false(result);
 }
 
@@ -193,7 +193,7 @@ void test_efa_rdm_rma_should_write_using_rdma_p2p_and_rdma_write_support_returns
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_rma txe = {.base.kind = EFA_RDM_TXE_KIND_RMA};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -203,12 +203,12 @@ void test_efa_rdm_rma_should_write_using_rdma_p2p_and_rdma_write_support_returns
 
 	peer.flags = EFA_RDM_PEER_HANDSHAKE_RECEIVED;
 	peer.extra_info[0] = EFA_RDM_EXTRA_FEATURE_RDMA_WRITE;
-	txe.fi_flags = 0;
-	txe.iov_count = 1;
-	txe.rma_iov_count = 1;
+	txe.base.fi_flags = 0;
+	txe.base.iov_count = 1;
+	txe.rma.rma_iov_count = 1;
 
 	result = test_efa_rdm_rma_should_write_using_rdma_helper(
-			ep, &peer, &txe, true, true, true, true);
+			ep, &peer, &txe.base, true, true, true, true);
 	assert_true(result);
 }
 
@@ -223,7 +223,7 @@ void test_efa_rdm_rma_should_write_using_rdma_remote_cq_data_single_iovs_with_rd
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_rma txe = {.base.kind = EFA_RDM_TXE_KIND_RMA};
 	bool result;
 	struct efa_rdm_ep *ep;
 
@@ -233,12 +233,12 @@ void test_efa_rdm_rma_should_write_using_rdma_remote_cq_data_single_iovs_with_rd
 
 	peer.flags = EFA_RDM_PEER_HANDSHAKE_RECEIVED;
 	peer.extra_info[0] = EFA_RDM_EXTRA_FEATURE_RDMA_WRITE | EFA_RDM_EXTRA_FEATURE_UNSOLICITED_WRITE_RECV;
-	txe.fi_flags = FI_REMOTE_CQ_DATA;
-	txe.iov_count = 1;
-	txe.rma_iov_count = 1;
+	txe.base.fi_flags = FI_REMOTE_CQ_DATA;
+	txe.base.iov_count = 1;
+	txe.rma.rma_iov_count = 1;
 
 	result = test_efa_rdm_rma_should_write_using_rdma_helper(
-			ep, &peer, &txe, true, true, true, true);
+			ep, &peer, &txe.base, true, true, true, true);
 	assert_true(result);
 }
 
@@ -254,7 +254,7 @@ void test_efa_rdm_rma_should_write_using_rdma_unsolicited_write_recv_not_match(
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer *peer;
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_rma txe = {.base.kind = EFA_RDM_TXE_KIND_RMA};
 	bool result;
 	struct efa_rdm_ep *ep;
 	struct efa_ep_addr raw_addr = {0};
@@ -284,12 +284,12 @@ void test_efa_rdm_rma_should_write_using_rdma_unsolicited_write_recv_not_match(
 	/* make sure shm is not used */
 	peer->is_local = false;
 
-	txe.fi_flags = FI_REMOTE_CQ_DATA;
-	txe.iov_count = 1;
-	txe.rma_iov_count = 1;
+	txe.base.fi_flags = FI_REMOTE_CQ_DATA;
+	txe.base.iov_count = 1;
+	txe.rma.rma_iov_count = 1;
 
 	result = test_efa_rdm_rma_should_write_using_rdma_helper(
-			ep, peer, &txe, true, false, true, true);
+			ep, peer, &txe.base, true, false, true, true);
 	assert_false(result);
 }
 
@@ -1023,7 +1023,7 @@ void test_efa_rdm_rma_should_write_using_rdma_peer_p2p_false_returns_false(void 
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_rma txe = {.base.kind = EFA_RDM_TXE_KIND_RMA};
 	bool result;
 	struct efa_rdm_ep *ep;
 	uint32_t efa_device_caps_orig;
@@ -1041,11 +1041,11 @@ void test_efa_rdm_rma_should_write_using_rdma_peer_p2p_false_returns_false(void 
 	peer.flags = EFA_RDM_PEER_HANDSHAKE_RECEIVED;
 	peer.extra_info[0] = EFA_RDM_EXTRA_FEATURE_RDMA_WRITE;
 	peer.p2p_supported = false;
-	txe.fi_flags = 0;
-	txe.iov_count = 1;
-	txe.rma_iov_count = 1;
+	txe.base.fi_flags = 0;
+	txe.base.iov_count = 1;
+	txe.rma.rma_iov_count = 1;
 
-	result = efa_rdm_rma_should_write_using_rdma(ep, &txe, &peer, true);
+	result = efa_rdm_rma_should_write_using_rdma(ep, &txe.base, &peer, true);
 	assert_false(result);
 
 	g_efa_selected_device_list[0].device_caps = efa_device_caps_orig;
@@ -1126,7 +1126,7 @@ void test_efa_rdm_rma_should_write_using_rdma_self_no_p2p(void **state)
 {
 	struct efa_resource *resource = *state;
 	struct efa_rdm_peer peer = {0};
-	struct efa_rdm_ope txe = {0};
+	struct efa_rdm_txe_rma txe = {.base.kind = EFA_RDM_TXE_KIND_RMA};
 	struct efa_rdm_ep *ep;
 	uint32_t efa_device_caps_orig;
 	bool result;
@@ -1145,11 +1145,11 @@ void test_efa_rdm_rma_should_write_using_rdma_self_no_p2p(void **state)
 	/* Self peer - no handshake needed */
 	peer.is_self = true;
 	peer.flags = 0;
-	txe.fi_flags = 0;
-	txe.iov_count = 1;
-	txe.rma_iov_count = 1;
+	txe.base.fi_flags = 0;
+	txe.base.iov_count = 1;
+	txe.rma.rma_iov_count = 1;
 
-	result = efa_rdm_rma_should_write_using_rdma(ep, &txe, &peer, true);
+	result = efa_rdm_rma_should_write_using_rdma(ep, &txe.base, &peer, true);
 	assert_false(result);
 
 	g_efa_selected_device_list[0].device_caps = efa_device_caps_orig;

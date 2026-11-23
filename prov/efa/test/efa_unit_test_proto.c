@@ -1254,8 +1254,8 @@ static void test_proto_atomic_assert_response_rxe(struct efa_rdm_ope *rxe,
 	assert_int_equal(rxe->op, op);
 	assert_int_equal(rxe->efa_outstanding_tx_ops, outstanding);
 	if (has_atomrsp_data) {
-		assert_non_null(rxe->atomrsp_data);
-		assert_int_equal(((uint8_t *) rxe->atomrsp_data)[0], 1);
+		assert_non_null(efa_rdm_rxe_atomic(rxe)->atomrsp_data);
+		assert_int_equal(((uint8_t *) efa_rdm_rxe_atomic(rxe)->atomrsp_data)[0], 1);
 	}
 }
 
@@ -1557,13 +1557,12 @@ void test_proto_atomic_write_post_and_complete(void **state)
 	test_proto_atomic_setup(resource, &ctx);
 	probe.ep = ctx.ep;
 	probe.peer = ctx.peer;
-	probe.rma_iov_count = 1;
 	exact = efa_rdm_proto_max_req_data_capacity(
 		ctx.ep, efa_rdm_pkt_type_get_req_hdr_size(
 				EFA_RDM_WRITE_RTA_PKT,
 				efa_rdm_proto_req_header_flags(probe.peer,
 							       probe.fi_flags),
-				probe.rma_iov_count));
+				1 /* rma_iov_count */));
 	assert_true(exact > 0);
 	assert_true(exact + 1 <= ctx.send_buff.size);
 	memset(ctx.send_buff.buff, 0x5a, ctx.send_buff.size);
@@ -1579,10 +1578,10 @@ void test_proto_atomic_write_post_and_complete(void **state)
 	hdr = efa_rdm_pke_get_rta_hdr(pke);
 	hdr_size = efa_rdm_pke_get_req_hdr_size(pke);
 	assert_int_equal(efa_rdm_pkt_type_of(pke), EFA_RDM_WRITE_RTA_PKT);
-	assert_ptr_equal(txe->atomic_proto, &efa_rdm_atomic_write_proto);
+	assert_ptr_equal(efa_rdm_txe_atomic(txe)->atomic_proto, &efa_rdm_atomic_write_proto);
 	assert_null(txe->proto);
 	assert_ptr_equal(pke->handle_pke,
-			 txe->atomic_proto->handle_send_completion);
+			 efa_rdm_txe_atomic(txe)->atomic_proto->handle_send_completion);
 	assert_int_equal(hdr->atomic_datatype, FI_UINT8);
 	assert_int_equal(hdr->atomic_op, FI_ATOMIC_WRITE);
 	assert_memory_equal(pke->wiredata + hdr_size,
@@ -1613,9 +1612,9 @@ void test_proto_atomic_write_post_and_complete(void **state)
 	txe = pke->ope;
 	hdr_size = efa_rdm_pke_get_req_hdr_size(pke);
 	assert_true(txe->internal_flags & EFA_RDM_TXE_NO_COMPLETION);
-	assert_ptr_equal(txe->atomic_proto, &efa_rdm_atomic_write_proto);
+	assert_ptr_equal(efa_rdm_txe_atomic(txe)->atomic_proto, &efa_rdm_atomic_write_proto);
 	assert_ptr_equal(pke->handle_pke,
-			 txe->atomic_proto->handle_send_completion);
+			 efa_rdm_txe_atomic(txe)->atomic_proto->handle_send_completion);
 	memset(ctx.send_buff.buff, 0, sizeof(expected));
 	assert_memory_equal(pke->wiredata + hdr_size,
 			    expected, sizeof(expected));
@@ -1654,7 +1653,7 @@ void test_proto_atomic_dc_write_completion_orders(void **state)
 		assert_int_equal(efa_rdm_pke_get_rta_hdr(req_pke)->send_id,
 				 txe->tx_id);
 		assert_ptr_equal(req_pke->handle_pke,
-				 txe->atomic_proto->handle_send_completion);
+				 efa_rdm_txe_atomic(txe)->atomic_proto->handle_send_completion);
 		receipt_pke = test_proto_atomic_receipt(&ctx, txe->tx_id);
 
 		if (send_first) {
@@ -1968,7 +1967,6 @@ void test_proto_atomic_fetch_compare_request(void **state) {
 	result = compare + ctx.ep->mtu_size;
 	probe.ep = ctx.ep;
 	probe.peer = ctx.peer;
-	probe.rma_iov_count = 1;
 	next_msg_id = ctx.next_msg_id;
 	g_efa_unit_test_mocks.efa_qp_post_send =
 		efa_mock_efa_qp_post_send_return_mock;
@@ -1980,7 +1978,7 @@ void test_proto_atomic_fetch_compare_request(void **state) {
 					pkt_types[i],
 					efa_rdm_proto_req_header_flags(
 						probe.peer, probe.fi_flags),
-					probe.rma_iov_count));
+					1 /* rma_iov_count */));
 		count = i ? capacity / 2 : capacity;
 		memset(source, 0x10 + i, count);
 		memset(compare, 0x20 + i, count);
@@ -1993,11 +1991,11 @@ void test_proto_atomic_fetch_compare_request(void **state) {
 		hdr = efa_rdm_pke_get_rta_hdr(pke);
 		hdr_size = efa_rdm_pke_get_req_hdr_size(pke);
 		assert_int_equal(efa_rdm_pkt_type_of(pke), pkt_types[i]);
-		assert_ptr_equal(pke->ope->atomic_proto, protos[i]);
+		assert_ptr_equal(efa_rdm_txe_atomic(pke->ope)->atomic_proto, protos[i]);
 		assert_null(pke->ope->proto);
 		assert_ptr_equal(
 			pke->handle_pke,
-			pke->ope->atomic_proto->handle_send_completion);
+			efa_rdm_txe_atomic(pke->ope)->atomic_proto->handle_send_completion);
 		assert_int_equal(hdr->recv_id, pke->ope->tx_id);
 		assert_int_equal(hdr->rma_iov[0].len, count);
 		assert_memory_equal(pke->wiredata + hdr_size, source, count);
@@ -2403,7 +2401,7 @@ void test_proto_atomic_read_null_source(void **state) {
 		pke = test_proto_atomic_posted_pke(&ctx);
 		txe = pke->ope;
 		hdr_size = efa_rdm_pke_get_req_hdr_size(pke);
-		assert_ptr_equal(txe->atomic_proto,
+		assert_ptr_equal(efa_rdm_txe_atomic(txe)->atomic_proto,
 				 &efa_rdm_atomic_fetch_proto);
 		assert_int_equal(txe->total_len, sizeof(old));
 		assert_int_equal(txe->cq_entry.len, sizeof(old));
@@ -2879,8 +2877,8 @@ void test_proto_runtread_construct_pkes_carries_read_iov(void **state)
 	 * The runt is only the head of the message; if it covered all of it the
 	 * medium protocol should have won the selection.
 	 */
-	assert_int_equal(txe->bytes_runt, EFA_UNIT_TEST_PROTO_RUNT_SIZE);
-	assert_true(txe->bytes_runt < txe->total_len);
+	assert_int_equal(efa_rdm_ope_sender(txe)->bytes_runt, EFA_UNIT_TEST_PROTO_RUNT_SIZE);
+	assert_true(efa_rdm_ope_sender(txe)->bytes_runt < txe->total_len);
 	assert_true(ep->send_pkt_entry_vec_size > 1);
 	assert_true(ep->send_pkt_entry_vec_size <= EFA_UNIT_TEST_PROTO_MAX_PKES);
 
@@ -2903,7 +2901,7 @@ void test_proto_runtread_construct_pkes_carries_read_iov(void **state)
 
 		rtm_hdr = efa_rdm_pke_get_runtread_rtm_base_hdr(pke);
 		assert_int_equal(rtm_hdr->msg_length, txe->total_len);
-		assert_int_equal(rtm_hdr->runt_length, txe->bytes_runt);
+		assert_int_equal(rtm_hdr->runt_length, efa_rdm_ope_sender(txe)->bytes_runt);
 		assert_int_equal(rtm_hdr->send_id, txe->tx_id);
 		assert_int_equal(rtm_hdr->read_iov_count, txe->iov_count);
 		assert_int_equal(rtm_hdr->seg_offset, expected_offset);
@@ -2919,7 +2917,7 @@ void test_proto_runtread_construct_pkes_carries_read_iov(void **state)
 	}
 
 	/* The REQ packets carry exactly the runt, no more and no less. */
-	assert_int_equal(expected_offset, txe->bytes_runt);
+	assert_int_equal(expected_offset, efa_rdm_ope_sender(txe)->bytes_runt);
 
 	for (i = 0; i < ep->send_pkt_entry_vec_size; ++i)
 		efa_rdm_pke_release_tx(ep->send_pkt_entry_vec[i]);

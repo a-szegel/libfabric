@@ -44,6 +44,8 @@ static bool efa_rdm_proto_short_rtr_can_use(struct efa_rdm_proto *proto,
 }
 
 EFA_RDM_PROTO_DEF(short_rtr,
+	.txe_kind = EFA_RDM_TXE_KIND_RMA_RECV,
+	.rxe_kind = EFA_RDM_RXE_KIND_READ_RSP,
 	.can_use_protocol = &efa_rdm_proto_short_rtr_can_use,
 	.construct_tx_pkes = &efa_rdm_proto_short_rtr_construct_tx_pkes,
 	.req_pkt_type = EFA_RDM_SHORT_RTR_PKT,

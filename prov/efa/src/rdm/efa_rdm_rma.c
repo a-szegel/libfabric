@@ -78,8 +78,8 @@ efa_rdm_rma_alloc_txe(struct efa_rdm_ep *efa_rdm_ep,
 
 	assert(msg_rma->rma_iov_count > 0);
 	assert(msg_rma->rma_iov);
-	txe->rma_iov_count = msg_rma->rma_iov_count;
-	memcpy(txe->rma_iov, msg_rma->rma_iov,
+	efa_rdm_ope_rma(txe)->rma_iov_count = msg_rma->rma_iov_count;
+	memcpy(efa_rdm_ope_rma(txe)->rma_iov, msg_rma->rma_iov,
 	       sizeof(struct fi_rma_iov) * msg_rma->rma_iov_count);
 
 	return txe;
@@ -256,7 +256,9 @@ out:
 			 * not write a CQ entry (NO_COMPLETION) nor bump the
 			 * counter (NO_COUNTER) for this op.
 			 */
-			txe->bytes_read_total_len = txe->bytes_read_submitted;
+			if (txe->kind == EFA_RDM_TXE_KIND_DEVICE_READ)
+				efa_rdm_ope_read(txe)->bytes_read_total_len =
+					efa_rdm_ope_read(txe)->bytes_read_submitted;
 			txe->internal_flags |= EFA_RDM_TXE_NO_COMPLETION |
 					       EFA_RDM_TXE_NO_COUNTER;
 		}
@@ -547,7 +549,9 @@ static inline ssize_t efa_rdm_rma_generic_writemsg(struct efa_rdm_ep *efa_rdm_ep
 			 * not write a CQ entry (NO_COMPLETION) nor bump the
 			 * counter (NO_COUNTER) for this op.
 			 */
-			txe->bytes_write_total_len = txe->bytes_write_submitted;
+			if (txe->kind == EFA_RDM_TXE_KIND_DEVICE_WRITE)
+				efa_rdm_txe_write(txe)->bytes_write_total_len =
+					efa_rdm_txe_write(txe)->bytes_write_submitted;
 			txe->internal_flags |= EFA_RDM_TXE_NO_COMPLETION |
 					       EFA_RDM_TXE_NO_COUNTER;
 		}

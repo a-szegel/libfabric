@@ -235,8 +235,8 @@ void efa_rdm_proto_handle_eor_recv(struct efa_rdm_pke *pkt_entry)
 
 	efa_rdm_txe_release_read_msg_slot(txe);
 
-	txe->bytes_acked += txe->total_len - txe->bytes_runt;
-	if (txe->bytes_acked == txe->total_len) {
+	efa_rdm_ope_sender(txe)->bytes_acked += txe->total_len - efa_rdm_ope_sender(txe)->bytes_runt;
+	if (efa_rdm_ope_sender(txe)->bytes_acked == txe->total_len) {
 		efa_rdm_txe_report_completion(txe);
 		txe->internal_flags |= EFA_RDM_TXE_REMOTE_ACK_RECEIVED;
 		if (efa_rdm_txe_with_remote_ack_ready_for_release(txe))
@@ -503,7 +503,7 @@ void efa_rdm_proto_select_emulated_write_protocol(struct efa_rdm_ep *ep,
 						     header_flags, iface,
 						     use_p2p)) {
 			*proto = selected_proto;
-			txe->proto = selected_proto;
+			efa_rdm_txe_set_proto(txe, selected_proto);
 			txe->req_pkt_type = req_pkt_type;
 			return;
 		}
@@ -543,7 +543,7 @@ void efa_rdm_proto_select_emulated_read_protocol(struct efa_rdm_ep *ep,
 						     header_flags, iface,
 						     false /* use_p2p */)) {
 			*proto = selected_proto;
-			txe->proto = selected_proto;
+			efa_rdm_txe_set_proto(txe, selected_proto);
 			txe->req_pkt_type = req_pkt_type;
 			return;
 		}
